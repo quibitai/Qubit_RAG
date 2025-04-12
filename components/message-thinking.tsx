@@ -38,6 +38,12 @@ export function MessageThinking({
   const isError = toolResult.success === false && toolResult.error;
   const displayName = toolName || "thinking";
 
+  // Check if this is a document rows result with pagination/truncation
+  const isRowData = !isError && 
+    toolResult.success === true && 
+    toolResult.rows && 
+    toolResult.totalRowCount !== undefined;
+
   const formatJSON = (data: any) => {
     if (typeof data === 'string') {
       try {
@@ -49,13 +55,53 @@ export function MessageThinking({
         return data;
       }
     }
+
+    // For row data results, create a more compact representation
+    if (isRowData) {
+      // Format rows with index numbers for better readability
+      const rowsWithIndex = data.rows.map((row: any, index: number) => ({ 
+        index: index + 1,
+        ...row 
+      }));
+
+      const formattedObject = {
+        message: data.message,
+        total_rows: data.totalRowCount,
+        showing_rows: data.rows.length,
+        truncated: data.truncated || false,
+        rows: rowsWithIndex
+      };
+
+      return JSON.stringify(formattedObject, null, 2);
+    }
+    
     // For objects, pretty print with indentation
     return JSON.stringify(data, null, 2);
   };
 
+  // Determine the button label and status info
+  let buttonLabel = isError ? `Error from ${displayName}` : `Show ${displayName} data`;
+  let statusInfo = null;
+
+  if (isRowData) {
+    const { totalRowCount, rows, truncated } = toolResult;
+    buttonLabel = `Show ${displayName} data (${rows.length}/${totalRowCount} rows)`;
+    
+    if (truncated) {
+      statusInfo = (
+        <div className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="mr-1">
+            <path d="M12 9V14M12 17.5V17.51M4.9 19C3.9 18.1 3 16.6 3 15C3 11.7 5.7 9 9 9H10.5L12 4L13.5 9H15C18.3 9 21 11.7 21 15C21 16.6 20.1 18.1 19.1 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Results truncated due to large dataset
+        </div>
+      );
+    }
+  }
+
   return (
     <div className="flex flex-col mt-1 mb-1">
-      <div className="flex flex-row gap-2 items-center">
+      <div className="flex flex-col gap-1">
         <button
           data-testid="message-thinking-toggle"
           type="button"
@@ -70,11 +116,7 @@ export function MessageThinking({
             setIsExpanded(!isExpanded);
           }}
         >
-          <span>
-            {isError 
-              ? `Error from ${displayName}` 
-              : `Show ${displayName} data`}
-          </span>
+          <span>{buttonLabel}</span>
           <span className={cn(
             "transition-transform", 
             isExpanded ? "rotate-180" : ""
@@ -82,6 +124,8 @@ export function MessageThinking({
             <ChevronDownIcon />
           </span>
         </button>
+        
+        {statusInfo}
       </div>
 
       <AnimatePresence initial={false}>
@@ -96,7 +140,7 @@ export function MessageThinking({
             transition={{ duration: 0.2, ease: 'easeInOut' }}
             style={{ overflow: 'hidden' }}
             className={cn(
-              "pl-2 mt-2 text-xs font-mono border rounded-md",
+              "pl-2 mt-2 text-xs font-mono border rounded-md max-h-[500px]",
               isError
                 ? "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900/30"
                 : "bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800"
