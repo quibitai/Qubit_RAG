@@ -1,115 +1,109 @@
-# N8N RAG Integration for Next.js
+# ETN8N002 - RAG-Enhanced AI Assistant
 
-A modular Next.js application that integrates with n8n workflows to provide powerful RAG (Retrieval Augmented Generation) capabilities. This application leverages n8n's workflow automation to access and query document repositories through a conversational AI interface.
+A Next.js AI chatbot with RAG (Retrieval Augmented Generation) capabilities powered by N8N workflows for document retrieval, search, and structured data queries.
 
 ## Features
 
-- **Conversational AI Interface**: Built with Next.js and the AI SDK
-- **Multiple RAG Tools**:
-  - **Search Tool**: Semantic search across document collections
-  - **List Documents Tool**: Quick access to available document inventory
-  - **Document Retrieval Tool**: Full document content access by file ID
-  - **Spreadsheet Query Tool**: Analyze structured data in spreadsheets
-- **OpenAI Integration**: Powered by GPT-4o-mini for chat and o3-mini for reasoning
+- 🔍 Semantic search over internal knowledge base
+- 📄 Document listing and retrieval
+- 📊 SQL-like queries for spreadsheet data
+- 💬 AI assistant with streaming responses
+- 🔄 N8N integration for data processing workflows
+- 🔐 Authentication and session management
 
 ## Project Structure
 
-```
-N8N_v002/
-├── app/
-│   └── (chat)/api/chat/route.ts  # Main API route handling AI requests
-├── lib/
-│   ├── ai/
-│   │   ├── providers.ts          # AI model provider configuration
-│   │   ├── prompts.ts            # System prompts and instructions
-│   │   └── tools/                # AI tool implementations
-│   │       ├── list-documents.ts # List available documents
-│   │       ├── retrieve-document.ts # Get full document content
-│   │       ├── query-document-rows.ts # Query spreadsheet data
-│   │       └── ...               # Other tool implementations
-│   └── ...                       # Other library code
-└── .env.local                    # Environment configuration
-```
+- `app/api/chat/route.ts` - Main API endpoint for chat functionality
+- `lib/ai/tools/` - Custom AI tools for document retrieval, search, and more
+- `app/(chat)/` - Chat UI components and functionality
+- `app/(auth)/` - Authentication components and logic
+- `test-*.js` - Test scripts for N8N webhooks
 
 ## Setup
 
-1. Clone the repository:
-```bash
-git clone https://github.com/quibitai/etn8n002.git
-cd etn8n002
-```
+1. Clone the repository
+2. Install dependencies with `pnpm install`
+3. Copy `.env.example` to `.env.local` and fill in the values
+4. Run the development server with `pnpm dev`
 
-2. Install dependencies:
-```bash
-pnpm install
-```
+### Environment Variables
 
-3. Configure environment variables in `.env.local`:
-```
-# N8N RAG Tools
-N8N_RAG_TOOL_WEBHOOK_URL=your_search_webhook_url
-N8N_RAG_TOOL_AUTH_TOKEN=your_search_auth_token
-N8N_RAG_TOOL_AUTH_HEADER=your_search_auth_header
+The following environment variables are required:
 
-N8N_LIST_DOCS_TOOL_WEBHOOK_URL=your_list_docs_webhook_url
-N8N_LIST_DOCS_TOOL_AUTH_HEADER=your_list_docs_auth_header
-N8N_LIST_DOCS_TOOL_AUTH_TOKEN=your_list_docs_auth_token
+```env
+# N8N Webhooks
+N8N_RAG_TOOL_WEBHOOK_URL=
+N8N_RAG_TOOL_AUTH_HEADER=
+N8N_RAG_TOOL_AUTH_TOKEN=
+N8N_LIST_DOCS_TOOL_WEBHOOK_URL=
+N8N_LIST_DOCS_TOOL_AUTH_HEADER=
+N8N_LIST_DOCS_TOOL_AUTH_TOKEN=
+N8N_GET_CONTENTS_TOOL_WEBHOOK_URL=
+N8N_GET_CONTENTS_TOOL_AUTH_HEADER=
+N8N_GET_CONTENTS_TOOL_AUTH_TOKEN=
+N8N_QUERY_ROWS_TOOL_WEBHOOK_URL=
+N8N_QUERY_ROWS_TOOL_AUTH_HEADER=
+N8N_QUERY_ROWS_TOOL_AUTH_TOKEN=
 
-N8N_GET_CONTENTS_TOOL_WEBHOOK_URL=your_get_contents_webhook_url
-N8N_GET_CONTENTS_TOOL_AUTH_HEADER=your_get_contents_auth_header
-N8N_GET_CONTENTS_TOOL_AUTH_TOKEN=your_get_contents_auth_token
-
-N8N_QUERY_ROWS_TOOL_WEBHOOK_URL=your_query_rows_webhook_url
-N8N_QUERY_ROWS_TOOL_AUTH_HEADER=your_query_rows_auth_header
-N8N_QUERY_ROWS_TOOL_AUTH_TOKEN=your_query_rows_auth_token
-
-# Authentication
-AUTH_SECRET=your_auth_secret
+# Auth
+AUTH_SECRET=
 
 # Database
-POSTGRES_URL=your_postgres_connection_string
+POSTGRES_URL=
 
-# OpenAI API
-OPENAI_API_KEY=your_openai_api_key
-```
-
-4. Start the development server:
-```bash
-pnpm dev
+# OpenAI
+OPENAI_API_KEY=
 ```
 
 ## N8N Workflows
 
-This application connects to four distinct n8n workflows:
+This project uses N8N for backend processing. Four custom webhooks are used:
 
-1. **Search Tool**: Performs semantic search through document embeddings
-   - Webhook: `N8N_RAG_TOOL_WEBHOOK_URL`
-   - Input: `{ "query": "your search query" }`
-   - Output: Relevant text snippets from documents
+1. **RAG Search Tool** - Semantic search against your knowledge base
+2. **List Documents Tool** - List all available documents
+3. **Document Retrieval Tool** - Get the full content of a specific document
+4. **Spreadsheet Query Tool** - Run SQL-like queries against spreadsheet data
 
-2. **List Documents Tool**: Lists all available documents
-   - Webhook: `N8N_LIST_DOCS_TOOL_WEBHOOK_URL`
-   - Input: No parameters required
-   - Output: `[{ "id": "document_id", "title": "Document Title" }, ...]`
+### Testing N8N Webhooks
 
-3. **Document Retrieval Tool**: Gets full content of a specific document
-   - Webhook: `N8N_GET_CONTENTS_TOOL_WEBHOOK_URL`
-   - Input: `{ "file_id": "document_id" }`
-   - Output: `{ "document_text": "full document content..." }`
+This repository includes test scripts to verify each N8N webhook is working correctly:
 
-4. **Spreadsheet Query Tool**: Retrieves structured data from spreadsheets
-   - Webhook: `N8N_QUERY_ROWS_TOOL_WEBHOOK_URL`
-   - Input: `{ "file_id": "spreadsheet_id" }`
-   - Output: `[{ "row_data": { "column1": "value1", "column2": "value2", ... } }, ...]`
+```bash
+# Test the RAG search webhook
+node test-updated-n8n-webhook.js
 
-## AI Tool Usage
+# Test the list documents webhook
+node test-list-docs-webhook.js
 
-The AI assistant will automatically select the appropriate tool based on the user's query:
+# Test the document retrieval webhook 
+node test-get-contents-webhook.js
 
-- For general information needs, it uses the **Search Tool**
-- When asked about available documents, it uses the **List Documents Tool**
-- For full document content retrieval, it uses the **Document Retrieval Tool**
-- For spreadsheet data analysis, it uses the **Spreadsheet Query Tool**
+# Test the spreadsheet query webhook
+node test-query-rows-webhook.js
+```
+
+Make sure to configure your N8N workflows properly:
+1. Each workflow should have a "Respond to Webhook" node at the end
+2. For PostgreSQL nodes, format query parameters as arrays: `["{{ $('webhook').first().json.body.paramName }}"]`
+3. Activate all workflows in the N8N dashboard
+
+## Deployment
+
+This project is configured for deployment on Vercel. To deploy:
+
+1. Push to GitHub
+2. Connect to Vercel
+3. Set up all required environment variables in the Vercel dashboard
+4. Deploy the project
+
+## Technologies
+
+- Next.js 15
+- Vercel AI SDK
+- N8N for backend workflows
+- PostgreSQL for data storage
+- Tailwind CSS for styling
+- Next-Auth for authentication
 
 ## License
 
