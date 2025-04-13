@@ -140,13 +140,13 @@ export function MessageThinking({
             transition={{ duration: 0.2, ease: 'easeInOut' }}
             style={{ overflow: 'hidden' }}
             className={cn(
-              "pl-2 mt-2 text-xs font-mono border rounded-md max-h-[500px]",
+              "pl-2 mt-2 text-xs font-mono border rounded-md",
               isError
                 ? "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900/30"
                 : "bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800"
             )}
           >
-            <pre className="p-3 overflow-auto whitespace-pre-wrap break-words">
+            <pre className="p-3 overflow-auto whitespace-pre-wrap break-words max-h-[400px] scrollbar scrollbar-w-1 scrollbar-thumb-rounded-md scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 scrollbar-track-transparent">
               {isError
                 ? <span className="text-red-600 dark:text-red-400">{toolResult.error}</span>
                 : formatJSON(toolResult)

@@ -1,8 +1,11 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 
+// Maximum number of rows to return to prevent overwhelming the AI model
+const MAX_ROWS_TO_RETURN = 50;
+
 export const queryDocumentRows = tool({
-  description: 'Retrieves ALL structured row data for a specific spreadsheet document using its file ID. Use this when the user asks a question about specific data within a spreadsheet (e.g., asking for totals, averages, or specific entries). The returned data is an array of all row objects from the spreadsheet.',
+  description: 'Retrieves structured row data for a specific spreadsheet document using its file ID. Use this when the user asks a question about specific data within a spreadsheet (e.g., asking for totals, averages, or specific entries). For large spreadsheets, only a subset of rows will be returned to avoid performance issues.',
   parameters: z.object({
     file_id: z.string().describe('The unique file ID (e.g., "1TJxAzkGh3...") of the spreadsheet document to query'),
   }),
@@ -100,13 +103,40 @@ export const queryDocumentRows = tool({
         };
       }
 
-      console.log(`Retrieved ${result.length} rows successfully.`);
+      const totalRowCount = result.length;
+      console.log(`Retrieved ${totalRowCount} rows successfully.`);
+      
+      // Limit the number of rows to prevent overwhelming the AI model
+      let limitedRows = result;
+      let truncated = false;
+      
+      if (totalRowCount > MAX_ROWS_TO_RETURN) {
+        limitedRows = result.slice(0, MAX_ROWS_TO_RETURN);
+        truncated = true;
+        console.log(`Limiting response to ${MAX_ROWS_TO_RETURN} rows out of ${totalRowCount} total rows.`);
+      }
 
-      // Return the array of row objects for the LLM to process
+      // Process rows to ensure we're not sending overly complex objects
+      const processedRows = limitedRows.map(row => {
+        // If row is already a simple object, return it as is
+        if (typeof row !== 'object' || row === null) return row;
+        
+        // If row has a row_data property, extract it
+        if ('row_data' in row) return row.row_data;
+        
+        // Otherwise return the row as is
+        return row;
+      });
+
+      // Return the limited array of row objects for the LLM to process
       return { 
         success: true, 
-        rows: result,
-        message: `Successfully retrieved ${result.length} rows from the spreadsheet.`
+        rows: processedRows,
+        totalRowCount,
+        truncated,
+        message: truncated 
+          ? `Retrieved ${totalRowCount} rows total, showing first ${MAX_ROWS_TO_RETURN} rows. Ask specific questions about the data for better results.`
+          : `Successfully retrieved all ${totalRowCount} rows from the spreadsheet.`
       };
 
     } catch (error) {
