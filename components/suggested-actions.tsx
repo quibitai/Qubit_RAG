@@ -20,12 +20,12 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
     {
       title: 'Show me Echo Tango\'s',
       label: 'Core Values',
-      action: 'list documents and give me the contents of echo tango\'s core values file',
+      action: 'Give me the completecontents of Echo Tango\'s core values file',
     },
     {
       title: 'What is our day rate',
       label: 'for a director?',
-      action: 'Look in the rate card document and tell me the rate for a director for production crew work and calculate the cost for a production crew director for a 10 hour shoot day.',
+      action: 'Look in the rate card document and tell me the rate for a director for production crew work and calculate the cost for a production crew director for three, 10 hour shoot days.',
     },
     {
       title: 'Create an image',
