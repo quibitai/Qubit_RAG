@@ -23,9 +23,9 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
       action: 'Give me the completecontents of Echo Tango\'s core values file',
     },
     {
-      title: 'What is our day rate',
-      label: 'for a director?',
-      action: 'Look in the rate card document and tell me the rate for a director for production crew work and calculate the cost for a production crew director for three, 10 hour shoot days.',
+      title: 'Analyze our P&Ls',
+      label: 'and suggest areas for improvement.',
+      action: 'list documents and give me an overview of our P&Ls and suggest areas for improvement.',
     },
     {
       title: 'Create an image',
