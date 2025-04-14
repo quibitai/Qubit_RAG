@@ -1,109 +1,132 @@
 # ETN8N002 - RAG-Enhanced AI Assistant
 
-A Next.js AI chatbot with RAG (Retrieval Augmented Generation) capabilities powered by N8N workflows for document retrieval, search, and structured data queries.
+A Next.js AI chatbot with RAG (Retrieval Augmented Generation) capabilities powered by N8N workflows for document retrieval, search, and structured data queries. This assistant helps users interact with internal documents, spreadsheets, and knowledge bases through natural language.
 
 ## Features
 
 - 🔍 Semantic search over internal knowledge base
-- 📄 Document listing and retrieval
+- 📄 Document listing and retrieval from Google Drive
 - 📊 SQL-like queries for spreadsheet data
 - 💬 AI assistant with streaming responses
 - 🔄 N8N integration for data processing workflows
 - 🔐 Authentication and session management
+- 🎨 Modern UI with dark mode support
+- 📱 Responsive design for mobile and desktop
+- 🔒 Secure environment variable handling
 
 ## Project Structure
 
-- `app/api/chat/route.ts` - Main API endpoint for chat functionality
-- `lib/ai/tools/` - Custom AI tools for document retrieval, search, and more
-- `app/(chat)/` - Chat UI components and functionality
-- `app/(auth)/` - Authentication components and logic
-- `test-*.js` - Test scripts for N8N webhooks
+```
+.
+├── app/
+│   ├── api/chat/route.ts    # Main chat API endpoint
+│   ├── (chat)/             # Chat UI components
+│   └── (auth)/             # Authentication logic
+├── components/             # Reusable UI components
+├── lib/
+│   ├── ai/tools/           # Custom AI tools
+│   └── db/                 # Database utilities
+├── sql/                    # Database migrations
+└── tests/                  # Test files
+```
 
 ## Setup
 
 1. Clone the repository
-2. Install dependencies with `pnpm install`
-3. Copy `.env.example` to `.env.local` and fill in the values
-4. Run the development server with `pnpm dev`
+2. Install dependencies:
+   ```bash
+   pnpm install
+   ```
+3. Copy `.env.example` to `.env.local` and configure:
+   ```bash
+   cp .env.example .env.local
+   ```
+4. Run the development server:
+   ```bash
+   pnpm dev
+   ```
 
 ### Environment Variables
 
-The following environment variables are required:
+Required environment variables (see `.env.example` for details):
 
-```env
-# N8N Webhooks
-N8N_RAG_TOOL_WEBHOOK_URL=
-N8N_RAG_TOOL_AUTH_HEADER=
-N8N_RAG_TOOL_AUTH_TOKEN=
-N8N_LIST_DOCS_TOOL_WEBHOOK_URL=
-N8N_LIST_DOCS_TOOL_AUTH_HEADER=
-N8N_LIST_DOCS_TOOL_AUTH_TOKEN=
-N8N_GET_CONTENTS_TOOL_WEBHOOK_URL=
-N8N_GET_CONTENTS_TOOL_AUTH_HEADER=
-N8N_GET_CONTENTS_TOOL_AUTH_TOKEN=
-N8N_QUERY_ROWS_TOOL_WEBHOOK_URL=
-N8N_QUERY_ROWS_TOOL_AUTH_HEADER=
-N8N_QUERY_ROWS_TOOL_AUTH_TOKEN=
-
-# Auth
-AUTH_SECRET=
-
-# Database
-POSTGRES_URL=
-
-# OpenAI
-OPENAI_API_KEY=
-```
+- N8N Webhook configurations (URLs, auth headers, tokens)
+- Authentication secret
+- Database URL
+- OpenAI API key
 
 ## N8N Workflows
 
-This project uses N8N for backend processing. Four custom webhooks are used:
+This project uses four N8N workflows for backend processing:
 
-1. **RAG Search Tool** - Semantic search against your knowledge base
-2. **List Documents Tool** - List all available documents
-3. **Document Retrieval Tool** - Get the full content of a specific document
-4. **Spreadsheet Query Tool** - Run SQL-like queries against spreadsheet data
+1. **RAG Search Tool**
+   - Semantic search against knowledge base
+   - Supports natural language queries
+   - Returns relevant document snippets
 
-### Testing N8N Webhooks
+2. **List Documents Tool**
+   - Lists available documents from Google Drive
+   - Supports filtering and sorting
+   - Returns document metadata
 
-This repository includes test scripts to verify each N8N webhook is working correctly:
+3. **Document Retrieval Tool**
+   - Fetches full document content
+   - Supports various file formats
+   - Handles large documents efficiently
+
+4. **Spreadsheet Query Tool**
+   - Runs SQL-like queries on spreadsheet data
+   - Supports complex data operations
+   - Returns structured results
+
+### Testing Webhooks
+
+Test scripts are provided in the `/tests` directory:
 
 ```bash
-# Test the RAG search webhook
-node test-updated-n8n-webhook.js
-
-# Test the list documents webhook
-node test-list-docs-webhook.js
-
-# Test the document retrieval webhook 
-node test-get-contents-webhook.js
-
-# Test the spreadsheet query webhook
-node test-query-rows-webhook.js
+node tests/test-updated-n8n-webhook.js     # Test RAG search
+node tests/test-list-docs-webhook.js       # Test document listing
+node tests/test-get-contents-webhook.js    # Test content retrieval
+node tests/test-query-rows-webhook.js      # Test data queries
 ```
-
-Make sure to configure your N8N workflows properly:
-1. Each workflow should have a "Respond to Webhook" node at the end
-2. For PostgreSQL nodes, format query parameters as arrays: `["{{ $('webhook').first().json.body.paramName }}"]`
-3. Activate all workflows in the N8N dashboard
 
 ## Deployment
 
-This project is configured for deployment on Vercel. To deploy:
-
 1. Push to GitHub
 2. Connect to Vercel
-3. Set up all required environment variables in the Vercel dashboard
-4. Deploy the project
+3. Configure environment variables
+4. Deploy
 
 ## Technologies
 
-- Next.js 15
-- Vercel AI SDK
-- N8N for backend workflows
-- PostgreSQL for data storage
-- Tailwind CSS for styling
-- Next-Auth for authentication
+- **Frontend**
+  - Next.js 15
+  - Tailwind CSS
+  - Shadcn UI
+  - Vercel AI SDK
+
+- **Backend**
+  - N8N workflows
+  - PostgreSQL
+  - Next-Auth
+  - OpenAI API
+
+## Version History
+
+- v1.2 - Current
+  - Added custom business queries
+  - Improved UI/UX
+  - Enhanced documentation
+  - Code cleanup and organization
+
+- v1.1
+  - Added RAG capabilities
+  - Integrated N8N workflows
+  - Added authentication
+
+- v1.0
+  - Initial release
+  - Basic chat functionality
 
 ## License
 
@@ -111,4 +134,12 @@ MIT
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## Support
+
+For support, please open an issue in the GitHub repository.
