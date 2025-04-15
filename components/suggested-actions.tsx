@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import { Button } from './ui/button';
 import { memo } from 'react';
-import { UseChatHelpers } from '@ai-sdk/react';
+import type { UseChatHelpers } from '@ai-sdk/react';
 
 interface SuggestedActionsProps {
   chatId: string;
@@ -18,19 +18,21 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
       action: 'List files',
     },
     {
-      title: 'Show me Echo Tango\'s',
+      title: "Show me Echo Tango's",
       label: 'Core Values',
-      action: 'Give me the completecontents of Echo Tango\'s core values file',
+      action: "Give me the completecontents of Echo Tango's core values file",
     },
     {
       title: 'Analyze our P&Ls',
       label: 'and suggest areas for improvement.',
-      action: 'list documents and give me an overview of our P&Ls and suggest areas for improvement.',
+      action:
+        'list documents and give me an overview of our P&Ls and suggest areas for improvement.',
     },
     {
       title: 'Create an image',
       label: 'of a burning skull.',
-      action: 'Create and image of a burning skull in the style of This is Spinal Tap',
+      action:
+        'Create and image of a burning skull in the style of This is Spinal Tap',
     },
   ];
 
