@@ -111,17 +111,22 @@ export async function POST(request: NextRequest) {
           const firstResult = Array.isArray(resultJson)
             ? resultJson[0]
             : resultJson;
-          let retrievedContext = 'No context found.';
-          if (firstResult) {
-            // Adjust these field names based on your ACTUAL n8n response structure
-            retrievedContext =
-              firstResult.content ||
-              firstResult.pageContent ||
-              JSON.stringify(firstResult);
+          let retrievedContext = 'No context found.'; // Default value
+
+          // Check specifically for the 'raw_content' key from the n8n workflow output
+          if (firstResult && typeof firstResult.raw_content === 'string') {
+            retrievedContext = firstResult.raw_content; // Assign the raw_content directly
+          } else if (firstResult) {
+            // Optional fallback: Keep the stringify if raw_content might sometimes be missing
+            console.warn(
+              "Received result from n8n but 'raw_content' key was missing or not a string. Stringifying result:",
+              firstResult,
+            );
+            retrievedContext = JSON.stringify(firstResult);
           }
 
           console.log(
-            `Received context from n8n: ${retrievedContext.substring(0, 100)}...`,
+            `Using context from n8n: ${typeof retrievedContext === 'string' ? retrievedContext.substring(0, 100) + '...' : 'Non-string or missing context received'}`,
           );
 
           // Return the extracted context
