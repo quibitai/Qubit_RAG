@@ -44,10 +44,16 @@ export async function POST(request: NextRequest) {
       id,
       messages,
       selectedChatModel,
+      experimental_attachments = [], // Extract attachments from the request
     }: {
       id: string;
       messages: Array<UIMessage>;
       selectedChatModel: string;
+      experimental_attachments?: Array<{
+        url: string;
+        name: string;
+        contentType: string;
+      }>;
     } = await request.json();
 
     const session = await auth();
@@ -99,39 +105,110 @@ export async function POST(request: NextRequest) {
       ],
     });
 
+    // Process file attachments if they exist
+    const contextFileContents = [];
+    if (experimental_attachments.length > 0) {
+      console.log(
+        `Processing ${experimental_attachments.length} attached files for context`,
+      );
+
+      // Fetch content for each file
+      for (const file of experimental_attachments) {
+        try {
+          console.log(`Fetching content for file: ${file.name} (${file.url})`);
+
+          // Fetch the file content directly
+          const response = await fetch(file.url);
+          if (!response.ok) {
+            console.error(
+              `Failed to fetch file content: ${file.name}, status: ${response.status}`,
+            );
+            continue;
+          }
+
+          // Get content as text (works for most file types we'd want to use as context)
+          let content = '';
+          const contentType = file.contentType.toLowerCase();
+
+          if (
+            contentType.includes('text') ||
+            contentType.includes('json') ||
+            contentType.includes('javascript') ||
+            contentType.includes('csv') ||
+            contentType.includes('md')
+          ) {
+            content = await response.text();
+
+            // Truncate very large text files to avoid context overflow
+            if (content.length > 100000) {
+              content = `${content.substring(0, 100000)}... [content truncated due to length]`;
+            }
+          } else {
+            // For non-text files, just note the type
+            content = `[Binary file of type: ${file.contentType}]`;
+          }
+
+          contextFileContents.push({
+            name: file.name,
+            content,
+          });
+
+          console.log(`Successfully fetched content for file: ${file.name}`);
+        } catch (error) {
+          console.error(`Error processing file ${file.name}:`, error);
+        }
+      }
+    }
+
+    // Create a modified system prompt with file context if needed
+    let systemPromptWithContext = systemPrompt({ selectedChatModel });
+
+    // Add file context to the system prompt if we have any
+    if (contextFileContents.length > 0) {
+      console.log('Injecting file context into system prompt');
+
+      const fileContextString = `
+--- User Uploaded Reference Files ---
+${contextFileContents.map((f) => `File: ${f.name}\nContent:\n${f.content}\n---\n`).join('')}
+--- End of Reference Files ---
+
+Use the above files as reference material when answering the user's questions. If the information in the files is relevant to the question, be sure to incorporate that information in your response.
+`;
+
+      // Append the file context to the system prompt
+      systemPromptWithContext = `${systemPromptWithContext}\n\n${fileContextString}`;
+    }
+
     return createDataStreamResponse({
       execute: (dataStream) => {
         const result = streamText({
           model: myProvider.languageModel(selectedChatModel),
-          system: systemPrompt({ selectedChatModel }),
+          system: systemPromptWithContext, // Use the enhanced system prompt with context
           messages,
           maxSteps: 5,
           experimental_activeTools: [
-            'getWeather',
-            'createDocument',
-            'updateDocument',
-            'requestSuggestions',
             'searchInternalKnowledgeBase',
             'listDocuments',
             'retrieveDocument',
             'queryDocumentRows',
             'tavilySearch',
+            'getWeather',
+            'createDocument',
+            'updateDocument',
+            'requestSuggestions',
           ],
           experimental_transform: smoothStream({ chunking: 'word' }),
           experimental_generateMessageId: generateUUID,
           tools: {
-            getWeather,
-            createDocument: createDocument({ session, dataStream }),
-            updateDocument: updateDocument({ session, dataStream }),
-            requestSuggestions: requestSuggestions({
-              session,
-              dataStream,
-            }),
             searchInternalKnowledgeBase,
             listDocuments,
             retrieveDocument,
             queryDocumentRows,
             tavilySearch,
+            getWeather,
+            createDocument: createDocument({ session, dataStream }),
+            updateDocument: updateDocument({ session, dataStream }),
+            requestSuggestions: requestSuggestions({ session, dataStream }),
           },
           onFinish: async ({ response }) => {
             if (session.user?.id) {
