@@ -1,10 +1,11 @@
 # ETN8N002 - RAG-Enhanced AI Assistant
 
-A Next.js AI chatbot with RAG (Retrieval Augmented Generation) capabilities powered by N8N workflows for document retrieval, search, and structured data queries. This assistant helps users interact with internal documents, spreadsheets, and knowledge bases through natural language.
+A Next.js AI chatbot with RAG (Retrieval Augmented Generation) capabilities powered by N8N workflows for document retrieval, web search, and structured data queries. This assistant helps users interact with internal documents, spreadsheets, and knowledge bases through natural language.
 
 ## Features
 
 - 🔍 Semantic search over internal knowledge base
+- 🌐 Web search integration via Tavily API
 - 📄 Document listing and retrieval from Google Drive
 - 📊 SQL-like queries for spreadsheet data
 - 💬 AI assistant with streaming responses
@@ -13,6 +14,7 @@ A Next.js AI chatbot with RAG (Retrieval Augmented Generation) capabilities powe
 - 🎨 Modern UI with dark mode support
 - 📱 Responsive design for mobile and desktop
 - 🔒 Secure environment variable handling
+- 🧠 Intelligent tool selection with search-before-creation logic
 
 ## Project Structure
 
@@ -24,8 +26,11 @@ A Next.js AI chatbot with RAG (Retrieval Augmented Generation) capabilities powe
 │   └── (auth)/             # Authentication logic
 ├── components/             # Reusable UI components
 ├── lib/
-│   ├── ai/tools/           # Custom AI tools
+│   ├── ai/
+│   │   ├── tools/          # Custom AI tools
+│   │   └── prompts.ts      # System prompts
 │   └── db/                 # Database utilities
+├── docs/                   # Documentation
 ├── sql/                    # Database migrations
 └── tests/                  # Test files
 ```
@@ -54,40 +59,48 @@ Required environment variables (see `.env.example` for details):
 - Authentication secret
 - Database URL
 - OpenAI API key
+- Tavily API key
 
 ## N8N Workflows
 
-This project uses four N8N workflows for backend processing:
+This project uses five N8N workflows for backend processing:
 
-1. **RAG Search Tool**
-   - Semantic search against knowledge base
+1. **Internal Knowledge Base Search Tool**
+   - Semantic search against internal documents
    - Supports natural language queries
    - Returns relevant document snippets
 
-2. **List Documents Tool**
+2. **Web Search Tool (Tavily)**
+   - Performs web searches using the Tavily API
+   - Summarizes search results for the AI
+   - Attribution of sources in responses
+
+3. **List Documents Tool**
    - Lists available documents from Google Drive
    - Supports filtering and sorting
    - Returns document metadata
 
-3. **Document Retrieval Tool**
+4. **Document Retrieval Tool**
    - Fetches full document content
    - Supports various file formats
    - Handles large documents efficiently
 
-4. **Spreadsheet Query Tool**
+5. **Spreadsheet Query Tool**
    - Runs SQL-like queries on spreadsheet data
    - Supports complex data operations
    - Returns structured results
+
+See the [N8N Workflows Documentation](./docs/N8N_WORKFLOWS.md) for detailed setup instructions.
 
 ### Testing Webhooks
 
 Test scripts are provided in the `/tests` directory:
 
 ```bash
-node tests/test-updated-n8n-webhook.js     # Test RAG search
-node tests/test-list-docs-webhook.js       # Test document listing
-node tests/test-get-contents-webhook.js    # Test content retrieval
-node tests/test-query-rows-webhook.js      # Test data queries
+node tests/test-updated-n8n-webhook.js      # Test RAG search
+node tests/test-list-docs-webhook.js        # Test document listing
+node tests/test-get-contents-webhook.js     # Test content retrieval
+node tests/test-query-rows-webhook.js       # Test data queries
 ```
 
 ## Deployment
@@ -110,23 +123,37 @@ node tests/test-query-rows-webhook.js      # Test data queries
   - PostgreSQL
   - Next-Auth
   - OpenAI API
+  - Tavily API
 
 ## Version History
 
-- v1.2 - Current
+- v1.4.0 - Current
+  - Added Tavily web search integration
+  - Improved tool architecture and organization
+  - Enhanced system prompt with search-before-creation logic
+  - Fixed linter issues and improved error handling
+
+- v1.3.0
+  - Added SQL-like queries for spreadsheet data
+  - Improved document parsing and extraction
+  - Enhanced error handling for N8N workflows
+
+- v1.2.0
   - Added custom business queries
   - Improved UI/UX
   - Enhanced documentation
   - Code cleanup and organization
 
-- v1.1
+- v1.1.0
   - Added RAG capabilities
   - Integrated N8N workflows
   - Added authentication
 
-- v1.0
+- v1.0.0
   - Initial release
   - Basic chat functionality
+
+See the [CHANGELOG](./CHANGELOG.md) for more details on each version.
 
 ## License
 
