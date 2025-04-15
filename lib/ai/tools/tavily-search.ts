@@ -27,25 +27,22 @@ export const tavilySearch = tool({
   parameters: tavilySearchParametersSchema,
 
   execute: async (params) => {
-    // Destructure parameters with defaults handled by Zod schema
     const { query, search_depth, max_results } = params;
 
     console.log(`Tool 'tavilySearch' called with query: ${query}`);
 
-    // Fetch configuration from environment variables
     const webhookUrl = process.env.N8N_TAVILY_SEARCH_WEBHOOK_URL;
     const authHeader = process.env.N8N_TAVILY_SEARCH_AUTH_HEADER;
     const authToken = process.env.N8N_TAVILY_SEARCH_AUTH_TOKEN;
     const tavilyApiKey = process.env.TAVILY_API_KEY;
 
-    // Basic validation
     if (!webhookUrl || !authHeader || !authToken || !tavilyApiKey) {
       console.error(
         'Configuration error: Missing Tavily search N8N webhook URL, auth details, or Tavily API key.',
       );
       return {
         success: false,
-        error: 'Web search/extraction service is not configured correctly.',
+        error: 'Web search service is not configured correctly.',
       };
     }
 
@@ -55,15 +52,13 @@ export const tavilySearch = tool({
       };
       headers[authHeader] = authToken;
 
-      // Body for the revised n8n workflow (doesn't need include_raw_content)
       const body = JSON.stringify({
         query: query,
-        api_key: tavilyApiKey, // Pass the API key securely from backend
+        api_key: tavilyApiKey,
         search_depth: search_depth,
         max_results: max_results,
-        // include_raw_content is no longer sent here as extraction happens in n8n
-        include_answer: false, // Control Tavily's own answer generation if needed
-        include_images: false, // Control Tavily's image inclusion if needed
+        include_answer: false,
+        include_images: false,
       });
 
       console.log(`Calling N8N Tavily webhook at: ${webhookUrl}`);
@@ -81,34 +76,49 @@ export const tavilySearch = tool({
         );
         return {
           success: false,
-          error: `Web search/extraction failed: ${response.statusText || 'Network error'}`,
+          error: `Web search failed: ${response.statusText || 'Network error'}`,
         };
       }
 
       const result = await response.json();
 
-      // Check for errors returned explicitly by the n8n workflow's error path
-      if (result?.success === false) {
-        console.error('N8N workflow indicated failure:', result.error);
-        return {
-          success: false,
-          error:
-            result.error ||
-            'An error occurred during the web search/extraction workflow.',
-        };
+      // Process the search results
+      if (Array.isArray(result) && result.length > 0) {
+        const firstResult = result[0];
+
+        // Check if we have results
+        if (firstResult.results && firstResult.results.length > 0) {
+          const searchResults = firstResult.results.map((result: any) => ({
+            title: result.title || 'No title available',
+            url: result.url || '',
+            content: result.raw_content || 'No content available',
+          }));
+
+          // Format the response in a more readable way
+          const formattedResponse = {
+            success: true,
+            results: searchResults,
+            summary: `Found ${searchResults.length} relevant results for your query.`,
+            sources: searchResults.map((r: any) => r.url).join('\n'),
+          };
+
+          console.log('Successfully processed search results');
+          return formattedResponse;
+        }
       }
 
-      console.log('Received successful response from N8N Tavily webhook.');
+      // If no results found
       return {
         success: true,
-        extracted_content: result.extracted_content,
-        source_url: result.source_url,
+        results: [],
+        summary: 'No relevant results found for your query.',
+        sources: [],
       };
     } catch (error) {
       console.error('Error executing tavilySearch tool fetch:', error);
       return {
         success: false,
-        error: `Failed to execute web search/extraction tool: ${error instanceof Error ? error.message : String(error)}`,
+        error: `Failed to execute web search: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
   },

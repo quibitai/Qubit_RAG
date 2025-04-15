@@ -1,9 +1,9 @@
 // This file forwards requests to the actual route implementation
 // to fix routing issues in production deployments
 
-import { NextRequest, NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import type { UIMessage } from 'ai';
 import {
-  UIMessage,
   appendResponseMessages,
   createDataStreamResponse,
   smoothStream,
@@ -88,7 +88,6 @@ export async function POST(request: NextRequest) {
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
           };
-          // Add the dynamic authentication header
           headers[n8nAuthHeader] = n8nAuthToken;
 
           const response = await fetch(n8nWebhookUrl, {
@@ -111,26 +110,32 @@ export async function POST(request: NextRequest) {
           const firstResult = Array.isArray(resultJson)
             ? resultJson[0]
             : resultJson;
-          let retrievedContext = 'No context found.'; // Default value
 
-          // Check specifically for the 'raw_content' key from the n8n workflow output
-          if (firstResult && typeof firstResult.raw_content === 'string') {
-            retrievedContext = firstResult.raw_content; // Assign the raw_content directly
-          } else if (firstResult) {
-            // Optional fallback: Keep the stringify if raw_content might sometimes be missing
-            console.warn(
-              "Received result from n8n but 'raw_content' key was missing or not a string. Stringifying result:",
-              firstResult,
-            );
-            retrievedContext = JSON.stringify(firstResult);
+          // Check if we have search results using optional chaining
+          if (firstResult?.results?.length > 0) {
+            const searchResults = firstResult.results.map((result: any) => ({
+              title: result.title || 'No title available',
+              url: result.url || '',
+              content: result.raw_content || 'No content available',
+            }));
+
+            // Format the response in a more readable way
+            return {
+              success: true,
+              results: searchResults,
+              summary: `Found ${searchResults.length} relevant results for your query.`,
+              sources: searchResults.map((r: any) => r.url).join('\n'),
+            };
           }
 
-          console.log(
-            `Using context from n8n: ${typeof retrievedContext === 'string' ? retrievedContext.substring(0, 100) + '...' : 'Non-string or missing context received'}`,
-          );
-
-          // Return the extracted context
-          return { retrieved_context: retrievedContext };
+          // If no results found
+          return {
+            success: true,
+            results: [],
+            summary:
+              'No relevant results found in the knowledge base for your query.',
+            sources: [],
+          };
         } catch (error) {
           console.error(
             'Error executing searchInternalKnowledgeBase tool:',
