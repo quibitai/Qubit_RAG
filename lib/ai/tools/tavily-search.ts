@@ -23,27 +23,26 @@ const tavilySearchParametersSchema = z.object({
 
 export const tavilySearch = tool({
   description:
-    'Performs a web search using the Tavily API to find relevant information from the internet. Use this for current events, general knowledge questions, or topics not likely covered by internal documents.',
+    'Performs a web search using the Tavily API to find relevant information from the internet. Use this for current events, general knowledge questions, or topics not covered by internal documents.',
   parameters: tavilySearchParametersSchema,
 
   execute: async (params) => {
-    const { query, search_depth, max_results } = params;
+    const { query } = params; // We mainly need the query for logging/error messages now
 
-    console.log(`Tool 'tavilySearch' called with query: ${query}`);
+    console.log(`Tool 'tavilySearch' (via N8N) called with query: ${query}`);
 
-    const webhookUrl = process.env.N8N_TAVILY_SEARCH_WEBHOOK_URL;
+    // --- Get N8N webhook details from environment variables ---
+    const webhookUrl = process.env.N8N_TAVILY_SEARCH_WEBHOOK_URL; // Ensure this env var points to your n8n webhook
     const authHeader = process.env.N8N_TAVILY_SEARCH_AUTH_HEADER;
     const authToken = process.env.N8N_TAVILY_SEARCH_AUTH_TOKEN;
-    const tavilyApiKey = process.env.TAVILY_API_KEY;
+    // Note: We don't need the TAVILY_API_KEY here anymore as n8n handles that internally
 
-    if (!webhookUrl || !authHeader || !authToken || !tavilyApiKey) {
+    if (!webhookUrl || !authHeader || !authToken) {
       console.error(
-        'Configuration error: Missing Tavily search N8N webhook URL, auth details, or Tavily API key.',
+        'Configuration error: Missing Tavily N8N webhook URL or auth details.',
       );
-      return {
-        success: false,
-        error: 'Web search service is not configured correctly.',
-      };
+      // Return an error message string for the LLM
+      return `Error: Web search service configuration is incomplete. Cannot perform search.`;
     }
 
     try {
@@ -52,16 +51,17 @@ export const tavilySearch = tool({
       };
       headers[authHeader] = authToken;
 
+      // The body now just needs the query, as n8n workflow handles the Tavily API call details
       const body = JSON.stringify({
         query: query,
-        api_key: tavilyApiKey,
-        search_depth: search_depth,
-        max_results: max_results,
-        include_answer: false,
-        include_images: false,
+        // You might pass other params if your *n8n workflow* expects them
+        // search_depth: search_depth,
+        // max_results: max_results,
       });
 
-      console.log(`Calling N8N Tavily webhook at: ${webhookUrl}`);
+      console.log(
+        `Calling N8N Tavily webhook at: ${webhookUrl} for query: "${query}"`,
+      );
 
       const response = await fetch(webhookUrl, {
         method: 'POST',
@@ -74,102 +74,40 @@ export const tavilySearch = tool({
         console.error(
           `N8N Tavily webhook call failed with status ${response.status}: ${errorBody}`,
         );
-        return {
-          success: false,
-          error: `Web search failed: ${response.statusText || 'Network error'}`,
-        };
+        // Return an error message string for the LLM
+        return `Error: Web search failed (${response.statusText || 'Network error'}).`;
       }
 
-      // Parse the JSON response
-      const result = await response.json();
+      // --- Process the SIMPLIFIED response from N8N ---
+      // We now expect n8n to return: { "summary": "..." }
+      const n8nResult = await response.json();
 
-      console.log(
-        'Raw search results:',
-        JSON.stringify(result).substring(0, 200) + '...',
-      );
-
-      // Handle the array format response from n8n
-      if (Array.isArray(result) && result.length > 0) {
-        const firstItem = result[0];
-
-        // Check if the item has results
-        if (
-          firstItem?.results &&
-          Array.isArray(firstItem.results) &&
-          firstItem.results.length > 0
-        ) {
-          // Extract relevant content from each result
-          const formattedResults = firstItem.results.map((item: any) => {
-            let title = 'No title available';
-            let url = '';
-
-            // Extract title from URL if not available
-            if (item.url) {
-              url = item.url;
-              if (!title || title === 'No title available') {
-                try {
-                  const urlObj = new URL(item.url);
-                  title = urlObj.hostname + urlObj.pathname;
-                } catch (e) {
-                  // Keep default title if URL parsing fails
-                }
-              }
-            }
-
-            // Extract content from raw_content
-            const content = item.raw_content || 'No content available';
-
-            // Clean up raw content to extract main text
-            let cleanedContent = content;
-            if (content && typeof content === 'string') {
-              // Remove common website navigation elements
-              cleanedContent = content
-                .replace(/Jump to content[\s\S]*?Main menu/g, '')
-                .replace(/Navigation[\s\S]*?Search/g, '')
-                .replace(/Toggle the table of contents[\s\S]*?\(/g, '')
-                .replace(/\| --- \|[\s\S]*?---/g, '')
-                .replace(/Print\/export[\s\S]*?Projects/g, '')
-                .replace(/This page was last edited on[\s\S]*?Wikipedia®/g, '')
-                .replace(/Privacy policy[\s\S]*?Mobile view/g, '')
-                .trim();
-            }
-
-            return {
-              title: item.title || title,
-              url: url,
-              content: cleanedContent,
-            };
-          });
-
-          console.log(
-            `Successfully processed ${formattedResults.length} search results`,
-          );
-
-          // Format the response in a more readable way for the LLM
-          return {
-            success: true,
-            results: formattedResults,
-            summary: `Found ${formattedResults.length} relevant results for your query about "${query}".`,
-            sources: formattedResults.map((r: any) => r.url).join('\n'),
-          };
-        }
+      // Check if the expected 'summary' field exists and is not empty
+      if (
+        n8nResult &&
+        typeof n8nResult.summary === 'string' &&
+        n8nResult.summary.trim() !== '' &&
+        !n8nResult.summary.includes('No results found') &&
+        !n8nResult.summary.includes('No content extracted')
+      ) {
+        console.log(
+          '------ tavilySearch tool returning to LLM: ------\n',
+          n8nResult.summary,
+        );
+        // Return the summary string directly
+        return n8nResult.summary;
+      } else {
+        // Handle cases where n8n didn't return a valid summary
+        console.log(
+          `N8N workflow did not return a valid summary for query "${query}". Response:`,
+          n8nResult,
+        );
+        return `I searched for "${query}" but did not find a relevant summary.`;
       }
-
-      console.log('No relevant search results found');
-
-      // If no results found
-      return {
-        success: true,
-        results: [],
-        summary: `No relevant results found for your query about "${query}".`,
-        sources: [],
-      };
     } catch (error) {
       console.error('Error executing tavilySearch tool fetch:', error);
-      return {
-        success: false,
-        error: `Failed to execute web search: ${error instanceof Error ? error.message : String(error)}`,
-      };
+      // Return an error message string for the LLM
+      return `Error: Failed to execute web search: ${error instanceof Error ? error.message : String(error)}`;
     }
   },
 });
