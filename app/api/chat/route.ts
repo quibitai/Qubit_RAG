@@ -32,6 +32,7 @@ import { getWeather } from '@/lib/ai/tools/get-weather';
 import { listDocuments } from '@/lib/ai/tools/list-documents';
 import { retrieveDocument } from '@/lib/ai/tools/retrieve-document';
 import { queryDocumentRows } from '@/lib/ai/tools/query-document-rows';
+import { tavilySearch } from '@/lib/ai/tools/tavily-search';
 import { isProductionEnvironment } from '@/lib/constants';
 import { myProvider } from '@/lib/ai/providers';
 
@@ -61,21 +62,28 @@ export async function POST(request: NextRequest) {
     const n8nAuthToken = process.env.N8N_RAG_TOOL_AUTH_TOKEN;
 
     if (!n8nWebhookUrl || !n8nAuthHeader || !n8nAuthToken) {
-      console.error("Missing n8n configuration environment variables");
+      console.error('Missing n8n configuration environment variables');
       return new Response('Server configuration error', { status: 500 });
     }
 
     // Define the n8n RAG Tool
     const searchInternalKnowledgeBase = tool({
-      description: 'Search the internal knowledge base (documents stored in Supabase) for information relevant to the user query. Use this for specific questions about internal documents or topics.',
+      description:
+        'Search the internal knowledge base (documents stored in Supabase) for information relevant to the user query. Use this for specific questions about internal documents or topics.',
       parameters: z.object({
-        query: z.string().describe('The specific question or topic to search for in the knowledge base.'),
+        query: z
+          .string()
+          .describe(
+            'The specific question or topic to search for in the knowledge base.',
+          ),
       }),
       execute: async ({ query }: { query: string }) => {
-        console.log(`Tool 'searchInternalKnowledgeBase' called with query: ${query}`);
+        console.log(
+          `Tool 'searchInternalKnowledgeBase' called with query: ${query}`,
+        );
 
         console.log(`Attempting to fetch n8n webhook at URL: ${n8nWebhookUrl}`);
-        
+
         try {
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
@@ -91,29 +99,43 @@ export async function POST(request: NextRequest) {
 
           if (!response.ok) {
             const errorBody = await response.text();
-            console.error(`n8n webhook call failed with status ${response.status}: ${errorBody}`);
+            console.error(
+              `n8n webhook call failed with status ${response.status}: ${errorBody}`,
+            );
             throw new Error(`n8n webhook call failed: ${response.statusText}`);
           }
 
           const resultJson = await response.json();
 
           // Process resultJson to extract the most useful context for the LLM
-          const firstResult = Array.isArray(resultJson) ? resultJson[0] : resultJson;
-          let retrievedContext = "No context found.";
+          const firstResult = Array.isArray(resultJson)
+            ? resultJson[0]
+            : resultJson;
+          let retrievedContext = 'No context found.';
           if (firstResult) {
             // Adjust these field names based on your ACTUAL n8n response structure
-            retrievedContext = firstResult.content || firstResult.pageContent || JSON.stringify(firstResult);
+            retrievedContext =
+              firstResult.content ||
+              firstResult.pageContent ||
+              JSON.stringify(firstResult);
           }
 
-          console.log(`Received context from n8n: ${retrievedContext.substring(0, 100)}...`);
+          console.log(
+            `Received context from n8n: ${retrievedContext.substring(0, 100)}...`,
+          );
 
           // Return the extracted context
           return { retrieved_context: retrievedContext };
         } catch (error) {
-          console.error("Error executing searchInternalKnowledgeBase tool:", error);
-          return { error: `Failed to fetch from knowledge base: ${error instanceof Error ? error.message : String(error)}` };
+          console.error(
+            'Error executing searchInternalKnowledgeBase tool:',
+            error,
+          );
+          return {
+            error: `Failed to fetch from knowledge base: ${error instanceof Error ? error.message : String(error)}`,
+          };
         }
-      }
+      },
     });
 
     const userMessage = getMostRecentUserMessage(messages);
@@ -165,6 +187,7 @@ export async function POST(request: NextRequest) {
             'listDocuments',
             'retrieveDocument',
             'queryDocumentRows',
+            'tavilySearch',
           ],
           experimental_transform: smoothStream({ chunking: 'word' }),
           experimental_generateMessageId: generateUUID,
@@ -180,6 +203,7 @@ export async function POST(request: NextRequest) {
             listDocuments,
             retrieveDocument,
             queryDocumentRows,
+            tavilySearch,
           },
           onFinish: async ({ response }) => {
             if (session.user?.id) {
@@ -234,7 +258,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("API error:", error);
+    console.error('API error:', error);
     return new Response('An error occurred while processing your request!', {
       status: 500,
     });
@@ -270,4 +294,4 @@ export async function DELETE(request: NextRequest) {
       status: 500,
     });
   }
-} 
+}
