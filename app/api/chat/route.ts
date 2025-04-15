@@ -8,7 +8,6 @@ import {
   createDataStreamResponse,
   smoothStream,
   streamText,
-  tool,
 } from 'ai';
 import { z } from 'zod';
 import { auth } from '@/app/(auth)/auth';
