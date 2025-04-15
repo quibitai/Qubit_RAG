@@ -15,6 +15,7 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 import { ArrowUpIcon, PaperclipIcon, StopIcon } from './icons';
 import { PreviewAttachment } from './preview-attachment';
@@ -136,20 +137,26 @@ function PureMultimodalInput({
         body: formData,
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        const { url, pathname, contentType } = data;
+      const data = await response.json();
 
+      if (response.ok) {
+        const { url, pathname, contentType } = data;
         return {
           url,
           name: pathname,
           contentType: contentType,
         };
+      } else {
+        // Handle error from the server
+        const errorMessage = data.error || 'Failed to upload file';
+        toast.error(errorMessage);
+        console.error('Upload error:', errorMessage);
+        return undefined;
       }
-      const { error } = await response.json();
-      toast.error(error);
     } catch (error) {
+      console.error('File upload error:', error);
       toast.error('Failed to upload file, please try again!');
+      return undefined;
     }
   };
 
@@ -172,8 +179,13 @@ function PureMultimodalInput({
         ]);
       } catch (error) {
         console.error('Error uploading files!', error);
+        toast.error('Error uploading files. Please try again.');
       } finally {
         setUploadQueue([]);
+        // Clear the file input value to allow re-uploading the same file
+        if (event.target.value) {
+          event.target.value = '';
+        }
       }
     },
     [setAttachments],
@@ -194,6 +206,7 @@ function PureMultimodalInput({
         multiple
         onChange={handleFileChange}
         tabIndex={-1}
+        accept=".txt,.md,.csv,.json,.js,.py,.html,.css,.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif"
       />
 
       {(attachments.length > 0 || uploadQueue.length > 0) && (
@@ -286,18 +299,25 @@ function PureAttachmentsButton({
   status: UseChatHelpers['status'];
 }) {
   return (
-    <Button
-      data-testid="attachments-button"
-      className="rounded-md rounded-bl-lg p-[7px] h-fit dark:border-zinc-700 hover:dark:bg-zinc-900 hover:bg-zinc-200"
-      onClick={(event) => {
-        event.preventDefault();
-        fileInputRef.current?.click();
-      }}
-      disabled={status !== 'ready'}
-      variant="ghost"
-    >
-      <PaperclipIcon size={14} />
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          data-testid="multimodal-upload"
+          variant="ghost"
+          size="icon"
+          type="button"
+          className="absolute right-12 bottom-3 size-6 text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-1 focus-visible:ring-primary transition-colors"
+          aria-label="Attach files"
+          disabled={status !== 'ready'}
+          onClick={() => {
+            fileInputRef.current?.click();
+          }}
+        >
+          <PaperclipIcon />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>Attach files</TooltipContent>
+    </Tooltip>
   );
 }
 
