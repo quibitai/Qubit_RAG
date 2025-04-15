@@ -23,7 +23,7 @@ const tavilySearchParametersSchema = z.object({
 
 export const tavilySearch = tool({
   description:
-    'Performs a web search using the Tavily API, identifies the most relevant result based on score, extracts its main content, and returns that content. Use this for current events, general knowledge questions, or topics not likely covered by internal documents.',
+    'Performs a web search using the Tavily API to find relevant information from the internet. Use this for current events, general knowledge questions, or topics not likely covered by internal documents.',
   parameters: tavilySearchParametersSchema,
 
   execute: async (params) => {
@@ -80,38 +80,88 @@ export const tavilySearch = tool({
         };
       }
 
+      // Parse the JSON response
       const result = await response.json();
 
-      // Process the search results
+      console.log(
+        'Raw search results:',
+        JSON.stringify(result).substring(0, 200) + '...',
+      );
+
+      // Handle the array format response from n8n
       if (Array.isArray(result) && result.length > 0) {
-        const firstResult = result[0];
+        const firstItem = result[0];
 
-        // Check if we have results
-        if (firstResult.results && firstResult.results.length > 0) {
-          const searchResults = firstResult.results.map((result: any) => ({
-            title: result.title || 'No title available',
-            url: result.url || '',
-            content: result.raw_content || 'No content available',
-          }));
+        // Check if the item has results
+        if (
+          firstItem?.results &&
+          Array.isArray(firstItem.results) &&
+          firstItem.results.length > 0
+        ) {
+          // Extract relevant content from each result
+          const formattedResults = firstItem.results.map((item: any) => {
+            let title = 'No title available';
+            let url = '';
 
-          // Format the response in a more readable way
-          const formattedResponse = {
+            // Extract title from URL if not available
+            if (item.url) {
+              url = item.url;
+              if (!title || title === 'No title available') {
+                try {
+                  const urlObj = new URL(item.url);
+                  title = urlObj.hostname + urlObj.pathname;
+                } catch (e) {
+                  // Keep default title if URL parsing fails
+                }
+              }
+            }
+
+            // Extract content from raw_content
+            const content = item.raw_content || 'No content available';
+
+            // Clean up raw content to extract main text
+            let cleanedContent = content;
+            if (content && typeof content === 'string') {
+              // Remove common website navigation elements
+              cleanedContent = content
+                .replace(/Jump to content[\s\S]*?Main menu/g, '')
+                .replace(/Navigation[\s\S]*?Search/g, '')
+                .replace(/Toggle the table of contents[\s\S]*?\(/g, '')
+                .replace(/\| --- \|[\s\S]*?---/g, '')
+                .replace(/Print\/export[\s\S]*?Projects/g, '')
+                .replace(/This page was last edited on[\s\S]*?Wikipedia®/g, '')
+                .replace(/Privacy policy[\s\S]*?Mobile view/g, '')
+                .trim();
+            }
+
+            return {
+              title: item.title || title,
+              url: url,
+              content: cleanedContent,
+            };
+          });
+
+          console.log(
+            `Successfully processed ${formattedResults.length} search results`,
+          );
+
+          // Format the response in a more readable way for the LLM
+          return {
             success: true,
-            results: searchResults,
-            summary: `Found ${searchResults.length} relevant results for your query.`,
-            sources: searchResults.map((r: any) => r.url).join('\n'),
+            results: formattedResults,
+            summary: `Found ${formattedResults.length} relevant results for your query about "${query}".`,
+            sources: formattedResults.map((r: any) => r.url).join('\n'),
           };
-
-          console.log('Successfully processed search results');
-          return formattedResponse;
         }
       }
+
+      console.log('No relevant search results found');
 
       // If no results found
       return {
         success: true,
         results: [],
-        summary: 'No relevant results found for your query.',
+        summary: `No relevant results found for your query about "${query}".`,
         sources: [],
       };
     } catch (error) {
