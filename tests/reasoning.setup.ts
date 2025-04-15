@@ -13,7 +13,7 @@ setup('switch to reasoning model', async ({ page }) => {
 
   await chatPage.chooseModelFromSelector('chat-model-reasoning');
 
-  await expect(chatPage.getSelectedModel()).resolves.toEqual('Reasoning model');
+  await expect(chatPage.getSelectedModel()).resolves.toEqual('Orchestrator');
 
   await page.waitForTimeout(1000);
   await page.context().storageState({ path: reasoningFile });
