@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 export const searchInternalKnowledgeBase = tool({
   description:
-    'Search the internal knowledge base (documents stored in Supabase) for information relevant to the user query. Use this for specific questions about internal documents or topics.',
+    'Performs semantic search across the internal knowledge base to find contextually relevant information from stored documents. This tool is optimized for retrieving specific facts, details, or explanations that match the search query from all available documents. Use this when you need precise information on a topic rather than the full content of a particular document. Results include relevant content snippets with their source information.',
   parameters: z.object({
     query: z
       .string()
@@ -53,8 +53,19 @@ export const searchInternalKnowledgeBase = tool({
       }
 
       const resultJson = await response.json();
+      console.log('Received search result:', JSON.stringify(resultJson));
 
-      // Process resultJson to extract the most useful context for the LLM
+      // Check if the response is directly in the expected format with success, results, summary fields
+      if (
+        resultJson &&
+        typeof resultJson === 'object' &&
+        'success' in resultJson
+      ) {
+        // The response is already in the expected format, just return it
+        return resultJson;
+      }
+
+      // Legacy format handling - Process resultJson to extract the most useful context for the LLM
       const firstResult = Array.isArray(resultJson)
         ? resultJson[0]
         : resultJson;
@@ -76,7 +87,7 @@ export const searchInternalKnowledgeBase = tool({
         };
       }
 
-      // If no results found
+      // If no results found or unable to parse
       return {
         success: true,
         results: [],
