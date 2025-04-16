@@ -15,6 +15,7 @@ A Next.js AI chatbot with RAG (Retrieval Augmented Generation) capabilities powe
 - 📱 Responsive design for mobile and desktop
 - 🔒 Secure environment variable handling
 - 🧠 Intelligent tool selection with search-before-creation logic
+- 🚫 No Orchestrator - Direct implementation in route file for simplicity and performance
 
 ## Project Structure
 
