@@ -65,46 +65,6 @@ export const searchInternalKnowledgeBase = tool({
         return resultJson;
       }
 
-      // Handle the LangChain Vector Store format (array of { document, score } objects)
-      if (
-        Array.isArray(resultJson) &&
-        resultJson.length > 0 &&
-        'document' in resultJson[0]
-      ) {
-        console.log('Processing LangChain Vector Store format results');
-
-        // Transform document + score format to our expected format
-        const searchResults = resultJson.map((item: any) => {
-          const content = item.document?.pageContent || '';
-          const metadata = item.document?.metadata || {};
-          const score = item.score || 0;
-
-          return {
-            title: metadata.file_title || 'Untitled Document',
-            url: metadata.file_id || '',
-            content: content,
-            score: score,
-            source: metadata.source || 'internal',
-          };
-        });
-
-        // Only include results that actually have content
-        const validResults = searchResults.filter(
-          (result) => result.content.trim() !== '',
-        );
-
-        if (validResults.length > 0) {
-          return {
-            success: true,
-            results: validResults,
-            summary: `Found ${validResults.length} relevant results for your query.`,
-            sources: validResults
-              .map((r) => `${r.title} (${r.source})`)
-              .join('\n'),
-          };
-        }
-      }
-
       // Legacy format handling - Process resultJson to extract the most useful context for the LLM
       const firstResult = Array.isArray(resultJson)
         ? resultJson[0]
