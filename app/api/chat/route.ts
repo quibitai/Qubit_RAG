@@ -215,40 +215,6 @@ export async function POST(request: NextRequest) {
           console.log(`Passing image attachment through: ${file.name}`);
           content = `[Image: ${file.name}]`;
           // --- End Existing Image Handling Logic ---
-        } else if (
-          contentType.includes('text') ||
-          contentType.includes('json') ||
-          contentType.includes('javascript') ||
-          contentType.includes('csv') ||
-          contentType.includes('md')
-        ) {
-          // --- Handle Text Files Locally (Fallback) ---
-          try {
-            console.log(
-              `Fetching text content directly for file: ${file.name}`,
-            );
-            const response = await fetch(file.url);
-            if (response.ok) {
-              content = await response.text();
-
-              // Truncate very large text files to avoid context overflow
-              if (content.length > 100000) {
-                content = `${content.substring(0, 100000)}... [content truncated due to length]`;
-              }
-              console.log(
-                `Successfully fetched direct content for: ${file.name}`,
-              );
-            } else {
-              content = `[Error reading text file: ${file.name}, status: ${response.status}]`;
-              console.error(
-                `Failed to fetch text file: ${file.name}, status: ${response.status}`,
-              );
-            }
-          } catch (error) {
-            console.error(`Error processing text file ${file.name}:`, error);
-            content = `[Error processing text file: ${file.name}]`;
-          }
-          // --- End Text File Handling Logic ---
         } else {
           // --- Handle Other Unexpected/Unsupported Types ---
           console.warn(
