@@ -103,6 +103,7 @@ function PureMultimodalInput({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadQueue, setUploadQueue] = useState<Array<string>>([]);
+  const [isDragging, setIsDragging] = useState(false);
 
   const submitForm = useCallback(() => {
     window.history.replaceState({}, '', `/chat/${chatId}`);
@@ -160,9 +161,9 @@ function PureMultimodalInput({
     }
   };
 
-  const handleFileChange = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(event.target.files || []);
+  const processFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
 
       setUploadQueue(files.map((file) => file.name));
 
@@ -182,17 +183,88 @@ function PureMultimodalInput({
         toast.error('Error uploading files. Please try again.');
       } finally {
         setUploadQueue([]);
-        // Clear the file input value to allow re-uploading the same file
-        if (event.target.value) {
-          event.target.value = '';
-        }
       }
     },
     [setAttachments],
   );
 
+  const handleFileChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files || []);
+      await processFiles(files);
+
+      // Clear the file input value to allow re-uploading the same file
+      if (event.target.value) {
+        event.target.value = '';
+      }
+    },
+    [processFiles],
+  );
+
+  // Drag and drop handlers
+  const handleDragEnter = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (status !== 'ready') return;
+      setIsDragging(true);
+    },
+    [status],
+  );
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (status !== 'ready') return;
+      if (!isDragging) setIsDragging(true);
+    },
+    [isDragging, status],
+  );
+
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+
+      if (status !== 'ready') {
+        toast.error('Please wait for the model to finish its response!');
+        return;
+      }
+
+      const droppedFiles = Array.from(e.dataTransfer.files);
+      await processFiles(droppedFiles);
+    },
+    [processFiles, status],
+  );
+
   return (
-    <div className="relative w-full flex flex-col gap-4">
+    <div
+      className={cx(
+        'relative w-full flex flex-col gap-4',
+        isDragging &&
+          'after:absolute after:inset-0 after:rounded-2xl after:border-2 after:border-dashed after:border-primary after:bg-primary/5 after:pointer-events-none',
+      )}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+          <div className="bg-card p-4 rounded-lg shadow-lg">
+            <p className="font-medium text-primary">Drop files to upload</p>
+          </div>
+        </div>
+      )}
+
       {messages.length === 0 &&
         attachments.length === 0 &&
         uploadQueue.length === 0 && (
