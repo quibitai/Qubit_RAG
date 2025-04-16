@@ -114,49 +114,159 @@ export async function POST(request: NextRequest) {
 
       // Fetch content for each file
       for (const file of experimental_attachments) {
-        try {
-          console.log(`Fetching content for file: ${file.name} (${file.url})`);
+        let content = `[Attachment: ${file.name}]`; // Default placeholder
+        const contentType = file.contentType.toLowerCase();
 
-          // Fetch the file content directly
-          const response = await fetch(file.url);
-          if (!response.ok) {
-            console.error(
-              `Failed to fetch file content: ${file.name}, status: ${response.status}`,
+        // Define content types to be handled by n8n workflow
+        const n8nHandledTypes = [
+          'pdf', // application/pdf
+          'spreadsheetml.sheet', // .xlsx
+          'ms-excel', // .xls
+          'csv', // text/csv
+          'json', // application/json
+          'text/plain', // .txt
+          'text/markdown', // .md
+          // Add other specific non-image types n8n handles here
+        ];
+
+        // Check if the current file type should be processed by n8n
+        const shouldCallN8n = n8nHandledTypes.some((type) =>
+          contentType.includes(type),
+        );
+
+        // Check if it's an image type (to keep existing handling)
+        const isImage = contentType.startsWith('image/');
+
+        // --- Start Conditional Processing ---
+
+        if (shouldCallN8n) {
+          // --- n8n Webhook Call Logic ---
+          const n8nWebhookUrl = process.env.N8N_EXTRACT_WEBHOOK_URL;
+          const n8nAuthHeader = process.env.N8N_EXTRACT_AUTH_HEADER;
+          const n8nAuthToken = process.env.N8N_EXTRACT_AUTH_TOKEN;
+
+          if (n8nWebhookUrl && n8nAuthHeader && n8nAuthToken) {
+            console.log(
+              `Calling n8n to extract content for: ${file.name} (${contentType})`,
             );
-            continue;
-          }
+            try {
+              const headers: Record<string, string> = {
+                'Content-Type': 'application/json',
+              };
+              headers[n8nAuthHeader] = n8nAuthToken;
 
-          // Get content as text (works for most file types we'd want to use as context)
-          let content = '';
-          const contentType = file.contentType.toLowerCase();
+              const n8nResponse = await fetch(n8nWebhookUrl, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({
+                  fileUrl: file.url,
+                  contentType: file.contentType,
+                }),
+              });
 
-          if (
-            contentType.includes('text') ||
-            contentType.includes('json') ||
-            contentType.includes('javascript') ||
-            contentType.includes('csv') ||
-            contentType.includes('md')
-          ) {
-            content = await response.text();
-
-            // Truncate very large text files to avoid context overflow
-            if (content.length > 100000) {
-              content = `${content.substring(0, 100000)}... [content truncated due to length]`;
+              if (n8nResponse.ok) {
+                const n8nResult = await n8nResponse.json();
+                // Adjust based on n8n 'Respond to Webhook' -> 'Put Response in Field' setting
+                if (
+                  n8nResult.responseBody?.success &&
+                  n8nResult.responseBody?.extractedText
+                ) {
+                  content = n8nResult.responseBody.extractedText;
+                  if (content.length > 150000) {
+                    // Optional truncation
+                    console.warn(
+                      `Truncating extracted content for ${file.name}`,
+                    );
+                    content = `${content.substring(0, 150000)}... [Content truncated]`;
+                  }
+                  console.log(
+                    `Successfully extracted content via n8n for: ${file.name}`,
+                  );
+                } else {
+                  content = `[n8n Error processing ${file.name}: ${n8nResult.responseBody?.error || 'Unknown n8n error'}]`;
+                  console.error(
+                    `n8n processing error for ${file.name}:`,
+                    n8nResult,
+                  );
+                }
+              } else {
+                content = `[Error calling n8n extractor for ${file.name}: ${n8nResponse.statusText}]`;
+                console.error(
+                  `n8n webhook call failed for ${file.name}: ${n8nResponse.status} ${n8nResponse.statusText}`,
+                );
+              }
+            } catch (fetchError) {
+              console.error(
+                `Error fetching n8n workflow for ${file.name}:`,
+                fetchError,
+              );
+              content = `[Network error contacting file processor for ${file.name}]`;
             }
           } else {
-            // For non-text files, just note the type
-            content = `[Binary file of type: ${file.contentType}]`;
+            console.warn(
+              `n8n extraction workflow not configured. Using placeholder for ${file.name}.`,
+            );
+            content = `[File processor not configured for type: ${contentType}]`;
           }
+          // --- End n8n Webhook Call Logic ---
+        } else if (isImage) {
+          // --- Keep Existing Image Handling Logic ---
+          // For images, we just pass them through as the model can handle them
+          console.log(`Passing image attachment through: ${file.name}`);
+          content = `[Image: ${file.name}]`;
+          // --- End Existing Image Handling Logic ---
+        } else if (
+          contentType.includes('text') ||
+          contentType.includes('json') ||
+          contentType.includes('javascript') ||
+          contentType.includes('csv') ||
+          contentType.includes('md')
+        ) {
+          // --- Handle Text Files Locally (Fallback) ---
+          try {
+            console.log(
+              `Fetching text content directly for file: ${file.name}`,
+            );
+            const response = await fetch(file.url);
+            if (response.ok) {
+              content = await response.text();
 
-          contextFileContents.push({
-            name: file.name,
-            content,
-          });
-
-          console.log(`Successfully fetched content for file: ${file.name}`);
-        } catch (error) {
-          console.error(`Error processing file ${file.name}:`, error);
+              // Truncate very large text files to avoid context overflow
+              if (content.length > 100000) {
+                content = `${content.substring(0, 100000)}... [content truncated due to length]`;
+              }
+              console.log(
+                `Successfully fetched direct content for: ${file.name}`,
+              );
+            } else {
+              content = `[Error reading text file: ${file.name}, status: ${response.status}]`;
+              console.error(
+                `Failed to fetch text file: ${file.name}, status: ${response.status}`,
+              );
+            }
+          } catch (error) {
+            console.error(`Error processing text file ${file.name}:`, error);
+            content = `[Error processing text file: ${file.name}]`;
+          }
+          // --- End Text File Handling Logic ---
+        } else {
+          // --- Handle Other Unexpected/Unsupported Types ---
+          console.warn(
+            `Unsupported attachment type encountered: ${contentType} for file ${file.name}`,
+          );
+          content = `[Unsupported Attachment Type: ${contentType}]`;
+          // --- End Unsupported Type Handling ---
         }
+
+        // --- End Conditional Processing ---
+
+        // Add the result (extracted text or placeholder/error) to the context array
+        contextFileContents.push({
+          name: file.name,
+          content: content, // Use the content variable populated by the relevant block above
+        });
+
+        console.log(`Processed attachment: ${file.name}`);
       }
     }
 
