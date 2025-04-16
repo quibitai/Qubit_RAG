@@ -56,27 +56,11 @@ export async function POST(request: NextRequest) {
       id,
       messages,
       selectedChatModel,
-      experimental_attachments = [], // Keep default for safety
     }: {
       id: string;
       messages: Array<UIMessage>;
       selectedChatModel: string;
-      experimental_attachments?: Array<{
-        url: string;
-        name: string;
-        contentType: string;
-      }>;
     } = requestData;
-
-    // Add logging immediately after destructuring
-    console.log(
-      '[NEXT_STEP_DEBUG] Extracted experimental_attachments:',
-      JSON.stringify(experimental_attachments),
-    );
-    console.log(
-      '[NEXT_STEP_DEBUG] Number of attachments found:',
-      experimental_attachments?.length ?? 'undefined',
-    ); // Use optional chaining for safety
 
     console.log('[DEBUG] Checking N8N Environment Variables:');
     console.log(
@@ -114,6 +98,19 @@ export async function POST(request: NextRequest) {
       return new Response('No user message found', { status: 400 });
     }
 
+    // Extract attachments from the user message, defaulting to an empty array
+    const attachmentsToProcess = userMessage.experimental_attachments || [];
+
+    // Log the correctly extracted attachments
+    console.log(
+      '[CORRECTED_DEBUG] Attachments found in user message:',
+      JSON.stringify(attachmentsToProcess),
+    );
+    console.log(
+      '[CORRECTED_DEBUG] Number of attachments to process:',
+      attachmentsToProcess.length,
+    );
+
     const chat = await getChatById({ id });
 
     if (!chat) {
@@ -143,23 +140,23 @@ export async function POST(request: NextRequest) {
 
     // Process file attachments if they exist
     const contextFileContents = [];
-    if (experimental_attachments && experimental_attachments.length > 0) {
+    if (attachmentsToProcess && attachmentsToProcess.length > 0) {
       console.log(
-        `[NEXT_STEP_DEBUG] Entering attachments loop (${experimental_attachments.length} attachments)...`,
+        `[CORRECTED_DEBUG] Entering attachments loop (${attachmentsToProcess.length} attachments)...`,
       );
       console.log(
-        `Processing ${experimental_attachments.length} attached files for context`,
+        `Processing ${attachmentsToProcess.length} attached files for context`,
       );
 
       // Fetch content for each file
-      for (const file of experimental_attachments) {
-        console.log(`[NEXT_STEP_DEBUG] Looping for file: ${file.name}`);
+      for (const file of attachmentsToProcess) {
+        console.log(`[CORRECTED_DEBUG] Looping for file: ${file.name}`);
         console.log(
           `[DEBUG] Processing file: ${file.name}, Type: ${file.contentType}, URL: ${file.url}`,
         );
 
         let content = `[Attachment: ${file.name}]`; // Default placeholder
-        const contentType = file.contentType.toLowerCase();
+        const contentType = file.contentType?.toLowerCase() || '';
 
         // Define content types to be handled by n8n workflow
         const n8nHandledTypes = [
@@ -330,7 +327,7 @@ export async function POST(request: NextRequest) {
       }
     } else {
       console.log(
-        '[NEXT_STEP_DEBUG] Skipping attachment loop: experimental_attachments array is empty or undefined.',
+        '[CORRECTED_DEBUG] Skipping attachment loop: No attachments found in user message.',
       );
     }
 
