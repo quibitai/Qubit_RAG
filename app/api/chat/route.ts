@@ -40,11 +40,23 @@ export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
+    // Log the raw body first
+    const rawRequestBody = await request.clone().text(); // Clone request to read body without consuming it
+    console.log('[NEXT_STEP_DEBUG] Raw Request Body:', rawRequestBody);
+
+    // Parse the JSON manually to inspect before destructuring
+    const requestData = JSON.parse(rawRequestBody);
+    console.log(
+      '[NEXT_STEP_DEBUG] Parsed Request Data:',
+      JSON.stringify(requestData),
+    );
+
+    // Use the manually parsed data instead of parsing the request again
     const {
       id,
       messages,
       selectedChatModel,
-      experimental_attachments = [], // Extract attachments from the request
+      experimental_attachments = [], // Keep default for safety
     }: {
       id: string;
       messages: Array<UIMessage>;
@@ -54,7 +66,17 @@ export async function POST(request: NextRequest) {
         name: string;
         contentType: string;
       }>;
-    } = await request.json();
+    } = requestData;
+
+    // Add logging immediately after destructuring
+    console.log(
+      '[NEXT_STEP_DEBUG] Extracted experimental_attachments:',
+      JSON.stringify(experimental_attachments),
+    );
+    console.log(
+      '[NEXT_STEP_DEBUG] Number of attachments found:',
+      experimental_attachments?.length ?? 'undefined',
+    ); // Use optional chaining for safety
 
     console.log('[DEBUG] Checking N8N Environment Variables:');
     console.log(
@@ -121,13 +143,17 @@ export async function POST(request: NextRequest) {
 
     // Process file attachments if they exist
     const contextFileContents = [];
-    if (experimental_attachments.length > 0) {
+    if (experimental_attachments && experimental_attachments.length > 0) {
+      console.log(
+        `[NEXT_STEP_DEBUG] Entering attachments loop (${experimental_attachments.length} attachments)...`,
+      );
       console.log(
         `Processing ${experimental_attachments.length} attached files for context`,
       );
 
       // Fetch content for each file
       for (const file of experimental_attachments) {
+        console.log(`[NEXT_STEP_DEBUG] Looping for file: ${file.name}`);
         console.log(
           `[DEBUG] Processing file: ${file.name}, Type: ${file.contentType}, URL: ${file.url}`,
         );
@@ -302,6 +328,10 @@ export async function POST(request: NextRequest) {
         );
         console.log(`Processed attachment: ${file.name}`);
       }
+    } else {
+      console.log(
+        '[NEXT_STEP_DEBUG] Skipping attachment loop: experimental_attachments array is empty or undefined.',
+      );
     }
 
     console.log(
@@ -420,7 +450,22 @@ Use the above files as reference material when answering the user's questions. I
     });
   } catch (error) {
     // Log the actual error before sending generic response
-    console.error('[DEBUG] API Route Outer Catch Error:', error);
+    console.error('[NEXT_STEP_DEBUG] API Route Outer Catch Error:', error);
+    // Try to log raw body again if parsing failed
+    try {
+      console.error(
+        '[NEXT_STEP_DEBUG] Error occurred, attempting to read raw body again:',
+        await request
+          .clone()
+          .text()
+          .catch(() => 'Could not clone/read body again'),
+      );
+    } catch (cloneError) {
+      console.error(
+        '[NEXT_STEP_DEBUG] Could not clone request to read body:',
+        cloneError,
+      );
+    }
     return new Response('An error occurred while processing your request!', {
       status: 500,
     });
