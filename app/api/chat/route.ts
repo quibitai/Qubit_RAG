@@ -56,6 +56,20 @@ export async function POST(request: NextRequest) {
       }>;
     } = await request.json();
 
+    console.log('[DEBUG] Checking N8N Environment Variables:');
+    console.log(
+      '[DEBUG] N8N_EXTRACT_WEBHOOK_URL:',
+      process.env.N8N_EXTRACT_WEBHOOK_URL ? 'Defined' : 'MISSING!',
+    );
+    console.log(
+      '[DEBUG] N8N_EXTRACT_AUTH_HEADER:',
+      process.env.N8N_EXTRACT_AUTH_HEADER ? 'Defined' : 'MISSING!',
+    );
+    console.log(
+      '[DEBUG] N8N_EXTRACT_AUTH_TOKEN:',
+      process.env.N8N_EXTRACT_AUTH_TOKEN ? 'Defined' : 'MISSING!',
+    );
+
     const session = await auth();
 
     if (!session || !session.user || !session.user.id) {
@@ -114,6 +128,10 @@ export async function POST(request: NextRequest) {
 
       // Fetch content for each file
       for (const file of experimental_attachments) {
+        console.log(
+          `[DEBUG] Processing file: ${file.name}, Type: ${file.contentType}, URL: ${file.url}`,
+        );
+
         let content = `[Attachment: ${file.name}]`; // Default placeholder
         const contentType = file.contentType.toLowerCase();
 
@@ -137,6 +155,10 @@ export async function POST(request: NextRequest) {
         // Check if it's an image type (to keep existing handling)
         const isImage = contentType.startsWith('image/');
 
+        console.log(`[DEBUG] ContentType Lowercase: ${contentType}`);
+        console.log(`[DEBUG] Is Image? ${isImage}`);
+        console.log(`[DEBUG] Should call n8n? ${shouldCallN8n}`);
+
         // --- Start Conditional Processing ---
 
         if (shouldCallN8n) {
@@ -145,27 +167,50 @@ export async function POST(request: NextRequest) {
           const n8nAuthHeader = process.env.N8N_EXTRACT_AUTH_HEADER;
           const n8nAuthToken = process.env.N8N_EXTRACT_AUTH_TOKEN;
 
+          console.log(
+            `[DEBUG] N8N Config Check Inside Loop: URL=${!!n8nWebhookUrl}, Header=${!!n8nAuthHeader}, Token=${!!n8nAuthToken}`,
+          );
+
           if (n8nWebhookUrl && n8nAuthHeader && n8nAuthToken) {
             console.log(
               `Calling n8n to extract content for: ${file.name} (${contentType})`,
             );
+
+            console.log(
+              `[DEBUG] Attempting to call n8n webhook at: ${n8nWebhookUrl}`,
+            );
+
             try {
               const headers: Record<string, string> = {
                 'Content-Type': 'application/json',
               };
               headers[n8nAuthHeader] = n8nAuthToken;
 
+              const body = JSON.stringify({
+                fileUrl: file.url,
+                contentType: file.contentType,
+              });
+
+              console.log('[DEBUG] Fetch Headers:', JSON.stringify(headers)); // Stringify to see the structure clearly
+              console.log('[DEBUG] Fetch Body:', body);
+
               const n8nResponse = await fetch(n8nWebhookUrl, {
                 method: 'POST',
                 headers: headers,
-                body: JSON.stringify({
-                  fileUrl: file.url,
-                  contentType: file.contentType,
-                }),
+                body: body,
               });
+
+              console.log(
+                `[DEBUG] N8N response status for ${file.name}: ${n8nResponse.status}`,
+              );
 
               if (n8nResponse.ok) {
                 const n8nResult = await n8nResponse.json();
+                console.log(
+                  `[DEBUG] N8N Success Response Body for ${file.name}:`,
+                  JSON.stringify(n8nResult),
+                );
+
                 // Adjust based on n8n 'Respond to Webhook' -> 'Put Response in Field' setting
                 if (
                   n8nResult.responseBody?.success &&
@@ -190,12 +235,22 @@ export async function POST(request: NextRequest) {
                   );
                 }
               } else {
+                const errorText = await n8nResponse.text();
+                console.error(
+                  `[DEBUG] N8N Error Response Body for ${file.name}: ${errorText}`,
+                );
+
                 content = `[Error calling n8n extractor for ${file.name}: ${n8nResponse.statusText}]`;
                 console.error(
                   `n8n webhook call failed for ${file.name}: ${n8nResponse.status} ${n8nResponse.statusText}`,
                 );
               }
             } catch (fetchError) {
+              console.error(
+                `[DEBUG] FETCH ERROR calling n8n for ${file.name}:`,
+                fetchError,
+              );
+
               console.error(
                 `Error fetching n8n workflow for ${file.name}:`,
                 fetchError,
@@ -204,18 +259,28 @@ export async function POST(request: NextRequest) {
             }
           } else {
             console.warn(
+              `[DEBUG] Skipping n8n call for ${file.name} due to missing config.`,
+            );
+
+            console.warn(
               `n8n extraction workflow not configured. Using placeholder for ${file.name}.`,
             );
             content = `[File processor not configured for type: ${contentType}]`;
           }
           // --- End n8n Webhook Call Logic ---
         } else if (isImage) {
+          console.log(`[DEBUG] Handling as image: ${file.name}`);
+
           // --- Keep Existing Image Handling Logic ---
           // For images, we just pass them through as the model can handle them
           console.log(`Passing image attachment through: ${file.name}`);
           content = `[Image: ${file.name}]`;
           // --- End Existing Image Handling Logic ---
         } else {
+          console.warn(
+            `[DEBUG] Unsupported type, skipping n8n: ${contentType}`,
+          );
+
           // --- Handle Other Unexpected/Unsupported Types ---
           console.warn(
             `Unsupported attachment type encountered: ${contentType} for file ${file.name}`,
@@ -232,9 +297,20 @@ export async function POST(request: NextRequest) {
           content: content, // Use the content variable populated by the relevant block above
         });
 
+        console.log(
+          `[DEBUG] Finished processing logic for attachment: ${file.name}`,
+        );
         console.log(`Processed attachment: ${file.name}`);
       }
     }
+
+    console.log(
+      '[DEBUG] Finished processing all attachments. Preparing final prompt context.',
+    );
+    console.log(
+      '[DEBUG] Final contextFileContents:',
+      JSON.stringify(contextFileContents),
+    );
 
     // Create a modified system prompt with file context if needed
     let systemPromptWithContext = systemPrompt({ selectedChatModel });
@@ -253,6 +329,10 @@ Use the above files as reference material when answering the user's questions. I
 
       // Append the file context to the system prompt
       systemPromptWithContext = `${systemPromptWithContext}\n\n${fileContextString}`;
+      console.log(
+        '[DEBUG] System prompt being used:',
+        `${systemPromptWithContext.substring(0, 500)}...`,
+      ); // Log start of prompt
     }
 
     return createDataStreamResponse({
@@ -339,7 +419,8 @@ Use the above files as reference material when answering the user's questions. I
       },
     });
   } catch (error) {
-    console.error('API error:', error);
+    // Log the actual error before sending generic response
+    console.error('[DEBUG] API Route Outer Catch Error:', error);
     return new Response('An error occurred while processing your request!', {
       status: 500,
     });
