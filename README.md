@@ -16,6 +16,7 @@ A Next.js AI chatbot with RAG (Retrieval Augmented Generation) capabilities powe
 - 🔒 Secure environment variable handling
 - 🧠 Intelligent tool selection with search-before-creation logic
 - 🚫 No Orchestrator - Direct implementation in route file for simplicity and performance
+- 📤 Drag-and-drop file uploads for easy document sharing
 
 ## Project Structure
 
@@ -128,7 +129,14 @@ node tests/test-query-rows-webhook.js       # Test data queries
 
 ## Version History
 
-- v1.4.0 - Current
+- v1.5.0 - Current
+  - Added drag-and-drop file upload functionality
+  - Improved file attachment UX with better positioning of controls
+  - Enhanced tool descriptions for better AI prompt understanding
+  - Improved search results handling with support for direct response format
+  - Fixed routing implementation for better performance
+
+- v1.4.0
   - Added Tavily web search integration
   - Improved tool architecture and organization
   - Enhanced system prompt with search-before-creation logic
