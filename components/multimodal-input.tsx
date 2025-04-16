@@ -261,11 +261,8 @@ function PureMultimodalInput({
         }}
       />
 
-      <div className="absolute bottom-0 p-2 w-fit flex flex-row justify-start">
+      <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end gap-2">
         <AttachmentsButton fileInputRef={fileInputRef} status={status} />
-      </div>
-
-      <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end">
         {status === 'submitted' ? (
           <StopButton stop={stop} setMessages={setMessages} />
         ) : (
@@ -302,11 +299,11 @@ function PureAttachmentsButton({
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
-          data-testid="multimodal-upload"
+          data-testid="attachments-button"
           variant="ghost"
           size="icon"
           type="button"
-          className="absolute right-12 bottom-3 size-6 text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-1 focus-visible:ring-primary transition-colors"
+          className="size-6 text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-1 focus-visible:ring-primary transition-colors"
           aria-label="Attach files"
           disabled={status !== 'ready'}
           onClick={() => {
