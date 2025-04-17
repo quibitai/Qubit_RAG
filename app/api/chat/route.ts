@@ -430,6 +430,48 @@ Use the above files as reference material when answering the user's questions. I
       ); // Log start of prompt
     }
 
+    // Clone and sanitize messages to remove file attachments which the model doesn't support
+    const sanitizedMessages = messages.map((message) => {
+      // Create a new object without the experimental_attachments property
+      const { experimental_attachments, ...rest } = message;
+
+      // For user messages with file attachments, modify the content to include a reference
+      if (
+        message.role === 'user' &&
+        experimental_attachments &&
+        experimental_attachments.length > 0
+      ) {
+        // Get list of file names
+        const fileNames = experimental_attachments
+          .map((att) => att.name)
+          .join(', ');
+
+        // Clone parts array and add a note about files
+        const newParts = [...(rest.parts || [])];
+        const lastPartIndex = newParts.length - 1;
+
+        // If last part is text, append to it; otherwise add a new text part
+        if (lastPartIndex >= 0 && newParts[lastPartIndex].type === 'text') {
+          const originalText = newParts[lastPartIndex].text;
+          newParts[lastPartIndex] = {
+            type: 'text',
+            text: `${originalText}\n\n[Note: User uploaded file(s): ${fileNames}. Content has been extracted and included in context.]`,
+          };
+        } else {
+          newParts.push({
+            type: 'text',
+            text: `[Note: User uploaded file(s): ${fileNames}. Content has been extracted and included in context.]`,
+          });
+        }
+
+        return { ...rest, parts: newParts };
+      }
+
+      return rest;
+    });
+
+    console.log('[DEBUG] Sanitized messages to remove attachments.');
+
     return createDataStreamResponse({
       execute: (dataStream) => {
         try {
@@ -441,7 +483,7 @@ Use the above files as reference material when answering the user's questions. I
           const result = streamText({
             model: myProvider.languageModel(selectedChatModel),
             system: systemPromptWithContext, // Use the enhanced system prompt with context
-            messages,
+            messages: sanitizedMessages, // Use sanitized messages without file attachments
             maxSteps: 5,
             experimental_activeTools: [
               'searchInternalKnowledgeBase',
