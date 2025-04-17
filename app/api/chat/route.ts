@@ -240,6 +240,74 @@ export async function POST(request: NextRequest) {
                   n8nResult.responseBody?.extractedText
                 ) {
                   content = n8nResult.responseBody.extractedText;
+
+                  // Check if the content appears to be JSON
+                  if (
+                    content.trim().startsWith('[') ||
+                    content.trim().startsWith('{')
+                  ) {
+                    try {
+                      // Parse JSON and format into readable text
+                      const jsonData = JSON.parse(content);
+
+                      // Handle array of objects (like Excel spreadsheet data)
+                      if (Array.isArray(jsonData)) {
+                        console.log(
+                          `[DEBUG] Converting JSON array to readable text for ${file.name}`,
+                        );
+
+                        // Format array of objects into a tabular text format
+                        const formattedContent = jsonData
+                          .map((row, index) => {
+                            // Create a header from first row
+                            if (index === 0) {
+                              const header = Object.keys(row)
+                                .map((key) => key.trim())
+                                .join(' | ');
+                              const divider = header
+                                .replace(/[^|]/g, '-')
+                                .replace(/\|/g, '|');
+                              return `${header}\n${divider}\n${Object.values(
+                                row,
+                              )
+                                .map((val) => String(val).trim())
+                                .join(' | ')}`;
+                            }
+                            return Object.values(row)
+                              .map((val) => String(val).trim())
+                              .join(' | ');
+                          })
+                          .join('\n');
+
+                        content = `Data from ${file.name}:\n\n${formattedContent}`;
+                      }
+                      // Handle single object
+                      else if (typeof jsonData === 'object') {
+                        console.log(
+                          `[DEBUG] Converting JSON object to readable text for ${file.name}`,
+                        );
+                        content = `Data from ${file.name}:\n\n${Object.entries(
+                          jsonData,
+                        )
+                          .map(
+                            ([key, value]) =>
+                              `${key.trim()}: ${String(value).trim()}`,
+                          )
+                          .join('\n')}`;
+                      }
+
+                      console.log(
+                        `[DEBUG] Successfully formatted JSON content for ${file.name}`,
+                      );
+                    } catch (jsonError) {
+                      console.warn(
+                        `[DEBUG] Failed to parse JSON content for ${file.name}:`,
+                        jsonError,
+                      );
+                      // Keep original content if JSON parsing fails
+                    }
+                  }
+
                   if (content.length > 150000) {
                     // Optional truncation
                     console.warn(
@@ -364,85 +432,110 @@ Use the above files as reference material when answering the user's questions. I
 
     return createDataStreamResponse({
       execute: (dataStream) => {
-        const result = streamText({
-          model: myProvider.languageModel(selectedChatModel),
-          system: systemPromptWithContext, // Use the enhanced system prompt with context
-          messages,
-          maxSteps: 5,
-          experimental_activeTools: [
-            'searchInternalKnowledgeBase',
-            'listDocuments',
-            'retrieveDocument',
-            'queryDocumentRows',
-            'tavilySearch',
-            'getWeather',
-            'createDocument',
-            'updateDocument',
-            'requestSuggestions',
-          ],
-          experimental_transform: smoothStream({ chunking: 'word' }),
-          experimental_generateMessageId: generateUUID,
-          tools: {
-            searchInternalKnowledgeBase,
-            listDocuments,
-            retrieveDocument,
-            queryDocumentRows,
-            tavilySearch,
-            getWeather,
-            createDocument: createDocument({ session, dataStream }),
-            updateDocument: updateDocument({ session, dataStream }),
-            requestSuggestions: requestSuggestions({ session, dataStream }),
-          },
-          onFinish: async ({ response }) => {
-            if (session.user?.id) {
-              try {
-                const assistantId = getTrailingMessageId({
-                  messages: response.messages.filter(
-                    (message) => message.role === 'assistant',
-                  ),
-                });
+        try {
+          console.log(
+            '[DEBUG] Starting streamText execution with context length:',
+            systemPromptWithContext.length,
+          );
 
-                if (!assistantId) {
-                  throw new Error('No assistant message found!');
+          const result = streamText({
+            model: myProvider.languageModel(selectedChatModel),
+            system: systemPromptWithContext, // Use the enhanced system prompt with context
+            messages,
+            maxSteps: 5,
+            experimental_activeTools: [
+              'searchInternalKnowledgeBase',
+              'listDocuments',
+              'retrieveDocument',
+              'queryDocumentRows',
+              'tavilySearch',
+              'getWeather',
+              'createDocument',
+              'updateDocument',
+              'requestSuggestions',
+            ],
+            experimental_transform: smoothStream({ chunking: 'word' }),
+            experimental_generateMessageId: generateUUID,
+            tools: {
+              searchInternalKnowledgeBase,
+              listDocuments,
+              retrieveDocument,
+              queryDocumentRows,
+              tavilySearch,
+              getWeather,
+              createDocument: createDocument({ session, dataStream }),
+              updateDocument: updateDocument({ session, dataStream }),
+              requestSuggestions: requestSuggestions({ session, dataStream }),
+            },
+            onFinish: async ({ response }) => {
+              if (session.user?.id) {
+                try {
+                  const assistantId = getTrailingMessageId({
+                    messages: response.messages.filter(
+                      (message) => message.role === 'assistant',
+                    ),
+                  });
+
+                  if (!assistantId) {
+                    throw new Error('No assistant message found!');
+                  }
+
+                  const [, assistantMessage] = appendResponseMessages({
+                    messages: [userMessage],
+                    responseMessages: response.messages,
+                  });
+
+                  await saveMessages({
+                    messages: [
+                      {
+                        id: assistantId,
+                        chatId: id,
+                        role: assistantMessage.role,
+                        parts: assistantMessage.parts,
+                        attachments:
+                          assistantMessage.experimental_attachments ?? [],
+                        createdAt: new Date(),
+                      },
+                    ],
+                  });
+                } catch (saveError) {
+                  console.error('[DEBUG] Failed to save chat:', saveError);
                 }
-
-                const [, assistantMessage] = appendResponseMessages({
-                  messages: [userMessage],
-                  responseMessages: response.messages,
-                });
-
-                await saveMessages({
-                  messages: [
-                    {
-                      id: assistantId,
-                      chatId: id,
-                      role: assistantMessage.role,
-                      parts: assistantMessage.parts,
-                      attachments:
-                        assistantMessage.experimental_attachments ?? [],
-                      createdAt: new Date(),
-                    },
-                  ],
-                });
-              } catch (_) {
-                console.error('Failed to save chat');
               }
-            }
-          },
-          experimental_telemetry: {
-            isEnabled: isProductionEnvironment,
-            functionId: 'stream-text',
-          },
-        });
+            },
+            experimental_telemetry: {
+              isEnabled: isProductionEnvironment,
+              functionId: 'stream-text',
+            },
+          });
 
-        result.consumeStream();
+          console.log('[DEBUG] streamText result created successfully');
 
-        result.mergeIntoDataStream(dataStream, {
-          sendReasoning: true,
-        });
+          try {
+            result.consumeStream();
+            console.log('[DEBUG] streamText stream consumption started');
+
+            result.mergeIntoDataStream(dataStream, {
+              sendReasoning: true,
+            });
+            console.log('[DEBUG] Successfully merged into data stream');
+          } catch (streamError) {
+            console.error('[DEBUG] Error in stream processing:', streamError);
+            // Just log the error, don't try to modify the stream directly
+            // The onError handler will handle responding to the client
+          }
+        } catch (executeError) {
+          console.error('[DEBUG] Error in execute function:', executeError);
+          // Just log the error, don't try to modify the stream directly
+          // The onError handler will handle responding to the client
+        }
       },
-      onError: () => {
-        return 'Oops, an error occurred!';
+      onError: (error) => {
+        console.error(
+          '[DEBUG] createDataStreamResponse onError triggered:',
+          error,
+        );
+        return 'An error occurred while processing your request. Please try again.';
       },
     });
   } catch (error) {
