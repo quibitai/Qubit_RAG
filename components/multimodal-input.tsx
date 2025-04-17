@@ -252,6 +252,8 @@ function PureMultimodalInput({
         isDragging &&
           'after:absolute after:inset-0 after:rounded-2xl after:border-2 after:border-dashed after:border-primary after:bg-primary/5 after:pointer-events-none',
       )}
+      role="button"
+      tabIndex={0}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
