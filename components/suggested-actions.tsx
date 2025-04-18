@@ -26,13 +26,12 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
       title: 'Analyze our P&Ls',
       label: 'and suggest areas for improvement.',
       action:
-        'list documents and give me an overview of our P&Ls and suggest areas for improvement.',
+        'List documents and give me an overview of our P&Ls and suggest areas for improvement.',
     },
     {
-      title: 'Create an image',
-      label: 'of a burning skull.',
-      action:
-        'Create and image of a burning skull in the style of This is Spinal Tap',
+      title: 'List my tasks...',
+      label: 'in Asana.',
+      action: 'List my tasks in Asana',
     },
   ];
 
