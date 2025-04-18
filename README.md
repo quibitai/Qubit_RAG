@@ -5,31 +5,40 @@ A Next.js AI chatbot with RAG (Retrieval Augmented Generation) capabilities powe
 ## Features
 
 - 🔍 Semantic search over internal knowledge base
-- 🌐 Web search integration via Tavily API
+- 🌐 Web search integration via Google Search API (via SerpAPI)
 - 📄 Document listing and retrieval from Google Drive
 - 📊 SQL-like queries for spreadsheet data
-- 💬 AI assistant with streaming responses
+- 💬 AI assistant with streaming responses using OpenAI models (GPT-4.1 and GPT-4.1-mini)
 - 🔄 N8N integration for data processing workflows
 - 🔐 Authentication and session management
 - 🎨 Modern UI with dark mode support
 - 📱 Responsive design for mobile and desktop
 - 🔒 Secure environment variable handling
 - 🧠 Intelligent tool selection with search-before-creation logic
-- 🚫 No Orchestrator - Direct implementation in route file for simplicity and performance
-- 📤 Drag-and-drop file uploads for easy document sharing
+- 📤 Advanced file upload functionality:
+  - Drag-and-drop support for various file types
+  - PDF document extraction
+  - Excel/CSV data conversion to readable formats
+  - Image handling for AI vision capabilities
+  - Intelligent JSON data formatting
+- 🛠️ Dual model support:
+  - Echo Tango Bit (GPT-4.1-mini) for general chat
+  - Orchestrator (GPT-4.1) for advanced reasoning
 
 ## Project Structure
 
 ```
 .
 ├── app/
-│   ├── api/chat/route.ts    # Main chat API endpoint
+│   ├── api/chat/route.ts    # Main chat API endpoint with file processing
+│   ├── api/files/          # File upload and processing endpoints
 │   ├── (chat)/             # Chat UI components
 │   └── (auth)/             # Authentication logic
 ├── components/             # Reusable UI components
 ├── lib/
 │   ├── ai/
 │   │   ├── tools/          # Custom AI tools
+│   │   ├── providers.ts    # AI model configuration
 │   │   └── prompts.ts      # System prompts
 │   └── db/                 # Database utilities
 ├── docs/                   # Documentation
@@ -61,7 +70,7 @@ Required environment variables (see `.env.example` for details):
 - Authentication secret
 - Database URL
 - OpenAI API key
-- Tavily API key
+- Vercel Blob storage token (for file uploads)
 
 ## N8N Workflows
 
@@ -72,8 +81,8 @@ This project uses five N8N workflows for backend processing:
    - Supports natural language queries
    - Returns relevant document snippets
 
-2. **Web Search Tool (Tavily)**
-   - Performs web searches using the Tavily API
+2. **Web Search Tool (SerpAPI)**
+   - Performs web searches using Google Search API via SerpAPI
    - Summarizes search results for the AI
    - Attribution of sources in responses
 
@@ -92,6 +101,11 @@ This project uses five N8N workflows for backend processing:
    - Supports complex data operations
    - Returns structured results
 
+6. **File Extraction Workflow**
+   - Extracts text from uploaded documents (PDF, XLSX, etc.)
+   - Converts spreadsheet data to readable formats
+   - Handles different file types appropriately
+
 See the [N8N Workflows Documentation](./docs/N8N_WORKFLOWS.md) for detailed setup instructions.
 
 ### Testing Webhooks
@@ -104,6 +118,27 @@ node tests/test-list-docs-webhook.js        # Test document listing
 node tests/test-get-contents-webhook.js     # Test content retrieval
 node tests/test-query-rows-webhook.js       # Test data queries
 ```
+
+## Private Repository Deployment
+
+When using a private GitHub repository with Vercel, you need to configure the following:
+
+### For Hobby Plan (Free Tier)
+- Only the account owner can trigger deployments from a private repository
+- Ensure your Git email address matches your Vercel account email
+- You may need to reinstall the Vercel for GitHub integration to ensure it has access to your private repository
+
+### For Pro/Enterprise Plans
+- All team members who need to commit and trigger deployments must be added to the Vercel team
+- Each team member must have their Git email address match their Vercel account email
+- Check project settings under Git configuration to ensure proper branch setup
+
+### Troubleshooting Deployment Issues
+If deployments are not triggered automatically:
+1. Check for deployment limit errors in commit comments
+2. Verify Git integration permissions in your Vercel account settings
+3. Try a manual deployment from the Vercel dashboard
+4. Check webhook settings in your GitHub repository
 
 ## Deployment
 
@@ -118,18 +153,28 @@ node tests/test-query-rows-webhook.js       # Test data queries
   - Next.js 15
   - Tailwind CSS
   - Shadcn UI
-  - Vercel AI SDK
+  - Vercel AI SDK 4.3.4
 
 - **Backend**
-  - N8N workflows
-  - PostgreSQL
-  - Next-Auth
-  - OpenAI API
-  - Tavily API
+  - N8N workflows for document processing
+  - PostgreSQL with Drizzle ORM
+  - Next-Auth 5.0 for authentication
+  - OpenAI API (GPT-4.1 and GPT-4.1-mini)
+  - Google Search API via SerpAPI
+  - Vercel Blob for file storage
 
 ## Version History
 
-- v1.5.0 - Current
+- v2.0.0 - Current
+  - Enhanced file processing for Excel, PDF, and text documents
+  - Improved JSON data formatting for spreadsheet data
+  - Fixed AI model handling to support file attachments
+  - Added sanitization of messages to prevent errors with file types
+  - Enhanced console debugging for file processing
+  - Better error handling throughout the application
+  - Replaced Tavily search with Google Search API via SerpAPI
+
+- v1.5.0
   - Added drag-and-drop file upload functionality
   - Improved file attachment UX with better positioning of controls
   - Enhanced tool descriptions for better AI prompt understanding
