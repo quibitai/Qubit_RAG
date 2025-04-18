@@ -2,7 +2,7 @@ import { tool } from 'ai';
 import { z } from 'zod';
 
 // Define the schema for the parameters the tool accepts
-const tavilySearchParametersSchema = z.object({
+const serpApiSearchParametersSchema = z.object({
   query: z.string().describe('The search query to perform.'),
   search_depth: z
     .enum(['basic', 'advanced'])
@@ -18,28 +18,27 @@ const tavilySearchParametersSchema = z.object({
     .describe(
       'Maximum number of initial search results to fetch before filtering (default 5).',
     ),
-  // Add other optional Tavily /search parameters here if needed (e.g., include_domains)
+  // Add other optional SerpAPI parameters here if needed
 });
 
 export const tavilySearch = tool({
   description:
-    'Performs a web search using the Tavily API to find relevant information from the internet. Use this for current events, general knowledge questions, or topics not covered by internal documents.',
-  parameters: tavilySearchParametersSchema,
+    'Performs a web search using Google Search API (via SerpAPI) to find relevant information from the internet. Use this for current events, general knowledge questions, or topics not covered by internal documents.',
+  parameters: serpApiSearchParametersSchema,
 
   execute: async (params) => {
     const { query } = params; // We mainly need the query for logging/error messages now
 
-    console.log(`Tool 'tavilySearch' (via N8N) called with query: ${query}`);
+    console.log(`Tool 'serpApiSearch' (via N8N) called with query: ${query}`);
 
     // --- Get N8N webhook details from environment variables ---
-    const webhookUrl = process.env.N8N_TAVILY_SEARCH_WEBHOOK_URL; // Ensure this env var points to your n8n webhook
+    const webhookUrl = process.env.N8N_TAVILY_SEARCH_WEBHOOK_URL;
     const authHeader = process.env.N8N_TAVILY_SEARCH_AUTH_HEADER;
     const authToken = process.env.N8N_TAVILY_SEARCH_AUTH_TOKEN;
-    // Note: We don't need the TAVILY_API_KEY here anymore as n8n handles that internally
 
     if (!webhookUrl || !authHeader || !authToken) {
       console.error(
-        'Configuration error: Missing Tavily N8N webhook URL or auth details.',
+        'Configuration error: Missing SerpAPI N8N webhook URL or auth details.',
       );
       // Return an error message string for the LLM
       return `Error: Web search service configuration is incomplete. Cannot perform search.`;
@@ -51,16 +50,14 @@ export const tavilySearch = tool({
       };
       headers[authHeader] = authToken;
 
-      // The body now just needs the query, as n8n workflow handles the Tavily API call details
+      // Format for N8N agent node - using chatInput as the parameter expected by the agent
       const body = JSON.stringify({
-        query: query,
-        // You might pass other params if your *n8n workflow* expects them
-        // search_depth: search_depth,
-        // max_results: max_results,
+        chatInput: query, // Agent node expects input in {{ $json.chatInput }}
+        query: query, // Also include the original parameter for backward compatibility
       });
 
       console.log(
-        `Calling N8N Tavily webhook at: ${webhookUrl} for query: "${query}"`,
+        `Calling N8N SerpAPI webhook at: ${webhookUrl} for query: "${query}"`,
       );
 
       const response = await fetch(webhookUrl, {
@@ -72,14 +69,14 @@ export const tavilySearch = tool({
       if (!response.ok) {
         const errorBody = await response.text();
         console.error(
-          `N8N Tavily webhook call failed with status ${response.status}: ${errorBody}`,
+          `N8N SerpAPI webhook call failed with status ${response.status}: ${errorBody}`,
         );
         // Return an error message string for the LLM
         return `Error: Web search failed (${response.statusText || 'Network error'}).`;
       }
 
       // --- Process the SIMPLIFIED response from N8N ---
-      // We now expect n8n to return: { "summary": "..." }
+      // We expect the agent node to return: { "summary": "..." } same as before
       const n8nResult = await response.json();
 
       // Check if the expected 'summary' field exists and is not empty
@@ -91,7 +88,7 @@ export const tavilySearch = tool({
         !n8nResult.summary.includes('No content extracted')
       ) {
         console.log(
-          '------ tavilySearch tool returning to LLM: ------\n',
+          '------ serpApiSearch tool returning to LLM: ------\n',
           n8nResult.summary,
         );
         // Return the summary string directly
@@ -105,7 +102,7 @@ export const tavilySearch = tool({
         return `I searched for "${query}" but did not find a relevant summary.`;
       }
     } catch (error) {
-      console.error('Error executing tavilySearch tool fetch:', error);
+      console.error('Error executing serpApiSearch tool fetch:', error);
       // Return an error message string for the LLM
       return `Error: Failed to execute web search: ${error instanceof Error ? error.message : String(error)}`;
     }
