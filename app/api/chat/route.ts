@@ -9,7 +9,6 @@ import {
   smoothStream,
   streamText,
 } from 'ai';
-import { z } from 'zod';
 import { auth } from '@/app/(auth)/auth';
 import { systemPrompt } from '@/lib/ai/prompts';
 import {
@@ -484,7 +483,7 @@ Use the above files as reference material when answering the user's questions. I
             model: myProvider.languageModel(selectedChatModel),
             system: systemPromptWithContext, // Use the enhanced system prompt with context
             messages: sanitizedMessages, // Use sanitized messages without file attachments
-            maxSteps: 5,
+            maxSteps: 10, // Increased from 5 to 10 to allow more reasoning steps
             experimental_activeTools: [
               'searchInternalKnowledgeBase',
               'listDocuments',
@@ -496,7 +495,9 @@ Use the above files as reference material when answering the user's questions. I
               'updateDocument',
               'requestSuggestions',
             ],
-            experimental_transform: smoothStream({ chunking: 'word' }),
+            experimental_transform: smoothStream({
+              chunking: 'word',
+            }),
             experimental_generateMessageId: generateUUID,
             tools: {
               searchInternalKnowledgeBase,

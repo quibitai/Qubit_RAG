@@ -77,7 +77,16 @@ export const tavilySearch = tool({
 
       // --- Process the SIMPLIFIED response from N8N ---
       // We expect the agent node to return: { "summary": "..." } same as before
-      const n8nResult = await response.json();
+      const rawResult = await response.json();
+      console.log(`Raw N8N response:`, JSON.stringify(rawResult, null, 2));
+
+      // Check if the response is an array and extract the first item if needed
+      const n8nResult =
+        Array.isArray(rawResult) && rawResult.length > 0
+          ? rawResult[0]
+          : rawResult;
+
+      console.log(`Processed result:`, JSON.stringify(n8nResult, null, 2));
 
       // Check if the expected 'summary' field exists and is not empty
       if (
