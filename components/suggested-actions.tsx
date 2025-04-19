@@ -23,10 +23,10 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
       action: "Give me the completecontents of Echo Tango's core values file",
     },
     {
-      title: 'Analyze our P&Ls',
-      label: 'and suggest areas for improvement.',
+      title: 'Create a Research Report',
+      label: 'for LWCC.',
       action:
-        'List documents and give me an overview of our P&Ls and suggest areas for improvement.',
+        "Search the web for LWCC in Baton Rouge and using the client research examples in the knowledge base, create a research report on how they align with Echo Tango's Ideal Clients.",
     },
     {
       title: 'List Google Calendar Events',
