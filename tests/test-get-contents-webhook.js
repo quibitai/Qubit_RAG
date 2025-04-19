@@ -43,7 +43,7 @@ async function testWebhook() {
     try {
       const data = JSON.parse(rawText);
       console.log('Success! Response from Get Contents webhook:');
-      console.log(JSON.stringify(data, null, 2).substring(0, 500) + '...');
+      console.log(`${JSON.stringify(data, null, 2).substring(0, 500)}...`);
     } catch (parseError) {
       console.error('Error parsing JSON:', parseError);
       console.log('Received non-JSON response');

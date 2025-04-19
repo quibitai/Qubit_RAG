@@ -62,8 +62,7 @@ export const retrieveDocument = tool({
               if (!matchedDoc) {
                 const partialMatch = documentList.find(
                   (doc: any) =>
-                    doc?.title &&
-                    doc.title.toLowerCase().includes(file_id.toLowerCase()),
+                    doc?.title?.toLowerCase().includes(file_id.toLowerCase()),
                 );
 
                 if (partialMatch?.id) {

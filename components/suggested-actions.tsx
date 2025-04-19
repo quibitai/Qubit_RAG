@@ -28,6 +28,11 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
       action:
         'List documents and give me an overview of our P&Ls and suggest areas for improvement.',
     },
+    {
+      title: 'List Google Calendar Events',
+      label: 'for Friday of next week.',
+      action: 'List Google Calendar events for Friday of next week.',
+    },
   ];
 
   return (
