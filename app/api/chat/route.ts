@@ -32,6 +32,7 @@ import { retrieveDocument } from '@/lib/ai/tools/retrieve-document';
 import { queryDocumentRows } from '@/lib/ai/tools/query-document-rows';
 import { tavilySearch } from '@/lib/ai/tools/tavily-search';
 import { searchInternalKnowledgeBase } from '@/lib/ai/tools/search-internal-knowledge-base';
+import { googleCalendar } from '@/lib/ai/tools/google-calendar';
 import { isProductionEnvironment } from '@/lib/constants';
 import { myProvider } from '@/lib/ai/providers';
 
@@ -73,6 +74,18 @@ export async function POST(request: NextRequest) {
     console.log(
       '[DEBUG] N8N_EXTRACT_AUTH_TOKEN:',
       process.env.N8N_EXTRACT_AUTH_TOKEN ? 'Defined' : 'MISSING!',
+    );
+    console.log(
+      '[DEBUG] N8N_GOOGLE_CALENDAR_WEBHOOK_URL:',
+      process.env.N8N_GOOGLE_CALENDAR_WEBHOOK_URL ? 'Defined' : 'MISSING!',
+    );
+    console.log(
+      '[DEBUG] N8N_GOOGLE_CALENDAR_AUTH_HEADER:',
+      process.env.N8N_GOOGLE_CALENDAR_AUTH_HEADER ? 'Defined' : 'MISSING!',
+    );
+    console.log(
+      '[DEBUG] N8N_GOOGLE_CALENDAR_AUTH_TOKEN:',
+      process.env.N8N_GOOGLE_CALENDAR_AUTH_TOKEN ? 'Defined' : 'MISSING!',
     );
 
     const session = await auth();
@@ -494,6 +507,7 @@ Use the above files as reference material when answering the user's questions. I
               'createDocument',
               'updateDocument',
               'requestSuggestions',
+              'googleCalendar',
             ],
             experimental_transform: smoothStream({
               chunking: 'word',
@@ -506,6 +520,7 @@ Use the above files as reference material when answering the user's questions. I
               queryDocumentRows,
               tavilySearch,
               getWeather,
+              googleCalendar,
               createDocument: createDocument({ session, dataStream }),
               updateDocument: updateDocument({ session, dataStream }),
               requestSuggestions: requestSuggestions({ session, dataStream }),

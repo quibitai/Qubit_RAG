@@ -182,6 +182,50 @@ This workflow retrieves structured data from spreadsheet documents.
 4. **Error Handling** node for file not found
 5. **Respond to Webhook** node to return the structured data
 
+## Workflow 6: Google Calendar Integration
+
+This workflow enables interaction with Google Calendar to manage events and appointments.
+
+### Webhook Setup
+
+1. Create a new n8n workflow
+2. Add a **Webhook** node as the trigger
+   - Method: POST
+   - Authentication: Header Auth
+   - Auth Header Name: `googlecalendar` (or your preferred name)
+   - Auth Header Value: Generate a secure token
+
+### Required Nodes
+
+1. **Webhook** node (trigger)
+2. **Function** node to extract the action, query, eventId, and eventDetails
+   ```javascript
+   return {
+     action: $input.body.action,
+     query: $input.body.query || null,
+     eventId: $input.body.eventId || null,
+     eventDetails: $input.body.eventDetails || null
+   };
+   ```
+3. **Switch** node based on "action" parameter with routes for:
+   - search: Query events from Google Calendar
+   - create: Create a new event
+   - update: Update an existing event
+   - delete: Delete an event
+4. **Google Calendar** nodes for each action type
+   - For search: Use "List" operation with appropriate filters
+   - For create: Use "Create" operation
+   - For update: Use "Update" operation
+   - For delete: Use "Delete" operation 
+5. **Error Handling** nodes for each path
+6. **Respond to Webhook** nodes to return appropriate responses for each action
+
+### Authentication
+
+1. You'll need to connect n8n to a Google account with calendar access
+2. Set up OAuth credentials following Google's instructions
+3. Configure the Google Calendar node connection in n8n
+
 ## Environment Variables
 
 After setting up your n8n workflows, copy the relevant webhook URLs and authentication details into your `.env.local` file:
@@ -207,6 +251,14 @@ N8N_GET_CONTENTS_TOOL_AUTH_TOKEN=your_get_contents_auth_token
 N8N_QUERY_ROWS_TOOL_WEBHOOK_URL=https://yourinstance.n8n.cloud/webhook/your-query-rows-webhook-path
 N8N_QUERY_ROWS_TOOL_AUTH_HEADER=querydocumentrows
 N8N_QUERY_ROWS_TOOL_AUTH_TOKEN=your_query_rows_auth_token
+
+N8N_EXTRACT_WEBHOOK_URL=https://yourinstance.n8n.cloud/webhook/your-extract-webhook-path
+N8N_EXTRACT_AUTH_HEADER=extractfilecontent
+N8N_EXTRACT_AUTH_TOKEN=your_extract_auth_token
+
+N8N_GOOGLE_CALENDAR_WEBHOOK_URL=https://yourinstance.n8n.cloud/webhook/your-google-calendar-webhook-path
+N8N_GOOGLE_CALENDAR_AUTH_HEADER=googlecalendar
+N8N_GOOGLE_CALENDAR_AUTH_TOKEN=your_google_calendar_auth_token
 ```
 
 ## Testing Your Workflows
@@ -242,4 +294,28 @@ curl -X POST https://yourinstance.n8n.cloud/webhook/your-query-rows-webhook-path
   -H "querydocumentrows: your_query_rows_auth_token" \
   -H "Content-Type: application/json" \
   -d '{"file_id":"your_spreadsheet_id"}'
+
+# Test Google Calendar workflow - Search events
+curl -X POST https://yourinstance.n8n.cloud/webhook/your-google-calendar-webhook-path \
+  -H "googlecalendar: your_google_calendar_auth_token" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"search","query":"meetings tomorrow"}'
+
+# Test Google Calendar workflow - Create event
+curl -X POST https://yourinstance.n8n.cloud/webhook/your-google-calendar-webhook-path \
+  -H "googlecalendar: your_google_calendar_auth_token" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"create","eventDetails":{"summary":"Team Meeting","startDateTime":"2024-05-30T09:00:00","endDateTime":"2024-05-30T10:00:00","description":"Weekly team sync"}}'
+
+# Test Google Calendar workflow - Update event
+curl -X POST https://yourinstance.n8n.cloud/webhook/your-google-calendar-webhook-path \
+  -H "googlecalendar: your_google_calendar_auth_token" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"update","eventId":"EVENT_ID_HERE","eventDetails":{"summary":"Updated Meeting Title"}}'
+
+# Test Google Calendar workflow - Delete event
+curl -X POST https://yourinstance.n8n.cloud/webhook/your-google-calendar-webhook-path \
+  -H "googlecalendar: your_google_calendar_auth_token" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"delete","eventId":"EVENT_ID_HERE"}'
 ``` 
