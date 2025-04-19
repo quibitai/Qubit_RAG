@@ -14,7 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Updated system prompts to include Google Calendar tool usage instructions
-- Enhanced Asana integration to trigger on any mention of "Asana" in user queries
 - Updated .env.example with Google Calendar configuration variables
 
 ## [1.4.0] - 2024-02-04
