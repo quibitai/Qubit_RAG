@@ -30,8 +30,8 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
     },
     {
       title: 'List Google Calendar Events',
-      label: 'for Friday of next week.',
-      action: 'List Google Calendar events for Friday of next week.',
+      label: 'for Tuesday of next week.',
+      action: 'List Google Calendar events for Tuesday of next week.',
     },
   ];
 
