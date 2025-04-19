@@ -74,39 +74,44 @@ Required environment variables (see `.env.example` for details):
 
 ## N8N Workflows
 
-This project uses five N8N workflows for backend processing:
+This project uses several n8n workflows for document processing, search, and retrieval:
 
 1. **Internal Knowledge Base Search Tool**
-   - Semantic search against internal documents
-   - Supports natural language queries
-   - Returns relevant document snippets
+   - Performs semantic search using embeddings stored in PostgreSQL vector database
+   - Extracts relevant content from stored documents based on similarity
+   - Returns formatted results with source attribution
+   - Uses OpenAI text-embedding-3-small model for vector embeddings
 
-2. **Web Search Tool (SerpAPI)**
+2. **Web Search Tool (SerpAPI Integration)**
    - Performs web searches using Google Search API via SerpAPI
-   - Summarizes search results for the AI
-   - Attribution of sources in responses
+   - Uses an AI Agent with GPT-4.1-mini to process and summarize search results
+   - Maintains conversation context using memory components
+   - Returns well-formatted, context-aware summaries
 
-3. **List Documents Tool**
-   - Lists available documents from Google Drive
-   - Supports filtering and sorting
-   - Returns document metadata
+3. **Document Management Tools**
+   - **List Documents Tool**: Returns metadata for all documents in the knowledge base
+   - **Document Retrieval Tool**: Fetches full content of specific documents by ID
+   - **Spreadsheet Query Tool**: Executes structured queries against tabular data
 
-4. **Document Retrieval Tool**
-   - Fetches full document content
-   - Supports various file formats
-   - Handles large documents efficiently
+4. **Google Drive Integration**
+   - Automatic monitoring for new/updated files in specified Google Drive folders
+   - Handles various file types (PDF, XLSX, CSV, Google Docs, etc.)
+   - Converts files to text and creates embeddings for semantic search
+   - Maintains document metadata for efficient retrieval
 
-5. **Spreadsheet Query Tool**
-   - Runs SQL-like queries on spreadsheet data
-   - Supports complex data operations
-   - Returns structured results
+5. **Google Calendar Integration**
+   - Search calendar events with natural language queries
+   - Create, update, and delete calendar events
+   - Supports complex date/time parsing
+   - Returns structured event data with proper formatting
 
-6. **File Extraction Workflow**
-   - Extracts text from uploaded documents (PDF, XLSX, etc.)
-   - Converts spreadsheet data to readable formats
-   - Handles different file types appropriately
+6. **File Extraction Service**
+   - Processes uploaded files from various sources
+   - Extracts text from PDFs, spreadsheets, and other document types
+   - Converts structured data to readable formats
+   - Uses content-type detection for appropriate extraction methods
 
-See the [N8N Workflows Documentation](./docs/N8N_WORKFLOWS.md) for detailed setup instructions.
+All workflows are configured with webhook endpoints, authentication headers, and relevant database connections. See the [N8N Workflows Documentation](./docs/N8N_WORKFLOWS.md) for detailed setup instructions.
 
 ### Testing Webhooks
 
@@ -119,33 +124,12 @@ node tests/test-get-contents-webhook.js     # Test content retrieval
 node tests/test-query-rows-webhook.js       # Test data queries
 ```
 
-## Private Repository Deployment
-
-When using a private GitHub repository with Vercel, you need to configure the following:
-
-### For Hobby Plan (Free Tier)
-- Only the account owner can trigger deployments from a private repository
-- Ensure your Git email address matches your Vercel account email
-- You may need to reinstall the Vercel for GitHub integration to ensure it has access to your private repository
-
-### For Pro/Enterprise Plans
-- All team members who need to commit and trigger deployments must be added to the Vercel team
-- Each team member must have their Git email address match their Vercel account email
-- Check project settings under Git configuration to ensure proper branch setup
-
-### Troubleshooting Deployment Issues
-If deployments are not triggered automatically:
-1. Check for deployment limit errors in commit comments
-2. Verify Git integration permissions in your Vercel account settings
-3. Try a manual deployment from the Vercel dashboard
-4. Check webhook settings in your GitHub repository
-
 ## Deployment
 
-1. Push to GitHub
-2. Connect to Vercel
-3. Configure environment variables
-4. Deploy
+1. Configure n8n instance with the workflows described in the documentation
+2. Set up PostgreSQL database with vector extensions
+3. Configure environment variables for authentication and API integrations
+4. Deploy to Vercel or your preferred hosting platform
 
 ## Technologies
 

@@ -4,13 +4,16 @@ This document provides details on how to set up the n8n workflows that power the
 
 ## Overview
 
-The application uses five distinct n8n workflows:
+The application uses several distinct n8n workflows:
 
-1. **Internal Knowledge Base Search Tool**: Performs semantic search in documents
-2. **Web Search Tool (Tavily)**: Performs web searches and summarizes results
+1. **Internal Knowledge Base Search Tool**: Performs semantic search in documents using vector embeddings
+2. **Web Search Tool (SerpAPI)**: Performs web searches and summarizes results using AI
 3. **List Documents Tool**: Lists all available documents
 4. **Document Retrieval Tool**: Gets full content of a document by ID
 5. **Spreadsheet Query Tool**: Retrieves and processes spreadsheet data
+6. **Google Drive Integration**: Monitors and processes files from Google Drive folders
+7. **Google Calendar Integration**: Manages calendar events and appointments
+8. **File Extraction Service**: Processes and extracts content from uploaded files
 
 ## Workflow 1: Internal Knowledge Base Search Tool
 
@@ -28,29 +31,31 @@ This workflow performs semantic search through document embeddings stored in you
 ### Required Nodes
 
 1. **Webhook** node (trigger)
-2. **Function** node to extract the search query from the request body
-3. **PostgreSQL** or **Vector Database** node to perform the semantic search
-4. **Set** node to format the response
+2. **Embeddings OpenAI** node to generate embeddings for the search query
+3. **Supabase Vector Store** node configured with "load" mode to search the vector database
+4. **Code** node to format the search results properly
 5. **Respond to Webhook** node to return the results
 
-### Example Configuration
+### Example Response Format
 
-```javascript
-// Function node: Extract query
-return {
-  query: $input.body.query
-};
-
-// Set node: Format response
-return items.map(item => ({
-  content: item.json.document_text,
-  metadata: item.json.metadata
-}));
+```json
+{
+  "success": true,
+  "results": [
+    {
+      "title": "Document Title",
+      "url": "Document URL or ID",
+      "content": "Extracted content from document..."
+    }
+  ],
+  "summary": "Found X relevant results for your query.",
+  "sources": "Source1\nSource2\nSource3"
+}
 ```
 
-## Workflow 2: Web Search Tool (Tavily)
+## Workflow 2: Web Search Tool (SerpAPI)
 
-This workflow performs web searches using the Tavily API and returns summarized results.
+This workflow performs web searches using the SerpAPI integration and processes results with AI.
 
 ### Webhook Setup
 
@@ -58,45 +63,61 @@ This workflow performs web searches using the Tavily API and returns summarized 
 2. Add a **Webhook** node as the trigger
    - Method: POST
    - Authentication: Header Auth
-   - Auth Header Name: `tavily` (or your preferred name)
+   - Auth Header Name: `tavilyauth` (or your preferred name)
    - Auth Header Value: Generate a secure token
 
 ### Required Nodes
 
 1. **Webhook** node (trigger)
-2. **Function** node to extract the search query and parameters
-   ```javascript
-   return {
-     query: $input.body.query,
-     api_key: $input.body.api_key,
-     search_depth: $input.body.search_depth || 'basic',
-     max_results: $input.body.max_results || 5
-   };
-   ```
-3. **HTTP Request** node to call the Tavily API
-   - URL: `https://api.tavily.com/search`
-   - Method: POST
-   - Headers: `{"Content-Type": "application/json"}`
-   - Body: Raw JSON with query, api_key, search_depth, max_results
-4. **Function** node to process and summarize the results
-   ```javascript
-   const data = $node["HTTP Request"].json;
-   
-   if (!data.results || data.results.length === 0) {
-     return { summary: `No results found for "${$input.body.query}"` };
-   }
-   
-   // Process the results and create a summary
-   const title = data.results[0].title || "Untitled";
-   const content = data.results[0].content || data.results[0].raw_content;
-   
-   return {
-     summary: `Based on information from ${title}: ${content.substring(0, 1000)}...`
-   };
-   ```
-5. **Respond to Webhook** node to return the summarized results
+2. **OpenAI Chat Model** node configured with GPT-4.1-mini
+3. **AI Agent** node to process the query and search results
+4. **SerpAPI** node to perform the search
+5. **Simple Memory** node to maintain conversation context
+6. **Respond to Webhook** node to return the summarized results
 
-## Workflow 3: List Documents Tool
+## Workflow 3: Google Drive Integration
+
+This workflow monitors Google Drive folders and processes new or updated files automatically.
+
+### Trigger Setup
+
+1. Configure a **Google Drive Trigger** node to monitor specific folders
+   - Set up for both file creation and file updates
+   - Configure polling interval (e.g., every minute)
+2. Alternatively, use a **Schedule Trigger** for periodic full scans
+
+### Required Nodes
+
+1. **Google Drive Trigger** or **Schedule Trigger** node
+2. **Google Drive** node to list all files in the target folder
+3. **PostgreSQL** nodes to:
+   - Track processed file IDs
+   - Store the last run timestamp
+   - Detect and remove orphaned files
+4. **Loop Over Items** node to process each file
+5. **Switch** node to handle different file types (PDF, XLSX, etc.)
+6. **Download File** node to get file content from Google Drive
+7. **Extract from File** nodes for specific file types
+8. **Character Text Splitter** node to chunk document text
+9. **Embeddings OpenAI** node to create vector embeddings
+10. **Default Data Loader** node to prepare documents for the vector store
+11. **Supabase Vector Store** node to store the embeddings
+
+### File Processing Logic
+
+1. Fetch all files from the Google Drive folder
+2. Compare with previously processed files to identify new or updated files
+3. For each new/updated file:
+   - Delete any previous versions from the database
+   - Download the file from Google Drive
+   - Extract text based on file type
+   - Split text into chunks for optimal embedding
+   - Generate embeddings using OpenAI's text-embedding-3-small model
+   - Store in Supabase vector database with proper metadata
+4. Record processed files to prevent duplicate processing
+5. Update the last run timestamp
+
+## Workflow 4: List Documents Tool
 
 This workflow lists all available documents in your knowledge base.
 
@@ -113,16 +134,9 @@ This workflow lists all available documents in your knowledge base.
 
 1. **Webhook** node (trigger)
 2. **PostgreSQL** node to query document metadata
-   ```sql
-   SELECT DISTINCT metadata->>'file_id' as id, 
-          metadata->>'title' as title 
-   FROM documents
-   ORDER BY title
-   ```
-3. **Set** node to format response
-4. **Respond to Webhook** node to return the results
+3. **Respond to Webhook** node to return the results
 
-## Workflow 4: Document Retrieval Tool
+## Workflow 5: Document Retrieval Tool
 
 This workflow retrieves the full content of a document by its ID.
 
@@ -138,23 +152,11 @@ This workflow retrieves the full content of a document by its ID.
 ### Required Nodes
 
 1. **Webhook** node (trigger)
-2. **Function** node to extract the file_id
-   ```javascript
-   return {
-     file_id: $input.body.file_id
-   };
-   ```
+2. **Code** node to standardize input parameters
 3. **PostgreSQL** node to retrieve document content
-   ```sql
-   SELECT string_agg(content, ' ') as document_text
-   FROM documents
-   WHERE metadata->>'file_id' = $1
-   GROUP BY metadata->>'file_id'
-   ```
-4. **Error Handling** node (optional)
-5. **Respond to Webhook** node to return the document text
+4. **Respond to Webhook** node to return the document text
 
-## Workflow 5: Spreadsheet Query Tool
+## Workflow 6: Spreadsheet Query Tool
 
 This workflow retrieves structured data from spreadsheet documents.
 
@@ -170,19 +172,38 @@ This workflow retrieves structured data from spreadsheet documents.
 ### Required Nodes
 
 1. **Webhook** node (trigger)
-2. **Function** node to extract the file_id
+2. **Code** node to standardize input parameters
 3. **PostgreSQL** node to retrieve spreadsheet data
-   ```sql
-   SELECT json_build_object('row_data', row_to_json(d)) as row_data
-   FROM (
-     SELECT * FROM spreadsheet_data
-     WHERE file_id = $1
-   ) d
-   ```
-4. **Error Handling** node for file not found
-5. **Respond to Webhook** node to return the structured data
+4. **Respond to Webhook** node to return the structured data
 
-## Workflow 6: Google Calendar Integration
+## Workflow 7: File Extraction Service
+
+This workflow processes uploaded files and extracts their content.
+
+### Webhook Setup
+
+1. Create a new n8n workflow
+2. Add a **Webhook** node as the trigger
+   - Method: POST
+   - Authentication: Header Auth
+   - Auth Header Name: `extractfilecontent` (or your preferred name)
+   - Auth Header Value: Generate a secure token
+   - Binary Property Name: `file` (for file uploads)
+
+### Required Nodes
+
+1. **Webhook** node (trigger)
+2. **HTTP Request** node to fetch file from URL (if URL provided)
+3. **Switch** node to route processing based on file type:
+   - PDF files: Extract PDF Text node
+   - Excel files: Extract from Excel node
+   - CSV files: Extract from CSV node
+   - JSON files: Extract from File (JSON) node
+   - Text files: Extract Document Text node
+4. **Code** node to format extracted content
+5. **Respond to Webhook** node to return the extracted content
+
+## Workflow 8: Google Calendar Integration
 
 This workflow enables interaction with Google Calendar to manage events and appointments.
 
@@ -198,33 +219,14 @@ This workflow enables interaction with Google Calendar to manage events and appo
 ### Required Nodes
 
 1. **Webhook** node (trigger)
-2. **Function** node to extract the action, query, eventId, and eventDetails
-   ```javascript
-   return {
-     action: $input.body.action,
-     query: $input.body.query || null,
-     eventId: $input.body.eventId || null,
-     eventDetails: $input.body.eventDetails || null
-   };
-   ```
-3. **Switch** node based on "action" parameter with routes for:
-   - search: Query events from Google Calendar
-   - create: Create a new event
-   - update: Update an existing event
-   - delete: Delete an event
-4. **Google Calendar** nodes for each action type
-   - For search: Use "List" operation with appropriate filters
-   - For create: Use "Create" operation
-   - For update: Use "Update" operation
-   - For delete: Use "Delete" operation 
-5. **Error Handling** nodes for each path
-6. **Respond to Webhook** nodes to return appropriate responses for each action
-
-### Authentication
-
-1. You'll need to connect n8n to a Google account with calendar access
-2. Set up OAuth credentials following Google's instructions
-3. Configure the Google Calendar node connection in n8n
+2. **AI Agent** node to process natural language queries
+3. **Output Parser** node to structure the results
+4. **Google Calendar Tool** nodes for each action:
+   - SearchEvent: List events matching criteria
+   - CreateEvent: Create a new calendar event
+   - UpdateEvent: Modify existing events
+   - DeleteEvent: Remove events from calendar
+5. **Respond to Webhook** node to return appropriate responses
 
 ## Environment Variables
 
@@ -272,7 +274,7 @@ curl -X POST https://yourinstance.n8n.cloud/webhook/your-search-webhook-path \
   -H "Content-Type: application/json" \
   -d '{"query":"your search query"}'
 
-# Test Tavily web search workflow
+# Test SerpAPI web search workflow
 curl -X POST https://yourinstance.n8n.cloud/webhook/your-tavily-webhook-path \
   -H "tavily: your_tavily_auth_token" \
   -H "Content-Type: application/json" \
@@ -318,4 +320,10 @@ curl -X POST https://yourinstance.n8n.cloud/webhook/your-google-calendar-webhook
   -H "googlecalendar: your_google_calendar_auth_token" \
   -H "Content-Type: application/json" \
   -d '{"action":"delete","eventId":"EVENT_ID_HERE"}'
+
+# Test file extraction workflow
+curl -X POST https://yourinstance.n8n.cloud/webhook/your-extract-webhook-path \
+  -H "extractfilecontent: your_extract_auth_token" \
+  -H "Content-Type: application/json" \
+  -d '{"fileUrl":"https://example.com/path/to/file.pdf"}'
 ``` 
