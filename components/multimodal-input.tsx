@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
-import { ArrowUpIcon, PaperclipIcon, StopIcon } from './icons';
+import { ArrowUpIcon, PlusIcon, StopIcon } from './icons';
 import { PreviewAttachment } from './preview-attachment';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -335,17 +335,21 @@ function PureMultimodalInput({
         }}
       />
 
-      <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end gap-2">
-        <AttachmentsButton fileInputRef={fileInputRef} status={status} />
-        {status === 'submitted' ? (
-          <StopButton stop={stop} setMessages={setMessages} />
-        ) : (
-          <SendButton
-            input={input}
-            submitForm={submitForm}
-            uploadQueue={uploadQueue}
-          />
-        )}
+      <div className="absolute bottom-0 inset-x-0 p-2 flex flex-row justify-between">
+        <div className="pl-1">
+          <AttachmentsButton fileInputRef={fileInputRef} status={status} />
+        </div>
+        <div>
+          {status === 'submitted' ? (
+            <StopButton stop={stop} setMessages={setMessages} />
+          ) : (
+            <SendButton
+              input={input}
+              submitForm={submitForm}
+              uploadQueue={uploadQueue}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -384,7 +388,7 @@ function PureAttachmentsButton({
             fileInputRef.current?.click();
           }}
         >
-          <PaperclipIcon />
+          <PlusIcon />
         </Button>
       </TooltipTrigger>
       <TooltipContent>Attach files</TooltipContent>
