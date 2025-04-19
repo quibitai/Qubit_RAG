@@ -149,7 +149,14 @@ node tests/test-query-rows-webhook.js       # Test data queries
 
 ## Version History
 
-- v2.0.0 - Current
+- v2.1.0 - Current
+  - Fixed unterminated string literal in suggested actions component
+  - Updated n8n workflow documentation to better reflect actual implementation
+  - Enhanced Google Drive integration documentation
+  - Improved file extraction service details
+  - Removed deprecated deployment instructions
+
+- v2.0.0
   - Enhanced file processing for Excel, PDF, and text documents
   - Improved JSON data formatting for spreadsheet data
   - Fixed AI model handling to support file attachments
