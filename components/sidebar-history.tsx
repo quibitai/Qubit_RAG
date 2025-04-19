@@ -405,7 +405,7 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
             }}
           />
 
-          {!hasReachedEnd && (
+          {!hasReachedEnd && isValidating && (
             <div className="p-2 text-zinc-500 dark:text-zinc-400 flex flex-row gap-2 items-center mt-8">
               <div className="animate-spin">
                 <LoaderIcon />

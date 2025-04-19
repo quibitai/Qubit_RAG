@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
 
 // Array of quotes to randomly select from
 const quotes = [
@@ -23,8 +24,14 @@ const quotes = [
 ];
 
 export const Greeting = () => {
-  // Select a random quote
-  const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
+  // Use useState to store the selected quote
+  const [randomQuote, setRandomQuote] = useState<string>('');
+
+  // Select a random quote only once when the component mounts
+  useEffect(() => {
+    const selectedQuote = quotes[Math.floor(Math.random() * quotes.length)];
+    setRandomQuote(selectedQuote);
+  }, []); // Empty dependency array means this runs once on mount
 
   return (
     <div
