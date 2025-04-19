@@ -209,12 +209,46 @@ export const systemPrompt = ({
 }: {
   selectedChatModel: string;
 }) => {
+  // Generate current date and time information
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'America/Chicago',
+  });
+  const currentTime = new Date().toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'America/Chicago',
+  });
+
+  // Add date and time to prompts
+  const dateTimeInfo = `
+**Current Date and Time Information:**
+* Today's date: ${currentDate}
+* Current time: ${currentTime}
+* Timezone: Central Time (America/Chicago)
+* Note: Always use this current date/time information when responding to time-sensitive queries.
+`;
+
+  // Insert date/time info into the prompts
+  const revisedPromptWithTime = revisedCorePrompt.replace(
+    '# Core Instructions & RAG Guidance',
+    `# Core Instructions & RAG Guidance\n\n${dateTimeInfo}`,
+  );
+
+  const orchestratorPromptWithTime = orchestratorSystemPrompt.replace(
+    '## Core Instructions:',
+    `## Current Date and Time:\n${dateTimeInfo}\n\n## Core Instructions:`,
+  );
+
   // Use the orchestrator prompt for the reasoning model
   if (selectedChatModel === 'chat-model-reasoning') {
-    return `${orchestratorSystemPrompt}\n\n${artifactsPrompt}`;
+    return `${orchestratorPromptWithTime}\n\n${artifactsPrompt}`;
   } else {
     // Apply the standard Echo Tango prompt for the regular chat model
-    return `${revisedCorePrompt}\n\n${artifactsPrompt}`;
+    return `${revisedPromptWithTime}\n\n${artifactsPrompt}`;
   }
 };
 
