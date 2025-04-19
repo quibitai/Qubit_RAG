@@ -814,13 +814,17 @@ export const ThumbDownIcon = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 
-export const ChevronDownIcon = ({ size = 16 }: { size?: number }) => (
+export const ChevronDownIcon = ({
+  size = 16,
+  className = '',
+}: { size?: number; className?: string }) => (
   <svg
     height={size}
     strokeLinejoin="round"
     viewBox="0 0 16 16"
     width={size}
     style={{ color: 'currentcolor' }}
+    className={className}
   >
     <path
       fillRule="evenodd"
@@ -1172,3 +1176,24 @@ export const WarningIcon = ({ size = 16 }: { size?: number }) => {
     </svg>
   );
 };
+
+export const ChevronRightIcon = ({
+  size = 16,
+  className = '',
+}: { size?: number; className?: string }) => (
+  <svg
+    height={size}
+    strokeLinejoin="round"
+    viewBox="0 0 16 16"
+    width={size}
+    style={{ color: 'currentcolor' }}
+    className={className}
+  >
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M6.74999 3.93933L7.28032 4.46966L10.1035 7.2929C10.4941 7.68342 10.4941 8.31659 10.1035 8.70711L7.28032 11.5303L6.74999 12.0607L5.68933 11L6.21966 10.4697L8.68933 8L6.21966 5.53033L5.68933 5L6.74999 3.93933Z"
+      fill="currentColor"
+    />
+  </svg>
+);
