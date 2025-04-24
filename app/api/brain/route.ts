@@ -15,7 +15,7 @@ import {
 import { AIMessage, HumanMessage } from '@langchain/core/messages';
 
 // Import tools and utilities
-import { listDocumentsTool } from '@/lib/ai/tools';
+import { listDocumentsTool, getFileContentsTool } from '@/lib/ai/tools';
 import { getSystemPromptFor } from '@/lib/ai/prompts';
 
 // Temporary flag to bypass authentication for testing
@@ -109,9 +109,8 @@ export async function POST(req: NextRequest) {
     // Initialize LLM
     const llm = initializeLLM();
 
-    // Configure tools (currently just listDocumentsTool)
-    // TODO: Replace with dynamic tool selection based on bitId
-    const tools = [listDocumentsTool];
+    // Configure tools with both listDocuments and getFileContents
+    const tools = [listDocumentsTool, getFileContentsTool];
 
     // Get system prompt for the requested Bit
     const systemPrompt = getSystemPromptFor(bitId);

@@ -17,14 +17,14 @@ This checklist tracks our progress implementing the Langchain-focused RAG system
   - [x] `zod`
 - [x] Document all required tool functions with precise TypeScript interfaces
   - [x] `listDocuments(folderId: string) → Promise<{ documents: Array<{ id: string, name: string }> }>`
-  - [ ] `getFileContents(file_id: string) → Promise<{ text: string }>`
+  - [x] `getFileContents(file_id: string) → Promise<{ text: string }>`
   - [ ] `searchRAG(query: string, topK?: number) → Promise<{ results: Array<{ id: string, score: number, snippet: string }> }>`
   - [ ] `queryRows(spreadsheetId: string, sql: string) → Promise<{ rows: any[] }>`
   - [ ] `searchWeb(query: string) → Promise<{ results: Array<{ title: string, link: string, snippet: string }> }>`
   - [ ] Google Calendar tools (`searchEvents`, `createEvent`, etc.)
 - [x] Implement tool logic in `/lib/ai/tools/`
   - [x] Google Drive tools (`listDocumentsLogic`)
-  - [ ] Google Drive tools (`getFileContentsLogic`)
+  - [x] Google Drive tools (`getFileContentsLogic`)
   - [ ] Supabase RAG tools (vector search integration)
   - [ ] Supabase query tools (SQL execution)
   - [ ] Web search tools (SerpAPI integration replacing Tavily)
@@ -46,7 +46,7 @@ This checklist tracks our progress implementing the Langchain-focused RAG system
 - [x] Add error handling and detailed logging
 - [x] Test API endpoint with single tool
 - [ ] Support file attachment handling and processing
-- [ ] Implement streaming responses
+- [x] Implement streaming responses
 
 ## Phase 3: Secure Application
 - [ ] Set up environment variables for all API keys
@@ -62,12 +62,12 @@ This checklist tracks our progress implementing the Langchain-focused RAG system
 - [ ] Set up secure file handling
 
 ## Phase 4: Front-end Integration
-- [ ] Modify Bit components to call `/api/brain`
-- [ ] Pass required parameters (`bitId`, `message`, `context`, `history`)
-- [ ] Implement response handling with streaming support
-- [ ] Update UI to display agent responses
+- [x] Modify Bit components to call `/api/brain`
+- [x] Pass required parameters (`bitId`, `message`, `context`, `history`)
+- [x] Implement response handling with streaming support
+- [x] Update UI to display agent responses
 - [ ] Handle structured data responses
-- [ ] Test end-to-end with simple workflow
+- [x] Test end-to-end with simple workflow
 - [ ] Integrate file upload and attachment functionality
 - [ ] Add drag-and-drop support for file uploads
 - [ ] Display source citations in UI
@@ -92,10 +92,10 @@ This checklist tracks our progress implementing the Langchain-focused RAG system
 - [ ] Create environment-specific configuration
 
 ## Phase 7: Observability & Scaling
-- [ ] Implement structured logging
-  - [ ] Add logging to API route
+- [x] Implement structured logging
+  - [x] Add logging to API route
   - [ ] Add logging to tool functions
-  - [ ] Track tool execution and performance
+  - [x] Track tool execution and performance
 - [ ] Set up metrics collection
   - [ ] Request rates and latency
   - [ ] Error rates
@@ -116,20 +116,21 @@ This checklist tracks our progress implementing the Langchain-focused RAG system
 - [ ] Test vector search accuracy
 
 ## Phase 9: Developer Workflow & Documentation
-- [ ] Establish code organization standards
-- [ ] Set up Git workflow
-- [ ] Configure linting and formatting
+- [x] Establish code organization standards
+- [x] Set up Git workflow
+- [x] Configure linting and formatting
 - [ ] Document development processes
 - [ ] Create contribution guidelines
 - [ ] Write technical documentation for tools and integrations
 - [ ] Create system architecture diagrams
-- [ ] Document API endpoints and schemas
+- [x] Document API endpoints and schemas
 
-## Current Focus (v3.0.0)
-- [ ] Create GitHub repository tag for v3.0.0
-- [ ] Set up Langchain packages
-- [ ] Implement first tool function and wrapper
-- [ ] Create basic Brain API endpoint
-- [ ] Test direct API calls
-- [ ] Wire up front-end integration for one Bit
-- [ ] Document migration from n8n to direct API integration 
+## Current Focus (v3.0.1)
+- [x] Create GitHub repository tag for v3.0.1
+- [x] Set up Langchain packages
+- [x] Implement first tool function and wrapper
+- [x] Create basic Brain API endpoint
+- [x] Test direct API calls
+- [x] Wire up front-end integration for one Bit
+- [x] Document migration from n8n to direct API integration
+- [x] Fix streaming response compatibility with useChat hook 

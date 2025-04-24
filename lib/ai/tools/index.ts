@@ -7,9 +7,11 @@
 
 import type { StructuredTool } from '@langchain/core/tools';
 import { listDocumentsTool } from './listDocumentsTool';
+import { getFileContentsTool } from './getFileContentsTool';
 
 // Export individual tools
 export { listDocumentsTool } from './listDocumentsTool';
+export { getFileContentsTool } from './getFileContentsTool';
 
 /**
  * Get the appropriate tools for a specific Bit
@@ -19,7 +21,10 @@ export { listDocumentsTool } from './listDocumentsTool';
  */
 export function getToolsForBit(bitId: string): StructuredTool[] {
   // Default set of tools available to all bits
-  const defaultTools: StructuredTool[] = [listDocumentsTool];
+  const defaultTools: StructuredTool[] = [
+    listDocumentsTool,
+    getFileContentsTool,
+  ];
 
   // Eventually we can add bit-specific tool selection logic here
   // For example:
