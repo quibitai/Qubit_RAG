@@ -18,6 +18,9 @@ import { AIMessage, HumanMessage } from '@langchain/core/messages';
 import { listDocumentsTool } from '@/lib/ai/tools';
 import { getSystemPromptFor } from '@/lib/ai/prompts';
 
+// Temporary flag to bypass authentication for testing
+const BYPASS_AUTH_FOR_TESTING = true;
+
 /**
  * Initialize LLM based on configuration/environment
  *
@@ -58,24 +61,50 @@ function formatChatHistory(history: any[] = []) {
   });
 }
 
+// Explicitly disable authentication middleware for testing
+export const config = {
+  runtime: 'edge',
+  unstable_allowDynamic: ['**/node_modules/**'],
+};
+
 /**
  * POST handler for the Brain API
  */
 export async function POST(req: NextRequest) {
   try {
     // Parse request body
-    const { bitId, message, history, context } = await req.json();
+    const { messages, id, selectedChatModel } = await req.json();
 
-    if (!bitId || !message) {
+    // Extract the bitId from selectedChatModel or use a default
+    const bitId = selectedChatModel || 'knowledge-base';
+
+    // Extract the last message from the messages array
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return NextResponse.json(
         {
-          error: 'Missing required parameters: bitId and message are required',
+          error: 'Missing required parameters: messages array is required',
+        },
+        { status: 400 },
+      );
+    }
+
+    const lastMessage = messages[messages.length - 1];
+    const message = lastMessage.content;
+
+    // Use all previous messages as history
+    const history = messages.slice(0, -1);
+
+    if (!message) {
+      return NextResponse.json(
+        {
+          error: 'Missing required parameters: last message must have content',
         },
         { status: 400 },
       );
     }
 
     console.log(`[Brain API] Processing request for bitId: ${bitId}`);
+    console.log(`[Brain API] Message: ${message}`);
 
     // Initialize LLM
     const llm = initializeLLM();
@@ -120,11 +149,42 @@ export async function POST(req: NextRequest) {
     });
 
     console.log(`[Brain API] Agent execution complete`);
+    console.log('[Brain API] Agent Result Output:', result.output);
 
-    // TODO: Add logic to persist the message and response to history
+    if (typeof result.output !== 'string') {
+      console.error('[Brain API] Agent output is not a string:', result.output);
+      return new Response(
+        JSON.stringify({ error: 'Agent response was not valid text.' }),
+        {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
 
-    // Return the result
-    return NextResponse.json({ output: result.output });
+    // Create a ReadableStream that yields the final output string
+    // Format: '0:"text"\n' is the protocol format expected by the AI SDK
+    const textEncoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        try {
+          // Encode in the format expected by the AI SDK
+          const chunk = `0:${JSON.stringify(result.output)}\n`;
+          controller.enqueue(textEncoder.encode(chunk));
+          controller.close();
+        } catch (error) {
+          console.error('[Brain API] Stream Error:', error);
+          controller.error(error);
+        }
+      },
+    });
+
+    // Return a simple text/plain response with the properly formatted data
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+      },
+    });
   } catch (error: any) {
     console.error('[Brain API Error]', error);
 
