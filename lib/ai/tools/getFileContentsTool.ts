@@ -31,7 +31,7 @@ const getFileContentsSchema = z.object({
   file_id: z
     .string()
     .describe(
-      'The unique file ID (obtained from listDocuments) of the document to retrieve content for.',
+      'The **exact unique file ID** (e.g., "14Q5Nd3u...") obtained from the listDocuments tool. DO NOT use the filename.',
     ),
 });
 
@@ -42,15 +42,16 @@ export const getFileContentsTool = new DynamicStructuredTool({
   // Ensure the name matches the export and intended use
   name: 'getFileContents',
   description:
-    'Retrieves the full text content of a specific document from the database using its file ID. Use this after listDocuments to get the content of a specific file.',
+    'Retrieves the full text content of a specific document from the database using its **unique file ID**. You MUST provide the exact file ID obtained from the listDocuments tool. Do not provide the filename.',
   schema: getFileContentsSchema,
   func: async ({ file_id }: { file_id: string }) => {
     console.log(
       `[getFileContentsTool] Fetching content for file_id: ${file_id} from Supabase.`,
     );
 
-    if (!file_id) {
-      return 'Error: No file_id provided.';
+    if (!file_id || file_id.includes('.')) {
+      // Basic check to catch obvious filenames
+      return 'Error: An invalid file ID was provided. Please provide the exact unique file ID from listDocuments, not a filename.';
     }
 
     // Verify Supabase credentials are available
