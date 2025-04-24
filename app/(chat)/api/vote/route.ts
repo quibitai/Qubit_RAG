@@ -9,6 +9,13 @@ export async function GET(request: Request) {
     return new Response('chatId is required', { status: 400 });
   }
 
+  // Bypass authentication in development mode
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[Middleware] Development mode: Bypassing all authentication');
+    // Return empty array for now in development mode
+    return Response.json([], { status: 200 });
+  }
+
   const session = await auth();
 
   if (!session || !session.user || !session.user.email) {
@@ -40,6 +47,12 @@ export async function PATCH(request: Request) {
 
   if (!chatId || !messageId || !type) {
     return new Response('messageId and type are required', { status: 400 });
+  }
+
+  // Bypass authentication in development mode
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[Middleware] Development mode: Bypassing all authentication');
+    return new Response('Message voted', { status: 200 });
   }
 
   const session = await auth();
