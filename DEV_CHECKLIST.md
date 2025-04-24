@@ -37,14 +37,14 @@ This checklist tracks our progress implementing the Langchain-focused RAG system
   - [ ] Add context-aware tool selection
 
 ## Phase 2: Build the Brain Micro-service
-- [ ] Create `/app/api/brain/route.ts` API endpoint
-- [ ] Implement model agnostic `initializeLLM` function (GPT-4.1 and GPT-4.1-mini support)
-- [ ] Define system prompts for different Bits
-- [ ] Implement history formatting utilities
-- [ ] Create Agent setup with `createOpenAIToolsAgent`
-- [ ] Set up `AgentExecutor` with proper configuration
-- [ ] Add error handling and detailed logging
-- [ ] Test API endpoint with single tool
+- [x] Create `/app/api/brain/route.ts` API endpoint
+- [x] Implement model agnostic `initializeLLM` function (GPT-4.1 and GPT-4.1-mini support)
+- [x] Define system prompts for different Bits
+- [x] Implement history formatting utilities
+- [x] Create Agent setup with `createOpenAIToolsAgent`
+- [x] Set up `AgentExecutor` with proper configuration
+- [x] Add error handling and detailed logging
+- [x] Test API endpoint with single tool
 - [ ] Support file attachment handling and processing
 - [ ] Implement streaming responses
 
