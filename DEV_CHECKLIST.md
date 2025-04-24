@@ -10,29 +10,30 @@ This checklist tracks our progress implementing the Langchain-focused RAG system
 - [x] Create migration plan from n8n workflows to direct API integration
 
 ## Phase 1: Define Tool Registry & Langchain Schemas
-- [ ] Install required Langchain packages
-  - [ ] `@langchain/core`
-  - [ ] `@langchain/openai` (or chosen model provider)
-  - [ ] `langchain`
-  - [ ] `zod`
-- [ ] Document all required tool functions with precise TypeScript interfaces
+- [x] Install required Langchain packages
+  - [x] `@langchain/core`
+  - [x] `@langchain/openai` (or chosen model provider)
+  - [x] `langchain`
+  - [x] `zod`
+- [x] Document all required tool functions with precise TypeScript interfaces
+  - [x] `listDocuments(folderId: string) → Promise<{ documents: Array<{ id: string, name: string }> }>`
   - [ ] `getFileContents(file_id: string) → Promise<{ text: string }>`
   - [ ] `searchRAG(query: string, topK?: number) → Promise<{ results: Array<{ id: string, score: number, snippet: string }> }>`
   - [ ] `queryRows(spreadsheetId: string, sql: string) → Promise<{ rows: any[] }>`
-  - [ ] `listDocuments(folderId: string) → Promise<{ documents: Array<{ id: string, name: string }> }>`
   - [ ] `searchWeb(query: string) → Promise<{ results: Array<{ title: string, link: string, snippet: string }> }>`
   - [ ] Google Calendar tools (`searchEvents`, `createEvent`, etc.)
-- [ ] Implement tool logic in `/lib/ai/tools/`
-  - [ ] Google Drive tools (using `googleapis` package)
+- [x] Implement tool logic in `/lib/ai/tools/`
+  - [x] Google Drive tools (`listDocumentsLogic`)
+  - [ ] Google Drive tools (`getFileContentsLogic`)
   - [ ] Supabase RAG tools (vector search integration)
   - [ ] Supabase query tools (SQL execution)
   - [ ] Web search tools (SerpAPI integration replacing Tavily)
   - [ ] Google Calendar tools (using `googleapis` calendar)
   - [ ] File extraction service (handling PDF, XLSX, CSV files)
-- [ ] Create Langchain tool wrappers with Zod schemas
-  - [ ] Define tool schemas with proper validation
-  - [ ] Implement proper error handling and logging
-  - [ ] Create utility for dynamically selecting tools based on bitId
+- [x] Create Langchain tool wrappers with Zod schemas
+  - [x] Define tool schemas with proper validation
+  - [x] Implement proper error handling and logging
+  - [x] Create utility for dynamically selecting tools based on bitId
   - [ ] Add context-aware tool selection
 
 ## Phase 2: Build the Brain Micro-service
