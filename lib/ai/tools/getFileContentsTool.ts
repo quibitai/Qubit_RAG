@@ -40,81 +40,116 @@ const getFileContentsSchema = z.object({
 export const getFileContentsTool = new DynamicStructuredTool({
   name: 'getFileContents',
   description:
-    'Retrieves the full text content of a document using its ID. Use this when you need to read or analyze the complete content of a specific document.',
-  schema: getFileContentsSchema,
-  func: async ({ document_id }) => {
+    'Retrieves the full text content of a document using its unique ID (obtained from listDocuments). Use this when you need to read or analyze the complete content of a specific document.',
+  schema: getFileContentsSchema, // Expects { document_id: string }
+  func: async ({ document_id }: { document_id: string }) => {
+    // Input parameter is document_id (UUID)
     console.log(
-      `[getFileContentsTool] Retrieving content for document ID: ${document_id}`,
+      `[getFileContentsTool] Received request for document_metadata ID: ${document_id}`,
     );
 
-    // Verify Supabase credentials are available
     if (!supabaseUrl || !supabaseKey) {
-      return 'Error: Supabase credentials are not configured. Please set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY.';
+      return 'Error: Supabase credentials are not configured.';
+    }
+    if (!document_id) {
+      return 'Error: No document_id provided.';
     }
 
+    let file_id_to_use: string | null = null;
+
     try {
-      // Directly query the documents table based on the document ID
-      const { data, error } = await supabase
-        .from('documents')
-        .select('content, id, metadata')
-        .eq('id', document_id)
-        .limit(1)
-        .single();
+      // STEP 1: Look up the file_id (text identifier) using the document_id (UUID)
+      console.log(
+        `[getFileContentsTool] Looking up file_id for document_metadata id: ${document_id}`,
+      );
+      const { data: metadata, error: metadataError } = await supabase
+        .from('document_metadata')
+        .select('file_id') // Select the text file_id column
+        .eq('id', document_id) // Filter using the input UUID id
+        .maybeSingle(); // Use maybeSingle() in case ID doesn't exist
 
-      if (error) {
-        console.error('Supabase query error in getFileContentsTool:', error);
-
-        // If the document was not found, try querying by file_id in the metadata
-        if (error.code === 'PGRST116') {
-          console.log(
-            `[getFileContentsTool] Document not found by ID, trying file_id in metadata`,
-          );
-
-          const { data: dataByFileId, error: fileIdError } = await supabase
-            .from('documents')
-            .select('content, id, metadata')
-            .contains('metadata', { file_id: document_id })
-            .limit(1)
-            .single();
-
-          if (fileIdError) {
-            console.error('Supabase file_id query error:', fileIdError);
-            throw new Error(
-              `Document not found with ID or file_id: ${document_id}`,
-            );
-          }
-
-          if (dataByFileId?.content) {
-            console.log(
-              `[getFileContentsTool] Successfully found document by file_id: ${document_id}`,
-            );
-            return typeof dataByFileId.content === 'string'
-              ? dataByFileId.content
-              : JSON.stringify(dataByFileId.content);
-          }
-        }
-
-        throw new Error(`Database query failed: ${error.message}`);
+      if (metadataError) {
+        console.error('Supabase metadata lookup error:', metadataError);
+        throw new Error(
+          `Failed to look up file metadata: ${metadataError.message}`,
+        );
       }
 
-      if (!data || !data.content) {
+      if (!metadata || !metadata.file_id) {
         console.log(
-          `[getFileContentsTool] No content found for document ID: ${document_id}`,
+          `[getFileContentsTool] Could not find file_id in document_metadata for id: ${document_id}`,
         );
-        return `No content found for document ID: ${document_id}. Please verify the document exists using the listDocuments tool.`;
+        // Optional: Fallback - maybe the input *was* the file_id? Unlikely given listDocuments output.
+        // file_id_to_use = document_id; // Use this only if you suspect the input might sometimes be the text file_id directly
+        // For now, treat as not found if lookup fails:
+        return `Error: Could not find matching file_id for the provided document ID: ${document_id}.`;
+      }
+
+      file_id_to_use = metadata.file_id;
+      console.log(
+        `[getFileContentsTool] Found file_id: ${file_id_to_use} for document_id: ${document_id}`,
+      );
+
+      // STEP 2: Call the RPC function using the retrieved file_id
+      console.log(
+        `[getFileContentsTool] Calling RPC 'get_aggregated_document_content' for file_id: ${file_id_to_use}`,
+      );
+      const { data: rpcData, error: rpcError } = await supabase.rpc(
+        'get_aggregated_document_content', // Function name
+        { p_file_id: file_id_to_use }, // Argument name matching the function
+      );
+
+      if (rpcError) {
+        console.error('Supabase RPC error in getFileContentsTool:', rpcError);
+        if (
+          rpcError.message.includes('function') &&
+          rpcError.message.includes('does not exist')
+        ) {
+          console.error(
+            "DATABASE FUNCTION MISSING: Ensure 'get_aggregated_document_content(p_file_id TEXT)' exists in Supabase.",
+          );
+          return `Error: The required database function 'get_aggregated_document_content' is missing.`;
+        }
+        throw new Error(`Database function error: ${rpcError.message}`);
+      }
+
+      console.log(`[getFileContentsTool] RPC returned data:`, rpcData);
+
+      // Extract the text from RPC result
+      const documentText =
+        rpcData?.[0]?.document_text ||
+        rpcData?.document_text ||
+        (typeof rpcData === 'string' ? rpcData : null);
+
+      if (
+        documentText === null ||
+        documentText === undefined ||
+        documentText === ''
+      ) {
+        console.log(
+          `[getFileContentsTool] Content not found or empty via RPC for file_id: ${file_id_to_use}`,
+        );
+        if (!rpcData || (Array.isArray(rpcData) && rpcData.length === 0)) {
+          return `No document content found in the database for File ID: ${file_id_to_use}`;
+        } else {
+          return `Document content appears empty for File ID: ${file_id_to_use}`;
+        }
       }
 
       console.log(
-        `[getFileContentsTool] Successfully retrieved content for document ID: ${document_id}`,
+        `[getFileContentsTool] Successfully retrieved content for File ID: ${file_id_to_use}. Length: ${documentText.length}`,
       );
-
-      // Return the content, handling both string and object formats
-      return typeof data.content === 'string'
-        ? data.content
-        : JSON.stringify(data.content);
+      return documentText; // Return the aggregated text
     } catch (error: any) {
       console.error(`Error in getFileContents tool: ${error.message}`);
-      return `Failed to retrieve document content: ${error.message}`;
+      // Provide a more specific error if it's likely due to missing lookup
+      if (
+        !file_id_to_use &&
+        error.message.includes('Failed to look up file metadata')
+      ) {
+        return error.message; // Return the specific lookup error
+      }
+      return `Failed to get document content from database: ${error.message}`;
     }
   },
 });
