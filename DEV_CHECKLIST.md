@@ -3,11 +3,11 @@
 This checklist tracks our progress implementing the Langchain-focused RAG system as outlined in the Development Roadmap.
 
 ## Phase 0: Architectural Blueprint (Langchain Integration)
-- [ ] Design Brain orchestrator architecture
-- [ ] Define API routes structure
-- [ ] Map tool functions required for system
-- [ ] Document architecture diagram
-- [ ] Create migration plan from n8n workflows to direct API integration
+- [x] Design Brain orchestrator architecture
+- [x] Define API routes structure
+- [x] Map tool functions required for system
+- [x] Document architecture diagram
+- [x] Create migration plan from n8n workflows to direct API integration
 
 ## Phase 1: Define Tool Registry & Langchain Schemas
 - [ ] Install required Langchain packages
