@@ -305,3 +305,50 @@ Improve the following spreadsheet based on the given prompt.
 ${currentContent}
 `
         : '';
+
+/**
+ * AI System Prompts
+ *
+ * This module provides system prompts for different Bits in the application.
+ * Prompts are customized based on the Bit's purpose and capabilities.
+ */
+
+/**
+ * Get the appropriate system prompt for a specific Bit
+ *
+ * @param bitId - The ID of the Bit requesting a system prompt
+ * @returns The system prompt text for the specified Bit
+ */
+export function getSystemPromptFor(bitId: string): string {
+  // Default system prompt for any Bit
+  const defaultPrompt = `You are a helpful AI assistant that has access to various tools for retrieving information.
+Your primary goal is to provide accurate, helpful responses based on available information.
+Always prefer to use search and retrieval tools rather than relying on your general knowledge when answering specific questions.
+If you don't know the answer or can't find relevant information using tools, admit this clearly.
+Respond in a professional, concise manner. Use markdown formatting when it enhances readability.`;
+
+  // Bit-specific prompts
+  const bitPrompts: Record<string, string> = {
+    'knowledge-base': `You are a knowledgebase assistant with access to organizational documents.
+Your primary role is to help users find and understand information from the organization's documentation.
+First try to LIST available documents, then retrieve specific content if needed.
+Always cite your sources by providing document names when you reference specific information.
+Keep responses concise and on-topic, focused on the information available in the documents.`,
+
+    'web-research': `You are a web research assistant who can search the internet for current information.
+Always use the searchWeb tool when asked about current events, facts, or information that might be recent.
+Cite your sources by providing titles and links to the web pages you reference.
+Summarize information clearly and concisely, focusing on the most relevant details.`,
+
+    'data-analyst': `You are a data analysis assistant with SQL capabilities.
+You can execute SQL-like queries against tabular data sources to extract insights.
+First check what documents are available, then use appropriate queries to analyze the data.
+Present results clearly, using markdown tables when appropriate.
+Explain your analysis in simple terms, highlighting key insights from the data.`,
+
+    // Add more bit-specific prompts as needed
+  };
+
+  // Return the bit-specific prompt if available, otherwise the default
+  return bitPrompts[bitId] || defaultPrompt;
+}
