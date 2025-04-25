@@ -5,7 +5,7 @@
  * This route handles all AI requests, dynamically selecting tools based on the Bit context.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { ChatOpenAI } from '@langchain/openai';
 import { AgentExecutor, createOpenAIToolsAgent } from 'langchain/agents';
 import {
@@ -15,8 +15,15 @@ import {
 import { AIMessage, HumanMessage } from '@langchain/core/messages';
 
 // Import tools and utilities
-import { listDocumentsTool, getFileContentsTool } from '@/lib/ai/tools';
+import {
+  listDocumentsTool,
+  getFileContentsTool,
+  searchInternalKnowledgeBase,
+} from '@/lib/ai/tools';
+import { tavilySearchTool } from '@/lib/ai/tools/tavily-search';
+import { tavilyExtractTool } from '@/lib/ai/tools/tavilyExtractTool';
 import { getSystemPromptFor } from '@/lib/ai/prompts';
+import { modelMapping } from '@/lib/ai/models';
 
 // Temporary flag to bypass authentication for testing
 const BYPASS_AUTH_FOR_TESTING = true;
@@ -24,17 +31,28 @@ const BYPASS_AUTH_FOR_TESTING = true;
 /**
  * Initialize LLM based on configuration/environment
  *
- * @param modelName - Optional override for the model to use
+ * @param bitId - The ID of the Bit requesting LLM services
  * @returns Configured LLM instance
  */
-function initializeLLM(modelName?: string) {
-  const selectedModel =
-    modelName || process.env.DEFAULT_MODEL_NAME || 'gpt-4-turbo';
+function initializeLLM(bitId?: string) {
+  // Use the model mapping to determine the correct model based on bitId
+  // Fall back to environment variable or default model
+  let selectedModel: string;
+
+  if (bitId && modelMapping[bitId]) {
+    selectedModel = modelMapping[bitId];
+  } else {
+    selectedModel = process.env.DEFAULT_MODEL_NAME || modelMapping.default;
+  }
 
   // Check for required environment variables
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('Missing OPENAI_API_KEY environment variable');
   }
+
+  console.log(
+    `[Brain API] Initializing LLM with model: ${selectedModel} for bitId: ${bitId || 'unknown'}`,
+  );
 
   // Initialize OpenAI Chat model
   return new ChatOpenAI({
@@ -106,11 +124,17 @@ export async function POST(req: NextRequest) {
     console.log(`[Brain API] Processing request for bitId: ${bitId}`);
     console.log(`[Brain API] Message: ${message}`);
 
-    // Initialize LLM
-    const llm = initializeLLM();
+    // Initialize LLM with the appropriate model for this bitId
+    const llm = initializeLLM(bitId);
 
-    // Configure tools with both listDocuments and getFileContents
-    const tools = [listDocumentsTool, getFileContentsTool];
+    // Configure tools with Supabase knowledge tools and Tavily tools
+    const tools = [
+      listDocumentsTool,
+      getFileContentsTool,
+      searchInternalKnowledgeBase,
+      tavilySearchTool,
+      tavilyExtractTool,
+    ];
 
     // Get system prompt for the requested Bit
     const systemPrompt = getSystemPromptFor(bitId);
@@ -161,13 +185,47 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Extract tool calls from the execution (if available)
+    const toolCalls =
+      result.intermediateSteps?.map(
+        (step: {
+          action: {
+            tool: string;
+            toolInput: any;
+          };
+          observation: any;
+        }) => ({
+          tool: step.action.tool,
+          input: step.action.toolInput,
+          output: step.observation,
+        }),
+      ) || [];
+
+    console.log(
+      '[Brain API] Tool calls:',
+      toolCalls.length ? 'Found' : 'None',
+      toolCalls.length ? `(${toolCalls.length} calls)` : '',
+    );
+
     // Create a ReadableStream that yields the final output string
     // Format: '0:"text"\n' is the protocol format expected by the AI SDK
     const textEncoder = new TextEncoder();
     const stream = new ReadableStream({
       start(controller) {
         try {
-          // Encode in the format expected by the AI SDK
+          // First, output the tool calls as a separate message part with "data:" prefix
+          if (toolCalls.length > 0) {
+            // We'll send tool calls in a separate format that the front-end can process
+            const debugData = {
+              type: 'debug',
+              toolCalls,
+            };
+            controller.enqueue(
+              textEncoder.encode(`data: ${JSON.stringify(debugData)}\n\n`),
+            );
+          }
+
+          // Then, output the actual text response in the expected AI SDK format
           const chunk = `0:${JSON.stringify(result.output)}\n`;
           controller.enqueue(textEncoder.encode(chunk));
           controller.close();

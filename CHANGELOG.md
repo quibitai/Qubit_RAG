@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2024-12-20
+
+### Added
+- Implemented dynamic model selection based on Bit ID with fallback mechanism
+- Added comprehensive test script for model selection logic (test-model-selection.js)
+- Enhanced environment variable support for default model configuration
+
+### Changed
+- Updated model mapping to use gpt-4.1-mini for Echo Tango Bit and Orchestrator
+- Improved TypeScript type safety throughout the codebase
+
+### Fixed
+- Resolved linter errors in components/chat.tsx
+- Fixed optional chaining in onResponse event handler
+- Enhanced error handling in API routes
+
 ## [1.5.0] - 2024-05-21
 
 ### Added

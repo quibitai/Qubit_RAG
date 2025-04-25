@@ -113,6 +113,14 @@ This project uses several n8n workflows for document processing, search, and ret
 
 All workflows are configured with webhook endpoints, authentication headers, and relevant database connections. See the [N8N Workflows Documentation](./docs/N8N_WORKFLOWS.md) for detailed setup instructions.
 
+## Model Selection
+
+This application uses a dynamic model selection architecture to choose the appropriate OpenAI model based on the context of each request. See the [Model Selection Documentation](./docs/MODEL_SELECTION.md) for details about:
+
+- How different models are mapped to specific Bits
+- The fallback mechanism using environment variables
+- How to configure and extend the model selection
+
 ### Testing Webhooks
 
 Test scripts are provided in the `/tests` directory:
@@ -149,7 +157,22 @@ node tests/test-query-rows-webhook.js       # Test data queries
 
 ## Version History
 
-- v2.1.0 - Current
+- v3.1.0 - Current
+  - Enhanced model selection logic with fallback capabilities
+  - Implemented dynamic model mapping based on Bit ID
+  - Added environment variable fallback for default model configuration
+  - Fixed linter errors in components/chat.tsx
+  - Added comprehensive testing for model selection logic
+  - Improved TypeScript type safety throughout the codebase
+
+- v3.0.1
+  - Fixed unterminated string literal in suggested actions component
+  - Updated n8n workflow documentation to better reflect actual implementation
+  - Enhanced Google Drive integration documentation
+  - Improved file extraction service details
+  - Removed deprecated deployment instructions
+
+- v2.1.0
   - Fixed unterminated string literal in suggested actions component
   - Updated n8n workflow documentation to better reflect actual implementation
   - Enhanced Google Drive integration documentation

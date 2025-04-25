@@ -43,6 +43,7 @@ export function Chat({
     reload,
   } = useChat({
     id,
+    api: '/api/brain',
     body: { id, selectedChatModel: selectedChatModel },
     initialMessages,
     experimental_throttle: 100,
@@ -51,8 +52,78 @@ export function Chat({
     onFinish: () => {
       mutate(unstable_serialize(getChatHistoryPaginationKey));
     },
-    onError: () => {
+    onError: (error) => {
+      console.error('Chat error:', error);
       toast.error('An error occurred, please try again!');
+    },
+    onResponse: (response) => {
+      const originalBody = response.body;
+
+      if (!originalBody) return;
+
+      const { readable, writable } = new TransformStream();
+      const reader = originalBody.getReader();
+      const decoder = new TextDecoder();
+
+      const pump = async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+
+            if (done) {
+              writable.close();
+              break;
+            }
+
+            const chunk = decoder.decode(value, { stream: true });
+
+            const debugMatches = chunk.match(/data: (.*?)\n\n/g);
+            if (debugMatches?.length) {
+              for (const match of debugMatches) {
+                try {
+                  const jsonStr = match.replace(/^data: /, '').trim();
+                  const debugData = JSON.parse(jsonStr);
+
+                  if (
+                    debugData.type === 'debug' &&
+                    Array.isArray(debugData.toolCalls)
+                  ) {
+                    console.log(
+                      `[Chat] Processing ${debugData.toolCalls.length} tool calls`,
+                    );
+
+                    const event = new CustomEvent('debug-tool-calls', {
+                      detail: debugData.toolCalls,
+                    });
+                    window.dispatchEvent(event);
+                  }
+                } catch (e) {
+                  console.error('[Chat] Failed to process debug data:', e);
+                }
+              }
+            }
+
+            const writer = writable.getWriter();
+            writer.write(value);
+            writer.releaseLock();
+          }
+        } catch (e) {
+          console.error('[Chat] Stream processing error:', e);
+          writable.abort(e);
+        }
+      };
+
+      pump();
+
+      const newResponse = new Response(readable, {
+        headers: response.headers,
+        status: response.status,
+        statusText: response.statusText,
+      });
+
+      Object.defineProperty(response, 'body', {
+        value: newResponse.body,
+      });
     },
   });
 
