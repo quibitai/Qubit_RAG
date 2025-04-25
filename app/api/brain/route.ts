@@ -22,6 +22,7 @@ import {
   searchInternalKnowledgeBase,
   createDocumentTool,
   requestSuggestionsTool,
+  updateDocumentTool,
 } from '@/lib/ai/tools';
 import { tavilyExtractTool } from '@/lib/ai/tools/tavilyExtractTool';
 import { getSystemPromptFor } from '@/lib/ai/prompts';
@@ -143,6 +144,7 @@ export async function POST(req: NextRequest) {
       tavilyExtractTool,
       createDocumentTool,
       requestSuggestionsTool,
+      updateDocumentTool,
     ];
 
     // Get system prompt for the requested Bit
