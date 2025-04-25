@@ -17,7 +17,7 @@ import { AIMessage, HumanMessage } from '@langchain/core/messages';
 // Import tools and utilities
 import { listDocumentsTool, getFileContentsTool } from '@/lib/ai/tools';
 import { searchInternalKnowledgeBase } from '@/lib/ai/tools/search-internal-knowledge-base';
-import { tavilySearchTool, searchWeb } from '@/lib/ai/tools/tavily-search';
+import { searchWeb } from '@/lib/ai/tools/tavily-search';
 import { tavilyExtractTool } from '@/lib/ai/tools/tavilyExtractTool';
 import { getSystemPromptFor } from '@/lib/ai/prompts';
 import { modelMapping } from '@/lib/ai/models';
@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
       listDocumentsTool,
       getFileContentsTool,
       searchInternalKnowledgeBase,
-      tavilySearchTool,
+      searchWeb,
       tavilyExtractTool,
     ];
 
