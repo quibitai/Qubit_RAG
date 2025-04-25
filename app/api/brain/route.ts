@@ -15,11 +15,8 @@ import {
 import { AIMessage, HumanMessage } from '@langchain/core/messages';
 
 // Import tools and utilities
-import {
-  listDocumentsTool,
-  getFileContentsTool,
-  searchInternalKnowledgeBase,
-} from '@/lib/ai/tools';
+import { listDocumentsTool, getFileContentsTool } from '@/lib/ai/tools';
+import { searchInternalKnowledgeBase } from '@/lib/ai/tools/search-internal-knowledge-base';
 import { tavilySearchTool } from '@/lib/ai/tools/tavily-search';
 import { tavilyExtractTool } from '@/lib/ai/tools/tavilyExtractTool';
 import { getSystemPromptFor } from '@/lib/ai/prompts';
