@@ -29,9 +29,10 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
         "Search the web for LWCC in Baton Rouge and using the client research examples in the knowledge base, create a research report on how they align with Echo Tango's Ideal Clients.",
     },
     {
-      title: 'List Google Calendar Events',
-      label: 'for Tuesday of next week.',
-      action: 'List Google Calendar events for Tuesday of next week.',
+      title: 'Tell me about NOCCA',
+      label: 'news stories and give me a summary of the most recent one.',
+      action:
+        'Search the web for NOCCA news stories and extract the contents of the most recent one.',
     },
   ];
 
