@@ -8,6 +8,7 @@ import { getFileContentsTool } from './getFileContentsTool';
 import { listDocumentsTool } from './listDocumentsTool';
 import { searchInternalKnowledgeBase } from './search-internal-knowledge-base';
 import { getWeatherTool } from './get-weather';
+import { createDocumentTool } from './create-document';
 
 // Export all available tools
 export const availableTools = [
@@ -15,6 +16,7 @@ export const availableTools = [
   getFileContentsTool,
   searchInternalKnowledgeBase,
   getWeatherTool,
+  createDocumentTool,
 ];
 
 export {
@@ -22,4 +24,5 @@ export {
   listDocumentsTool,
   searchInternalKnowledgeBase,
   getWeatherTool,
+  createDocumentTool,
 };
