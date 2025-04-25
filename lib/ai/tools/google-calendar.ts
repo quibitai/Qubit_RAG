@@ -1,72 +1,76 @@
-import { tool } from 'ai';
 import { z } from 'zod';
+import { DynamicStructuredTool } from '@langchain/core/tools';
 
-export const googleCalendar = tool({
+// Keep the existing Zod schema definition
+const googleCalendarSchema = z.object({
+  action: z
+    .enum(['search', 'create', 'update', 'delete'])
+    .describe(
+      'The action to perform on Google Calendar: search events, create an event, update an event, or delete an event.',
+    ),
+  query: z
+    .string()
+    .optional()
+    .describe(
+      'For search action: The search query to find events, can include date ranges, keywords, or specific event details.',
+    ),
+  eventId: z
+    .string()
+    .optional()
+    .describe(
+      'For update/delete actions: The unique ID of the Google Calendar event to modify or remove.',
+    ),
+  eventDetails: z
+    .object({
+      summary: z.string().describe('The title/summary of the event'),
+      description: z
+        .string()
+        .optional()
+        .describe('The description of the event'),
+      location: z.string().optional().describe('The location of the event'),
+      startDateTime: z
+        .string()
+        .describe(
+          'The start date and time in ISO format (e.g., "2024-05-15T09:00:00")',
+        ),
+      endDateTime: z
+        .string()
+        .describe(
+          'The end date and time in ISO format (e.g., "2024-05-15T10:00:00")',
+        ),
+      attendees: z
+        .array(z.string())
+        .optional()
+        .describe('Email addresses of attendees'),
+      reminders: z
+        .array(
+          z.object({
+            method: z.enum(['email', 'popup']),
+            minutes: z.number(),
+          }),
+        )
+        .optional()
+        .describe('Reminder settings for the event'),
+      recurrence: z
+        .string()
+        .optional()
+        .describe(
+          'Recurrence rule for repeating events (e.g., "RRULE:FREQ=WEEKLY;COUNT=10;BYDAY=MO")',
+        ),
+    })
+    .optional()
+    .describe(
+      'For create/update actions: The details of the event to create or update.',
+    ),
+});
+
+export const googleCalendarTool = new DynamicStructuredTool({
+  name: 'googleCalendar',
   description:
     'Interact with Google Calendar to manage events and appointments. This tool supports searching for events, creating new events, updating existing events, and deleting events. It can be used for scheduling, finding available time slots, checking upcoming events, and managing user calendars.',
-  parameters: z.object({
-    action: z
-      .enum(['search', 'create', 'update', 'delete'])
-      .describe(
-        'The action to perform on Google Calendar: search events, create an event, update an event, or delete an event.',
-      ),
-    query: z
-      .string()
-      .optional()
-      .describe(
-        'For search action: The search query to find events, can include date ranges, keywords, or specific event details.',
-      ),
-    eventId: z
-      .string()
-      .optional()
-      .describe(
-        'For update/delete actions: The unique ID of the Google Calendar event to modify or remove.',
-      ),
-    eventDetails: z
-      .object({
-        summary: z.string().describe('The title/summary of the event'),
-        description: z
-          .string()
-          .optional()
-          .describe('The description of the event'),
-        location: z.string().optional().describe('The location of the event'),
-        startDateTime: z
-          .string()
-          .describe(
-            'The start date and time in ISO format (e.g., "2024-05-15T09:00:00")',
-          ),
-        endDateTime: z
-          .string()
-          .describe(
-            'The end date and time in ISO format (e.g., "2024-05-15T10:00:00")',
-          ),
-        attendees: z
-          .array(z.string())
-          .optional()
-          .describe('Email addresses of attendees'),
-        reminders: z
-          .array(
-            z.object({
-              method: z.enum(['email', 'popup']),
-              minutes: z.number(),
-            }),
-          )
-          .optional()
-          .describe('Reminder settings for the event'),
-        recurrence: z
-          .string()
-          .optional()
-          .describe(
-            'Recurrence rule for repeating events (e.g., "RRULE:FREQ=WEEKLY;COUNT=10;BYDAY=MO")',
-          ),
-      })
-      .optional()
-      .describe(
-        'For create/update actions: The details of the event to create or update.',
-      ),
-  }),
-  execute: async ({ action, query, eventId, eventDetails }) => {
-    console.log(`Tool 'googleCalendar' called with action: ${action}`);
+  schema: googleCalendarSchema,
+  func: async ({ action, query, eventId, eventDetails }) => {
+    console.log(`[googleCalendarTool] Called with action: ${action}`);
 
     // Get environment variables for n8n integration
     const webhookUrl = process.env.N8N_GOOGLE_CALENDAR_WEBHOOK_URL;
@@ -75,7 +79,7 @@ export const googleCalendar = tool({
 
     if (!webhookUrl || !authHeader || !authToken) {
       console.error(
-        'Missing Google Calendar n8n configuration environment variables',
+        '[googleCalendarTool] Missing Google Calendar n8n configuration environment variables',
       );
       return {
         success: false,
@@ -84,7 +88,7 @@ export const googleCalendar = tool({
     }
 
     console.log(
-      `Sending Google Calendar ${action} request to n8n webhook at URL: ${webhookUrl}`,
+      `[googleCalendarTool] Sending Google Calendar ${action} request to n8n webhook.`,
     );
 
     try {
@@ -107,9 +111,15 @@ export const googleCalendar = tool({
       });
 
       if (!response.ok) {
-        const errorBody = await response.text();
+        let errorBody: string;
+        try {
+          errorBody = await response.text();
+        } catch (e) {
+          errorBody = `HTTP error ${response.status}`;
+        }
+
         console.error(
-          `Google Calendar ${action} failed with status ${response.status}: ${errorBody}`,
+          `[googleCalendarTool] Google Calendar ${action} failed with status ${response.status}: ${errorBody}`,
         );
 
         // Provide user-friendly error messages based on status code and action
@@ -133,12 +143,16 @@ export const googleCalendar = tool({
           };
         }
 
-        throw new Error(
-          `Google Calendar ${action} failed: ${response.statusText}`,
-        );
+        return {
+          success: false,
+          error: `Google Calendar ${action} failed: ${response.statusText}`,
+        };
       }
 
       const resultJson = await response.json();
+      console.log(
+        `[googleCalendarTool] Successfully received response from N8N webhook.`,
+      );
 
       // Format the response in a more readable way based on action type
       switch (action) {
@@ -181,7 +195,10 @@ export const googleCalendar = tool({
           return resultJson;
       }
     } catch (error) {
-      console.error('Error executing Google Calendar tool:', error);
+      console.error(
+        '[googleCalendarTool] Error executing Google Calendar tool:',
+        error,
+      );
       return {
         success: false,
         error: `Failed to perform ${action} operation on Google Calendar: ${error instanceof Error ? error.message : String(error)}`,
