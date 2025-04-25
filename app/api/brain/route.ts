@@ -16,8 +16,13 @@ import { AIMessage, HumanMessage } from '@langchain/core/messages';
 import { TavilySearchResults } from '@langchain/community/tools/tavily_search';
 
 // Import tools and utilities
-import { listDocumentsTool, getFileContentsTool } from '@/lib/ai/tools';
-import { searchInternalKnowledgeBase } from '@/lib/ai/tools/search-internal-knowledge-base';
+import {
+  listDocumentsTool,
+  getFileContentsTool,
+  searchInternalKnowledgeBase,
+  createDocumentTool,
+  requestSuggestionsTool,
+} from '@/lib/ai/tools';
 import { tavilyExtractTool } from '@/lib/ai/tools/tavilyExtractTool';
 import { getSystemPromptFor } from '@/lib/ai/prompts';
 import { modelMapping } from '@/lib/ai/models';
@@ -136,6 +141,8 @@ export async function POST(req: NextRequest) {
       searchInternalKnowledgeBase,
       tavilySearch,
       tavilyExtractTool,
+      createDocumentTool,
+      requestSuggestionsTool,
     ];
 
     // Get system prompt for the requested Bit
