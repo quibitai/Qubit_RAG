@@ -69,7 +69,7 @@ console.log('\nTest Case 5: Without DEFAULT_MODEL_NAME env var');
 // Save current env var
 const originalEnvVar = process.env.DEFAULT_MODEL_NAME;
 // Temporarily remove env var
-process.env.DEFAULT_MODEL_NAME = undefined;
+delete process.env.DEFAULT_MODEL_NAME;
 
 // Test with env var removed
 const result5 = initializeLLM('unknown-bit');
