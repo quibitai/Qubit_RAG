@@ -1,13 +1,12 @@
 {
-    "version": 2,
-    "buildCommand": "pnpm build",
-    "devCommand": "pnpm dev",
-    "installCommand": "pnpm install",
-    "framework": "nextjs",
-    "regions": [
-        "iad1"
-    ],
-    "env": {
-        "NODE_ENV": "production"
-    }
+  "version": 2,
+  "buildCommand": "pnpm build",
+  "devCommand": "pnpm dev",
+  "installCommand": "pnpm install",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "packageManager": "pnpm@9.12.3"
 }
