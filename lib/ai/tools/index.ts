@@ -11,6 +11,8 @@ import { getWeatherTool } from './get-weather';
 import { createDocumentTool } from './create-document';
 import { requestSuggestionsTool } from './request-suggestions';
 import { updateDocumentTool } from './update-document';
+import { googleCalendarTool } from './google-calendar';
+import { tavilySearchTool } from './tavily-search';
 
 // Export all available tools
 export const availableTools = [
@@ -21,6 +23,8 @@ export const availableTools = [
   createDocumentTool,
   requestSuggestionsTool,
   updateDocumentTool,
+  googleCalendarTool,
+  tavilySearchTool,
 ];
 
 export {
@@ -31,4 +35,6 @@ export {
   createDocumentTool,
   requestSuggestionsTool,
   updateDocumentTool,
+  googleCalendarTool,
+  tavilySearchTool,
 };

@@ -23,15 +23,12 @@ import {
   createDocumentTool,
   requestSuggestionsTool,
   updateDocumentTool,
+  googleCalendarTool,
+  tavilySearchTool,
 } from '@/lib/ai/tools';
 import { tavilyExtractTool } from '@/lib/ai/tools/tavilyExtractTool';
 import { getSystemPromptFor } from '@/lib/ai/prompts';
 import { modelMapping } from '@/lib/ai/models';
-
-// Create Tavily search tool directly
-const tavilySearch = new TavilySearchResults({
-  maxResults: 7,
-});
 
 // Temporary flag to bypass authentication for testing
 const BYPASS_AUTH_FOR_TESTING = true;
@@ -140,11 +137,12 @@ export async function POST(req: NextRequest) {
       listDocumentsTool,
       getFileContentsTool,
       searchInternalKnowledgeBase,
-      tavilySearch,
+      tavilySearchTool,
       tavilyExtractTool,
       createDocumentTool,
       requestSuggestionsTool,
       updateDocumentTool,
+      googleCalendarTool,
     ];
 
     // Get system prompt for the requested Bit
