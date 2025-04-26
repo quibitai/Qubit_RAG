@@ -30,7 +30,7 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
     },
     {
       title: 'Tell me about NOCCA',
-      label: 'news stories and give me a summary of the most recent one.',
+      label: 'news stories.',
       action:
         'Search the web for NOCCA news stories and extract the contents of the most recent one.',
     },
