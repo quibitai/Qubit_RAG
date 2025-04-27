@@ -1,240 +1,129 @@
-# ETN8N002 - RAG-Enhanced AI Assistant
+# Quibit RAG
 
-A Next.js AI chatbot with RAG (Retrieval Augmented Generation) capabilities powered by N8N workflows for document retrieval, web search, and structured data queries. This assistant helps users interact with internal documents, spreadsheets, and knowledge bases through natural language.
+A modular, scalable Retrieval-Augmented Generation (RAG) system with Google Drive integration and a Vercel-hosted chatbot interface.
 
-## Features
+## 🌟 Overview
 
-- 🔍 Semantic search over internal knowledge base
-- 🌐 Web search integration via Google Search API (via SerpAPI)
-- 📄 Document listing and retrieval from Google Drive
-- 📊 SQL-like queries for spreadsheet data
-- 💬 AI assistant with streaming responses using OpenAI models (GPT-4.1 and GPT-4.1-mini)
-- 🔄 N8N integration for data processing workflows
-- 🔐 Authentication and session management
-- 🎨 Modern UI with dark mode support
-- 📱 Responsive design for mobile and desktop
-- 🔒 Secure environment variable handling
-- 🧠 Intelligent tool selection with search-before-creation logic
-- 📤 Advanced file upload functionality:
-  - Drag-and-drop support for various file types
-  - PDF document extraction
-  - Excel/CSV data conversion to readable formats
-  - Image handling for AI vision capabilities
-  - Intelligent JSON data formatting
-- 🛠️ Dual model support:
-  - Echo Tango Bit (GPT-4.1-mini) for general chat
-  - Orchestrator (GPT-4.1) for advanced reasoning
+Quibit RAG combines advanced language models with RAG techniques to provide AI assistants with access to your organization's knowledge base. It features:
 
-## Project Structure
+- Document retrieval from Google Drive
+- Semantic search capabilities
+- Vector storage for efficient document embedding
+- Context-aware responses
+- Modern, responsive UI
 
-```
-.
-├── app/
-│   ├── api/chat/route.ts    # Main chat API endpoint with file processing
-│   ├── api/files/          # File upload and processing endpoints
-│   ├── (chat)/             # Chat UI components
-│   └── (auth)/             # Authentication logic
-├── components/             # Reusable UI components
-├── lib/
-│   ├── ai/
-│   │   ├── tools/          # Custom AI tools
-│   │   ├── providers.ts    # AI model configuration
-│   │   └── prompts.ts      # System prompts
-│   └── db/                 # Database utilities
-├── docs/                   # Documentation
-├── sql/                    # Database migrations
-└── tests/                  # Test files
-```
+## 🏗️ Architecture
 
-## Setup
+Quibit RAG follows a modular design with these key components:
 
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   pnpm install
-   ```
-3. Copy `.env.example` to `.env.local` and configure:
-   ```bash
-   cp .env.example .env.local
-   ```
-4. Run the development server:
-   ```bash
-   pnpm dev
-   ```
+### Data Ingestion
+- Google Drive integration for document source
+- Document chunking and preprocessing
+- Vector embedding generation
+- Metadata storage
 
-### Environment Variables
+### Retrieval System
+- Semantic search over vector database
+- Context-aware document retrieval
+- Support for different embedding models
 
-Required environment variables (see `.env.example` for details):
+### Generation Layer
+- LLM integration with OpenAI models
+- Context window optimization
+- Response generation with citations
 
-- N8N Webhook configurations (URLs, auth headers, tokens)
-- Authentication secret
-- Database URL
+### Web Interface
+- Modern React/Next.js UI
+- Real-time streaming responses
+- Support for conversation history
+- Vercel deployment
+
+## 🚀 Getting Started
+
+### Prerequisites
+- Node.js (v18+)
+- Supabase account for vector storage
 - OpenAI API key
-- Vercel Blob storage token (for file uploads)
+- Google API credentials
 
-## N8N Workflows
+### Installation
 
-This project uses several n8n workflows for document processing, search, and retrieval:
-
-1. **Internal Knowledge Base Search Tool**
-   - Performs semantic search using embeddings stored in PostgreSQL vector database
-   - Extracts relevant content from stored documents based on similarity
-   - Returns formatted results with source attribution
-   - Uses OpenAI text-embedding-3-small model for vector embeddings
-
-2. **Web Search Tool (SerpAPI Integration)**
-   - Performs web searches using Google Search API via SerpAPI
-   - Uses an AI Agent with GPT-4.1-mini to process and summarize search results
-   - Maintains conversation context using memory components
-   - Returns well-formatted, context-aware summaries
-
-3. **Document Management Tools**
-   - **List Documents Tool**: Returns metadata for all documents in the knowledge base
-   - **Document Retrieval Tool**: Fetches full content of specific documents by ID
-   - **Spreadsheet Query Tool**: Executes structured queries against tabular data
-
-4. **Google Drive Integration**
-   - Automatic monitoring for new/updated files in specified Google Drive folders
-   - Handles various file types (PDF, XLSX, CSV, Google Docs, etc.)
-   - Converts files to text and creates embeddings for semantic search
-   - Maintains document metadata for efficient retrieval
-
-5. **Google Calendar Integration**
-   - Search calendar events with natural language queries
-   - Create, update, and delete calendar events
-   - Supports complex date/time parsing
-   - Returns structured event data with proper formatting
-
-6. **File Extraction Service**
-   - Processes uploaded files from various sources
-   - Extracts text from PDFs, spreadsheets, and other document types
-   - Converts structured data to readable formats
-   - Uses content-type detection for appropriate extraction methods
-
-All workflows are configured with webhook endpoints, authentication headers, and relevant database connections. See the [N8N Workflows Documentation](./docs/N8N_WORKFLOWS.md) for detailed setup instructions.
-
-## Model Selection
-
-This application uses a dynamic model selection architecture to choose the appropriate OpenAI model based on the context of each request. See the [Model Selection Documentation](./docs/MODEL_SELECTION.md) for details about:
-
-- How different models are mapped to specific Bits
-- The fallback mechanism using environment variables
-- How to configure and extend the model selection
-
-### Testing Webhooks
-
-Test scripts are provided in the `/tests` directory:
-
+1. Clone the repository:
 ```bash
-node tests/test-updated-n8n-webhook.js      # Test RAG search
-node tests/test-list-docs-webhook.js        # Test document listing
-node tests/test-get-contents-webhook.js     # Test content retrieval
-node tests/test-query-rows-webhook.js       # Test data queries
+git clone https://github.com/quibitai/Quibit_RAG.git
+cd Quibit_RAG
 ```
 
-## Deployment
+2. Install dependencies:
+```bash
+npm install
+```
 
-1. Configure n8n instance with the workflows described in the documentation
-2. Set up PostgreSQL database with vector extensions
-3. Configure environment variables for authentication and API integrations
-4. Deploy to Vercel or your preferred hosting platform
+3. Set up environment variables:
+```bash
+cp .env.example .env.local
+```
 
-## Technologies
+4. Fill in the required environment variables in `.env.local`:
+```
+OPENAI_API_KEY=your_openai_api_key
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+```
 
-- **Frontend**
-  - Next.js 15
-  - Tailwind CSS
-  - Shadcn UI
-  - Vercel AI SDK 4.3.4
+5. Run the development server:
+```bash
+npm run dev
+```
 
-- **Backend**
-  - N8N workflows for document processing
-  - PostgreSQL with Drizzle ORM
-  - Next-Auth 5.0 for authentication
-  - OpenAI API (GPT-4.1 and GPT-4.1-mini)
-  - Google Search API via SerpAPI
-  - Vercel Blob for file storage
+Access the application at http://localhost:3001
 
-## Version History
+## 🧩 Core Components
 
-- v3.1.0 - Current
-  - Enhanced model selection logic with fallback capabilities
-  - Implemented dynamic model mapping based on Bit ID
-  - Added environment variable fallback for default model configuration
-  - Fixed linter errors in components/chat.tsx
-  - Added comprehensive testing for model selection logic
-  - Improved TypeScript type safety throughout the codebase
+### Message Handling System
 
-- v3.0.1
-  - Fixed unterminated string literal in suggested actions component
-  - Updated n8n workflow documentation to better reflect actual implementation
-  - Enhanced Google Drive integration documentation
-  - Improved file extraction service details
-  - Removed deprecated deployment instructions
+The system ensures proper handling of various message types, including tool messages with complex content structures, through:
 
-- v2.1.0
-  - Fixed unterminated string literal in suggested actions component
-  - Updated n8n workflow documentation to better reflect actual implementation
-  - Enhanced Google Drive integration documentation
-  - Improved file extraction service details
-  - Removed deprecated deployment instructions
+- Robust content sanitization
+- Multiple fallback mechanisms
+- Support for nested object structures
 
-- v2.0.0
-  - Enhanced file processing for Excel, PDF, and text documents
-  - Improved JSON data formatting for spreadsheet data
-  - Fixed AI model handling to support file attachments
-  - Added sanitization of messages to prevent errors with file types
-  - Enhanced console debugging for file processing
-  - Better error handling throughout the application
-  - Replaced Tavily search with Google Search API via SerpAPI
+### Tool Integration
 
-- v1.5.0
-  - Added drag-and-drop file upload functionality
-  - Improved file attachment UX with better positioning of controls
-  - Enhanced tool descriptions for better AI prompt understanding
-  - Improved search results handling with support for direct response format
-  - Fixed routing implementation for better performance
+Quibit RAG includes several tools that enhance the capabilities of the AI:
+- Google Drive document search and retrieval
+- Weather information retrieval
+- Web search integration
 
-- v1.4.0
-  - Added Tavily web search integration
-  - Improved tool architecture and organization
-  - Enhanced system prompt with search-before-creation logic
-  - Fixed linter issues and improved error handling
+### Error Handling
 
-- v1.3.0
-  - Added SQL-like queries for spreadsheet data
-  - Improved document parsing and extraction
-  - Enhanced error handling for N8N workflows
+Comprehensive error handling ensures system reliability:
+- Message content type validation
+- Runtime error logging
+- Fallback strategies for unexpected inputs
 
-- v1.2.0
-  - Added custom business queries
-  - Improved UI/UX
-  - Enhanced documentation
-  - Code cleanup and organization
+## 🧪 Development
 
-- v1.1.0
-  - Added RAG capabilities
-  - Integrated N8N workflows
-  - Added authentication
+### Running Tests
+```bash
+npm test
+```
 
-- v1.0.0
-  - Initial release
-  - Basic chat functionality
+### Debugging
+The system includes extensive logging that can be enabled by setting:
+```
+DEBUG=quibit:*
+```
 
-See the [CHANGELOG](./CHANGELOG.md) for more details on each version.
-
-## License
+## 📄 License
 
 MIT
 
-## Contributing
+## 🙏 Acknowledgements
 
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## Support
-
-For support, please open an issue in the GitHub repository.
+- [LangChain.js](https://js.langchain.com/) for agent and tool integration
+- [Supabase](https://supabase.com/) for vector storage
+- [Next.js](https://nextjs.org/) for the web framework
+- [Vercel AI SDK](https://github.com/vercel/ai) for AI integration

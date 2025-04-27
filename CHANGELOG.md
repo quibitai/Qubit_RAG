@@ -1,9 +1,35 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to Quibit RAG will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.0.0] - 2023-11-19
+
+### Added
+- Initial release of Quibit RAG
+- Google Drive integration for document retrieval
+- LangChain.js integration for agent and tool capabilities
+- Vercel AI SDK integration for streaming responses
+- Supabase vector database for document embedding storage
+- Modern React/Next.js UI with real-time streaming responses
+- Support for conversation history and context-aware responses
+- Multiple AI tools including document search, weather info, and web search
+- Comprehensive error handling and logging system
+
+### Fixed
+- Critical message content handling issue in LangChain integration
+- Tool message serialization for nested content structures
+- Stringification of complex objects returned by tools
+- Multiple layers of content sanitization in the message processing pipeline
+- Error handling for "message.content.map is not a function" issue
+
+### Documentation
+- Comprehensive README with setup instructions
+- Detailed message handling documentation
+- Architecture overview
+- Tool integration documentation
 
 ## [3.1.0] - 2024-12-20
 
