@@ -55,14 +55,14 @@ cd Quibit_RAG
 ```
 
 2. Install dependencies:
-```bash
+   ```bash
 npm install
-```
+   ```
 
 3. Set up environment variables:
-```bash
-cp .env.example .env.local
-```
+   ```bash
+   cp .env.example .env.local
+   ```
 
 4. Fill in the required environment variables in `.env.local`:
 ```
@@ -74,9 +74,9 @@ GOOGLE_CLIENT_SECRET=your_google_client_secret
 ```
 
 5. Run the development server:
-```bash
+   ```bash
 npm run dev
-```
+   ```
 
 Access the application at http://localhost:3001
 

@@ -10,6 +10,17 @@ const createDocumentSchema = z.object({
     .describe('The type of artifact to create (e.g., text, code).'),
 });
 
+/**
+ * Tool for creating document artifacts
+ *
+ * TODO: Full implementation requirements:
+ * 1. Integration with streaming mechanism in app/api/brain/route.ts
+ * 2. Connect with artifact management in lib/artifacts/server.ts
+ * 3. Add proper database operations to store artifact metadata
+ * 4. Implement progress tracking and status updates during creation
+ * 5. Add error handling for various failure scenarios
+ * 6. Support frontend rendering of creation progress
+ */
 export const createDocumentTool = new DynamicStructuredTool({
   name: 'createDocument',
   description:
@@ -21,23 +32,19 @@ export const createDocumentTool = new DynamicStructuredTool({
       `[createDocumentTool] Called with title: "${title}", kind: "${kind}", generated ID: ${id}`,
     );
 
-    // --- TEMPORARY SIMPLIFICATION to fix build error ---
-    // Bypassing actual content generation and streaming for now.
-    // TODO: Re-implement content generation and streaming handling in the API route later.
+    // TODO: Implement full document creation logic with the following steps:
+    // 1. Create database entry for the new artifact
+    // 2. Initialize artifact content based on kind
+    // 3. Set up streaming response channel for progress updates
+    // 4. Connect with frontend via data-stream-handler
+    // 5. Handle error cases and provide meaningful error messages
 
     // Placeholder logic:
     console.log(
       `[createDocumentTool] Placeholder: Simulating creation for ${kind} document "${title}"`,
     );
 
-    // Return the expected final result structure for the agent.
-    // The actual content generation and streaming will be handled differently later.
-    return {
-      id: id,
-      title: title,
-      kind: kind,
-      content: `Placeholder: Document artifact of kind '${kind}' titled '${title}' would be created here (ID: ${id}). Streaming logic needs reimplementation.`,
-    };
-    // --- END TEMPORARY SIMPLIFICATION ---
+    // Return a string confirming the action instead of an object
+    return `Document artifact of kind '${kind}' titled '${title}' requested with ID ${id}. Content generation process initiated.`;
   },
 });

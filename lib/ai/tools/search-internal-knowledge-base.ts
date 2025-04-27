@@ -1,105 +1,176 @@
-import { tool } from 'ai';
+/**
+ * Search Internal Knowledge Base Tool (Supabase Vector Search Version)
+ *
+ * Performs semantic search using embeddings and calls the match_documents Supabase function.
+ */
+import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { createClient } from '@supabase/supabase-js';
+import { OpenAIEmbeddings } from '@langchain/openai'; // Using OpenAI for embeddings
 
-export const searchInternalKnowledgeBase = tool({
-  description:
-    'Performs semantic search across the internal knowledge base to find contextually relevant information from stored documents. This tool is optimized for retrieving specific facts, details, or explanations that match the search query from all available documents. Use this when you need precise information on a topic rather than the full content of a particular document. Results include relevant content snippets with their source information.',
-  parameters: z.object({
+// Initialize Supabase client
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  '';
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error(
+    'Missing Supabase URL or Key for searchInternalKnowledgeBase tool.',
+  );
+}
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Initialize Embeddings Model (Consider making this a shared instance)
+// Ensure OPENAI_API_KEY is set in your environment
+if (!process.env.OPENAI_API_KEY) {
+  console.error(
+    "Missing OPENAI_API_KEY for searchInternalKnowledgeBase tool's embedding generation.",
+  );
+}
+const embeddings = new OpenAIEmbeddings({
+  modelName: 'text-embedding-3-small', // Or your preferred embedding model
+  openAIApiKey: process.env.OPENAI_API_KEY,
+});
+
+/**
+ * Tool response type definition
+ */
+type SearchResponse = {
+  success: boolean;
+  results?: Array<{
+    title: string;
+    similarity: number;
+    content: string;
+    metadata?: Record<string, any>;
+  }>;
+  error?: string;
+  metadata?: Record<string, any>;
+};
+
+export const searchInternalKnowledgeBase = new DynamicStructuredTool({
+  name: 'searchInternalKnowledgeBase',
+  description: `
+    Performs semantic search across the internal knowledge base (Supabase vector store)
+    using the match_documents function. Returns content snippets, similarity, source info. Allows optional JSONB filtering on metadata.
+  `,
+  schema: z.object({
     query: z
       .string()
+      .describe('The question or topic to semantically search for.'),
+    match_count: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .default(5)
+      .describe('Max number of results to return.'),
+    filter: z
+      .record(z.unknown())
+      .optional()
       .describe(
-        'The specific question or topic to search for in the knowledge base.',
+        'Optional JSONB filter for metadata (e.g., {"file_title": "Specific Title"}).',
       ),
   }),
-  execute: async ({ query }: { query: string }) => {
+  func: async ({
+    query,
+    match_count = 5,
+    filter = {},
+  }): Promise<SearchResponse> => {
     console.log(
-      `Tool 'searchInternalKnowledgeBase' called with query: ${query}`,
+      `[searchInternalKnowledgeBase] Searching "${query}" (k=${match_count}, filter=${JSON.stringify(filter)})`,
     );
 
-    // Get environment variables for n8n integration
-    const webhookUrl = process.env.N8N_RAG_TOOL_WEBHOOK_URL;
-    const authHeader = process.env.N8N_RAG_TOOL_AUTH_HEADER;
-    const authToken = process.env.N8N_RAG_TOOL_AUTH_TOKEN;
-
-    if (!webhookUrl || !authHeader || !authToken) {
-      console.error('Missing n8n configuration environment variables');
+    if (!supabaseUrl || !supabaseKey) {
       return {
         success: false,
-        error:
-          'Internal knowledge base search service is not configured correctly.',
+        error: 'Supabase credentials are not configured.',
+        metadata: { reason: 'configuration_error' },
       };
     }
 
-    console.log(`Attempting to fetch n8n webhook at URL: ${webhookUrl}`);
+    if (!process.env.OPENAI_API_KEY) {
+      return {
+        success: false,
+        error: 'OpenAI API key is not configured for embeddings.',
+        metadata: { reason: 'configuration_error' },
+      };
+    }
 
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      headers[authHeader] = authToken;
+      // 1) generate embedding
+      const queryEmbedding = await embeddings.embedQuery(query);
 
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({ query: query }),
-      });
+      // 2) call RPC
+      const { data: docs, error: rpcError } = await supabase.rpc(
+        'match_documents',
+        {
+          query_embedding: queryEmbedding,
+          match_count,
+          filter,
+        },
+      );
 
-      if (!response.ok) {
-        const errorBody = await response.text();
-        console.error(
-          `n8n webhook call failed with status ${response.status}: ${errorBody}`,
-        );
-        throw new Error(`n8n webhook call failed: ${response.statusText}`);
-      }
-
-      const resultJson = await response.json();
-      console.log('Received search result:', JSON.stringify(resultJson));
-
-      // Check if the response is directly in the expected format with success, results, summary fields
-      if (
-        resultJson &&
-        typeof resultJson === 'object' &&
-        'success' in resultJson
-      ) {
-        // The response is already in the expected format, just return it
-        return resultJson;
-      }
-
-      // Legacy format handling - Process resultJson to extract the most useful context for the LLM
-      const firstResult = Array.isArray(resultJson)
-        ? resultJson[0]
-        : resultJson;
-
-      // Check if we have search results using optional chaining
-      if (firstResult?.results?.length > 0) {
-        const searchResults = firstResult.results.map((result: any) => ({
-          title: result.title || 'No title available',
-          url: result.url || '',
-          content: result.raw_content || 'No content available',
-        }));
-
-        // Format the response in a more readable way
+      if (rpcError) {
+        console.error('[searchInternalKnowledgeBase] RPC error', rpcError);
         return {
-          success: true,
-          results: searchResults,
-          summary: `Found ${searchResults.length} relevant results for your query.`,
-          sources: searchResults.map((r: any) => r.url).join('\n'),
+          success: false,
+          error: `Error during vector search: ${rpcError.message}`,
+          metadata: {
+            errorType: 'rpc_error',
+            code: rpcError.code,
+            details: rpcError.details,
+          },
         };
       }
 
-      // If no results found or unable to parse
+      // 3) format results
+      if (!Array.isArray(docs) || docs.length === 0) {
+        return {
+          success: true,
+          results: [],
+          metadata: {
+            query,
+            matchCount: match_count,
+            filter: Object.keys(filter).length ? filter : undefined,
+          },
+        };
+      }
+
+      // Format the results as structured data
+      const formattedResults = docs.map((d: any) => {
+        const title = d.metadata?.file_title || 'Unknown';
+        const similarity = d.similarity ?? 0;
+        const content = d.content || '';
+
+        return {
+          title,
+          similarity,
+          content: content.slice(0, 500) + (content.length > 500 ? '...' : ''),
+          metadata: d.metadata || {},
+        };
+      });
+
       return {
         success: true,
-        results: [],
-        summary:
-          'No relevant results found in the knowledge base for your query.',
-        sources: [],
+        results: formattedResults,
+        metadata: {
+          query,
+          matchCount: match_count,
+          resultCount: formattedResults.length,
+          filter: Object.keys(filter).length ? filter : undefined,
+        },
       };
-    } catch (error) {
-      console.error('Error executing searchInternalKnowledgeBase tool:', error);
+    } catch (err: any) {
+      console.error('[searchInternalKnowledgeBase] Unexpected error:', err);
       return {
         success: false,
-        error: `Failed to fetch from knowledge base: ${error instanceof Error ? error.message : String(error)}`,
+        error: `Unexpected error during search: ${err.message}`,
+        metadata: {
+          errorType: err.name || 'Unknown',
+          query,
+        },
       };
     }
   },

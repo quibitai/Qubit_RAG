@@ -15,6 +15,7 @@ import { useArtifactSelector } from '@/hooks/use-artifact';
 import { toast } from 'sonner';
 import { unstable_serialize } from 'swr/infinite';
 import { getChatHistoryPaginationKey } from './sidebar-history';
+import { ChatPaneToggle } from './ChatPaneToggle';
 
 export function Chat({
   id,
@@ -138,12 +139,17 @@ export function Chat({
   return (
     <>
       <div className="flex flex-col min-w-0 h-dvh bg-background">
-        <ChatHeader
-          chatId={id}
-          selectedModelId={selectedChatModel}
-          selectedVisibilityType={selectedVisibilityType}
-          isReadonly={isReadonly}
-        />
+        <div className="relative">
+          <ChatHeader
+            chatId={id}
+            selectedModelId={selectedChatModel}
+            selectedVisibilityType={selectedVisibilityType}
+            isReadonly={isReadonly}
+          />
+          <div className="absolute right-4 top-1/2 -translate-y-1/2">
+            <ChatPaneToggle />
+          </div>
+        </div>
 
         <Messages
           chatId={id}
