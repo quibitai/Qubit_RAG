@@ -128,11 +128,11 @@ This checklist tracks our progress implementing the Langchain-focused RAG system
 - [x] Refactor `queryDocumentRows` to use direct Supabase connection
 - [x] Refactor `tavilySearch` to use direct Tavily API
 - [x] Implement `tavilyExtract` using direct Tavily API
-- [ ] Remove unused n8n webhook logic after successful migration
+- [x] Remove unused n8n webhook logic after successful migration
 - [ ] Consolidate API routes to address duplicate warnings
 - [ ] Fix middleware issues
 - [ ] Standardize error handling across tools
-- [ ] Update documentation to reflect current architecture
+- [x] Update documentation to reflect current architecture
 
 ## Phase 7: Observability & Scaling
 - [x] Implement structured logging
@@ -210,8 +210,8 @@ This checklist tracks our progress implementing the Langchain-focused RAG system
   - [x] Verify `getWeatherTool` integration
 - [ ] Test end-to-end with Supabase tools and Tavily integration
 - [x] Secure Tavily API key in environment variables
-- [ ] Remove old n8n webhook logic after successful migration
-- [ ] Address middleware/route warnings 
+- [x] Remove old n8n webhook logic after successful migration
+- [ ] Address middleware/route warnings
 
 ## Planned for v3.0.4
 - [ ] Enhance artifact tools functionality
