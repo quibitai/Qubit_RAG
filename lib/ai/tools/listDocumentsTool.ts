@@ -48,7 +48,7 @@ export const listDocumentsTool = new DynamicStructuredTool({
       // Query the document_metadata table to get a list of all available documents
       const { data, error } = await supabase
         .from('document_metadata')
-        .select('file_id, title, url, created_at, schema') // Changed 'id' to 'file_id'
+        .select('id, title, url, created_at, schema')
         .order('title'); // Order by title for readability
 
       if (error) {
@@ -59,7 +59,7 @@ export const listDocumentsTool = new DynamicStructuredTool({
           error.message.includes('does not exist')
         ) {
           console.error(
-            "VERIFY COLUMN NAMES: Ensure 'document_metadata' table has 'file_id' and 'title' columns.",
+            "VERIFY COLUMN NAMES: Ensure 'document_metadata' table has 'id' and 'title' columns.",
           );
         }
         throw new Error(`Database query failed: ${error.message}`);
@@ -76,7 +76,7 @@ export const listDocumentsTool = new DynamicStructuredTool({
 
       // Format the list of documents for the agent
       const documentList = data.map((doc) => ({
-        file_id: doc.file_id, // Changed from 'id' to 'file_id'
+        id: doc.id,
         title: doc.title,
         url: doc.url,
         created_at: doc.created_at,
@@ -88,7 +88,7 @@ export const listDocumentsTool = new DynamicStructuredTool({
         available_documents: documentList,
         total_count: documentList.length,
         usage_instructions:
-          "To retrieve the full content of a specific document, use the getFileContents tool with the document's file_id.",
+          "To retrieve the full content of a specific document, use the getFileContents tool with the document's id.",
       });
     } catch (error: any) {
       console.error(`Error in listDocuments tool: ${error.message}`);
