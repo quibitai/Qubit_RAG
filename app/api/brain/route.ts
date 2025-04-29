@@ -37,13 +37,13 @@ import { tavilyExtractTool } from '@/lib/ai/tools/tavilyExtractTool';
 import { getSystemPromptFor } from '@/lib/ai/prompts';
 import { modelMapping } from '@/lib/ai/models';
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
-import {
-  AgentAction,
-  AgentFinish,
-  ChainValues,
-  LLMResult,
-} from '@langchain/core/outputs';
-import { BaseMessage } from '@langchain/core/messages';
+import type {
+  Serialized,
+  SerializedConstructor,
+} from '@langchain/core/load/serializable';
+import type { BaseMessage } from '@langchain/core/messages';
+import type { LLMResult } from '@langchain/core/outputs';
+import { rawToMessage, RawMessage } from '@/lib/langchainHelpers';
 
 // Create Tavily search tool directly
 const tavilySearch = new TavilySearchResults({
@@ -53,24 +53,57 @@ const tavilySearch = new TavilySearchResults({
 // Temporary flag to bypass authentication for testing
 const BYPASS_AUTH_FOR_TESTING = true;
 
+// Define types for handler methods to match BaseCallbackHandler
+interface AgentAction {
+  tool: string;
+  toolInput: string | object;
+  log: string;
+}
+
+interface AgentFinish {
+  returnValues: {
+    output: string;
+  };
+  log: string;
+}
+
+interface ChainValues {
+  [key: string]: any;
+}
+
 // Debug callback handler for tracing the message flow
 class DebugCallbackHandler extends BaseCallbackHandler {
   name = 'DebugCallbackHandler';
 
   handleLLMStart(
-    llm: { name: string },
+    llm: Serialized,
     prompts: string[],
     runId: string,
+    parentRunId?: string,
+    extraParams?: Record<string, unknown>,
+    tags?: string[],
+    metadata?: Record<string, unknown>,
+    runName?: string,
   ): void | Promise<void> {
-    console.log(`[Callback] handleLLMStart: ${runId}`, { llm, prompts });
+    console.log(`[Callback] handleLLMStart: ${runId}`, {
+      llm: llm.id || llm.name || 'unknown',
+      prompts,
+    });
   }
 
   handleChatModelStart(
-    llm: { name: string },
+    llm: Serialized,
     messages: BaseMessage[][],
     runId: string,
+    parentRunId?: string,
+    extraParams?: Record<string, unknown>,
+    tags?: string[],
+    metadata?: Record<string, unknown>,
+    runName?: string,
   ): void | Promise<void> {
-    console.log(`[Callback] handleChatModelStart: ${runId}`, { llm });
+    console.log(`[Callback] handleChatModelStart: ${runId}`, {
+      llm: llm.id || llm.name || 'unknown',
+    });
     console.log(
       '[Callback] Messages sent to LLM:',
       JSON.stringify(messages, null, 2),
@@ -100,16 +133,40 @@ class DebugCallbackHandler extends BaseCallbackHandler {
 
   handleLLMError(err: Error, runId: string): void | Promise<void> {
     console.error(`[Callback] handleLLMError: ${runId}`, { err });
+    console.error(`[Callback] LLM Error Message: ${err.message}`);
+    console.error(`[Callback] LLM Error Name: ${err.name}`);
+    console.error(`[Callback] LLM Error Stack: ${err.stack}`);
+
+    // Check for common OpenAI errors
+    if (err.message.includes('rate') || err.message.includes('limit')) {
+      console.error(`[Callback] POSSIBLE RATE LIMIT ERROR`);
+    }
+
+    if (err.message.includes('token') || err.message.includes('context')) {
+      console.error(`[Callback] POSSIBLE TOKEN LIMIT/CONTEXT LENGTH ERROR`);
+    }
+
+    if (err.message.includes('format') || err.message.includes('invalid')) {
+      console.error(`[Callback] POSSIBLE MESSAGE FORMAT ERROR IN LLM CALL`);
+    }
   }
 
   handleChainStart(
-    chain: { name: string },
+    chain: Serialized,
     inputs: ChainValues,
     runId: string,
+    parentRunId?: string,
+    tags?: string[],
+    metadata?: Record<string, unknown>,
+    runType?: string,
+    runName?: string,
   ): void | Promise<void> {
-    console.log(`[Callback] handleChainStart: ${chain.name} (${runId})`, {
-      inputs,
-    });
+    console.log(
+      `[Callback] handleChainStart: ${chain.id || chain.name || 'unknown'} (${runId})`,
+      {
+        inputs,
+      },
+    );
   }
 
   handleChainEnd(outputs: ChainValues, runId: string): void | Promise<void> {
@@ -118,16 +175,60 @@ class DebugCallbackHandler extends BaseCallbackHandler {
 
   handleChainError(err: Error, runId: string): void | Promise<void> {
     console.error(`[Callback] handleChainError: ${runId}`, { err });
+    console.error(`[Callback] Chain Error Message: ${err.message}`);
+    console.error(`[Callback] Chain Error Name: ${err.name}`);
+    console.error(`[Callback] Chain Error Stack: ${err.stack}`);
+
+    // Check for specific error patterns
+    if (err.message.includes('map') || err.message.includes('iterate')) {
+      console.error(`[Callback] POSSIBLE ARRAY/ITERATION ERROR IN CHAIN`);
+    }
+
+    if (err.message.includes('message') || err.message.includes('content')) {
+      console.error(`[Callback] POSSIBLE MESSAGE FORMAT ERROR IN CHAIN`);
+
+      // Add additional context for message format errors
+      if (
+        err.stack?.includes('formatChatHistory') ||
+        err.stack?.includes('convertToLangChainMessage')
+      ) {
+        console.error(
+          `[Callback] Error appears to be in message conversion functions`,
+        );
+      }
+    }
   }
 
   handleToolStart(
-    tool: { name: string },
+    tool: Serialized,
     input: string,
     runId: string,
+    parentRunId?: string,
+    tags?: string[],
+    metadata?: Record<string, unknown>,
+    runName?: string,
   ): void | Promise<void> {
-    console.log(`[Callback] handleToolStart: ${tool.name} (${runId})`, {
-      input,
-    });
+    console.log(
+      `[Callback] handleToolStart: ${tool.id || tool.name || 'unknown'} (${runId})`,
+      {
+        input,
+      },
+    );
+
+    // Add detailed logging of tool input
+    console.log(`[Tool:${tool.id || tool.name}] Input type: ${typeof input}`);
+    try {
+      console.log(
+        `[Tool:${tool.id || tool.name}] Detailed input:`,
+        JSON.stringify(input, null, 2),
+      );
+    } catch (e) {
+      console.error(
+        `[Tool:${tool.id || tool.name}] Error stringifying input:`,
+        e,
+      );
+      console.log(`[Tool:${tool.id || tool.name}] Raw input:`, input);
+    }
   }
 
   handleToolEnd(output: string, runId: string): void | Promise<void> {
@@ -139,11 +240,45 @@ class DebugCallbackHandler extends BaseCallbackHandler {
         '[Callback ALERT] Tool returned object output instead of string:',
         output,
       );
+
+      // Additional diagnostic info for object outputs
+      console.log('[Callback] Tool output keys:', Object.keys(output));
+
+      // Fix the constructor access to avoid type errors
+      if (output && typeof output === 'object') {
+        console.log(
+          '[Callback] Tool output constructor:',
+          (output as any).constructor?.name,
+        );
+      }
+
+      try {
+        console.log(
+          '[Callback] Tool output stringified:',
+          JSON.stringify(output, null, 2),
+        );
+      } catch (e) {
+        console.error('[Callback] Failed to stringify tool output:', e);
+      }
     }
   }
 
   handleToolError(err: Error, runId: string): void | Promise<void> {
     console.error(`[Callback] handleToolError: ${runId}`, { err });
+    console.error(`[Callback] Tool Error Message: ${err.message}`);
+    console.error(`[Callback] Tool Error Name: ${err.name}`);
+    console.error(`[Callback] Tool Error Stack: ${err.stack}`);
+
+    // Check for specific error types
+    if (err.message.includes('content') || err.message.includes('Content')) {
+      console.error(`[Callback] POSSIBLE MESSAGE FORMAT ERROR IN TOOL CALL`);
+    }
+
+    // Log error properties
+    console.error(
+      `[Callback] Tool Error Properties:`,
+      Object.getOwnPropertyNames(err),
+    );
   }
 
   handleAgentAction(action: AgentAction, runId: string): void | Promise<void> {
@@ -218,282 +353,178 @@ function stringifyContent(content: any): string {
   return String(content);
 }
 
-/**
- * Convert a serialized LangChain message or raw message object to proper LangChain message instances
- *
- * @param msg - Message to convert (could be serialized LangChain message or raw object)
- * @returns Proper LangChain message instance
- */
+// Utility to sanitize message objects before constructing LangChain messages
+function sanitizeMessageObject(obj: any) {
+  return {
+    content: obj.content ?? obj.lc_kwargs?.content ?? '',
+    id: typeof obj.id === 'string' ? obj.id : undefined,
+    name: typeof obj.name === 'string' ? obj.name : undefined,
+    response_metadata:
+      obj.response_metadata && typeof obj.response_metadata === 'object'
+        ? obj.response_metadata
+        : undefined,
+    additional_kwargs:
+      obj.additional_kwargs && typeof obj.additional_kwargs === 'object'
+        ? obj.additional_kwargs
+        : undefined,
+    tool_calls: Array.isArray(obj.tool_calls) ? obj.tool_calls : undefined,
+    invalid_tool_calls: Array.isArray(obj.invalid_tool_calls)
+      ? obj.invalid_tool_calls
+      : undefined,
+    role: obj.role,
+  };
+}
+
 function convertToLangChainMessage(msg: any): HumanMessage | AIMessage | null {
   try {
-    // Safety check - ensure tool message content is string
-    const safeMsg = ensureToolMessageContentIsString(msg);
+    const sanitized = sanitizeMessageObject(msg);
+    const stringContent = stringifyContent(sanitized.content);
 
-    // Case 1: It's already a proper LangChain message instance
-    if (safeMsg instanceof HumanMessage || safeMsg instanceof AIMessage) {
-      // For message types with object content, stringify the content
-      if (typeof safeMsg.content === 'object') {
-        if (safeMsg instanceof HumanMessage) {
-          return new HumanMessage(stringifyContent(safeMsg.content));
-        } else {
-          return new AIMessage(stringifyContent(safeMsg.content));
-        }
-      }
-
-      // If it's already a proper message with string content, return it directly
-      return safeMsg;
-    }
-
-    // Special handling for ToolMessage instances
-    if (safeMsg instanceof ToolMessage) {
-      console.log('[Brain API] Converting ToolMessage instance to AIMessage');
-
-      let toolContentString: string;
-      const content = safeMsg.content;
-
-      if (typeof content === 'string') {
-        toolContentString = content;
-      } else if (
-        typeof content === 'object' &&
-        content !== null &&
-        typeof content.content === 'string'
-      ) {
-        // Explicitly handle the nested structure { success: ..., content: "...", ...} seen in logs
-        console.warn(
-          '[Brain API] ToolMessage content is object, extracting nested .content string.',
-        );
-        toolContentString = content.content;
-      } else if (
-        typeof content === 'object' &&
-        content !== null &&
-        typeof content.text === 'string'
-      ) {
-        // Handle potential Supabase direct return { text: "..." }
-        console.warn(
-          '[Brain API] ToolMessage content is object, extracting nested .text string.',
-        );
-        toolContentString = content.text;
-      } else if (typeof content === 'object' && content !== null) {
-        // Fallback: stringify the whole object if it's not recognized
-        console.warn(
-          '[Brain API] ToolMessage content is unrecognized object, stringifying.',
-        );
-        try {
-          toolContentString = JSON.stringify(content);
-        } catch (e) {
-          console.error(
-            '[Brain API] Failed to stringify tool content object:',
-            e,
-          );
-          toolContentString = '[Unstringifiable Tool Content Object]';
-        }
-      } else {
-        // Handle null, undefined, or other types
-        console.warn(
-          `[Brain API] Unexpected ToolMessage content type: ${typeof content}. Converting to string.`,
-        );
-        toolContentString = String(content || '');
-      }
-
-      // Create a new AIMessage with the stringified content
-      return new AIMessage(`Tool Response: ${toolContentString}`);
-    }
-
-    // Case 2: It's a serialized LangChain message (has lc_namespace and lc_serializable)
     if (
-      safeMsg?.lc_namespace &&
-      Array.isArray(safeMsg.lc_namespace) &&
-      safeMsg.lc_namespace.includes('langchain_core') &&
-      safeMsg.lc_namespace.includes('messages')
+      msg?.lc_namespace &&
+      Array.isArray(msg.lc_namespace) &&
+      msg.lc_namespace.includes('HumanMessage')
     ) {
-      // Check what type of message it is based on class name in namespace
-      const content =
-        typeof safeMsg.content === 'object'
-          ? stringifyContent(safeMsg.content)
-          : safeMsg.content;
-
-      // Special handling for ToolMessage in serialized form
-      if (
-        safeMsg.lc_namespace.length > 2 &&
-        safeMsg.lc_namespace[2] === 'ToolMessage'
-      ) {
-        console.log(
-          '[Brain API] Converting serialized ToolMessage to AIMessage',
-        );
-
-        let toolContentString: string;
-        if (typeof safeMsg.content === 'string') {
-          toolContentString = safeMsg.content;
-        } else if (
-          typeof safeMsg.content === 'object' &&
-          safeMsg.content !== null
-        ) {
-          if (typeof safeMsg.content.content === 'string') {
-            // Handle { content: "string" } nested structure
-            toolContentString = safeMsg.content.content;
-          } else {
-            // Stringify whole object
-            try {
-              toolContentString = JSON.stringify(safeMsg.content);
-            } catch (e) {
-              toolContentString = `[Error stringifying tool content: ${e}]`;
-            }
-          }
-        } else {
-          // Fallback for non-string, non-object content
-          toolContentString = String(safeMsg.content || '');
-        }
-
-        return new AIMessage(`Tool Response: ${toolContentString}`);
-      }
-
-      if (safeMsg.lc_kwargs?.content || safeMsg.content) {
-        if (
-          safeMsg.lc_kwargs?.name === 'human' ||
-          (safeMsg.lc_namespace.length > 2 &&
-            safeMsg.lc_namespace[2] === 'HumanMessage')
-        ) {
-          return new HumanMessage(content);
-        } else {
-          // For all other types (AI, System), convert to AIMessage for safety
-          return new AIMessage(content);
-        }
-      }
-
-      // If we can't determine the message type, default to AIMessage
-      console.warn(
-        '[Brain API] Unknown serialized LangChain message type, defaulting to AIMessage',
+      const instance = new HumanMessage({
+        content: stringContent,
+        id: sanitized.id,
+        name: sanitized.name,
+        response_metadata: sanitized.response_metadata,
+        additional_kwargs: sanitized.additional_kwargs,
+      });
+      console.log(
+        '[DEBUG] HumanMessage prototype:',
+        Object.getPrototypeOf(instance),
       );
-      return new AIMessage(
-        stringifyContent(safeMsg.content || '') || 'Unknown message',
+      console.log(
+        '[DEBUG] instanceof HumanMessage:',
+        instance instanceof HumanMessage,
       );
+      return instance;
     }
-
-    // Case 3: It's a raw message object (has role and content)
-    if (safeMsg?.role && safeMsg?.content !== undefined) {
-      // Special handling for 'tool' role messages
-      if (safeMsg.role === 'tool') {
-        console.log('[Brain API] Converting raw tool message to AIMessage');
-
-        let toolContentString: string;
-        if (typeof safeMsg.content === 'string') {
-          toolContentString = safeMsg.content;
-        } else if (
-          typeof safeMsg.content === 'object' &&
-          safeMsg.content !== null
-        ) {
-          if (typeof safeMsg.content.content === 'string') {
-            // Handle { content: "string" } nested structure
-            toolContentString = safeMsg.content.content;
-          } else {
-            // Stringify whole object
-            try {
-              toolContentString = JSON.stringify(safeMsg.content);
-            } catch (e) {
-              toolContentString = `[Error stringifying tool content: ${e}]`;
-            }
-          }
-        } else {
-          // Fallback for non-string, non-object content
-          toolContentString = String(safeMsg.content || '');
-        }
-
-        return new AIMessage(`Tool Response: ${toolContentString}`);
-      }
-
-      if (safeMsg.role === 'user' || safeMsg.role === 'human') {
-        return new HumanMessage(String(stringifyContent(safeMsg.content)));
-      } else if (safeMsg.role === 'assistant' || safeMsg.role === 'ai') {
-        return new AIMessage(String(stringifyContent(safeMsg.content)));
-      } else if (safeMsg.role === 'system') {
-        // Convert system messages to AI messages with prefix
-        return new AIMessage(`System: ${stringifyContent(safeMsg.content)}`);
-      } else {
-        console.warn(
-          `[Brain API] Unknown message role: ${safeMsg.role}, treating as AIMessage`,
-        );
-        return new AIMessage(stringifyContent(safeMsg.content));
-      }
-    }
-
-    // Case 4: It's an unknown format but has some content we can extract
-    if (safeMsg?.content !== undefined) {
-      console.warn(
-        '[Brain API] Unknown message format with content, defaulting to AIMessage',
+    if (
+      msg?.lc_namespace &&
+      Array.isArray(msg.lc_namespace) &&
+      msg.lc_namespace.includes('AIMessage')
+    ) {
+      const instance = new AIMessage({
+        content: stringContent,
+        id: sanitized.id,
+        name: sanitized.name,
+        response_metadata: sanitized.response_metadata,
+        additional_kwargs: sanitized.additional_kwargs,
+        tool_calls: sanitized.tool_calls,
+        invalid_tool_calls: sanitized.invalid_tool_calls,
+      });
+      console.log(
+        '[DEBUG] AIMessage prototype:',
+        Object.getPrototypeOf(instance),
       );
-      return new AIMessage(stringifyContent(safeMsg.content));
+      console.log(
+        '[DEBUG] instanceof AIMessage:',
+        instance instanceof AIMessage,
+      );
+      return instance;
     }
-
-    // If we got here, we don't know how to handle this message
-    console.error(
-      '[Brain API] Cannot convert to LangChain message:',
-      JSON.stringify(safeMsg),
-    );
+    if (sanitized.role === 'user' || sanitized.role === 'human') {
+      const instance = new HumanMessage({ content: stringContent });
+      console.log(
+        '[DEBUG] HumanMessage prototype:',
+        Object.getPrototypeOf(instance),
+      );
+      console.log(
+        '[DEBUG] instanceof HumanMessage:',
+        instance instanceof HumanMessage,
+      );
+      return instance;
+    }
+    if (sanitized.role === 'assistant' || sanitized.role === 'ai') {
+      const instance = new AIMessage({ content: stringContent });
+      console.log(
+        '[DEBUG] AIMessage prototype:',
+        Object.getPrototypeOf(instance),
+      );
+      console.log(
+        '[DEBUG] instanceof AIMessage:',
+        instance instanceof AIMessage,
+      );
+      return instance;
+    }
     return null;
   } catch (err) {
     console.error(
-      '[Brain API] Error converting message:',
+      '[convertToLangChainMessage] Failed to convert message:',
+      msg,
       err,
-      'Message was:',
-      JSON.stringify(msg),
     );
     return null;
   }
 }
 
-/**
- * Format chat history for Langchain
- *
- * @param history - Chat history from the request
- * @returns Formatted history array for Langchain
- */
-function formatChatHistory(history: any[] = []): (HumanMessage | AIMessage)[] {
-  if (!history || !Array.isArray(history)) {
-    console.warn(
-      '[Brain API] Chat history is not an array, returning empty array',
-    );
-    return [];
+// Type guard for RawMessage
+function isRawMessage(obj: any): obj is RawMessage {
+  return (
+    obj &&
+    typeof obj === 'object' &&
+    typeof obj.type === 'string' &&
+    typeof obj.content === 'string'
+  );
+}
+
+// Converts any legacy/serialized or role-based message object to minimal RawMessage shape
+function toRawMessage(obj: any): RawMessage | null {
+  if (!obj || typeof obj !== 'object') return null;
+  if (typeof obj.type === 'string' && typeof obj.content === 'string') {
+    // Already minimal shape
+    return { type: obj.type, content: obj.content };
   }
+  // Legacy LangChain serialized
+  if (Array.isArray(obj.lc_namespace)) {
+    if (obj.lc_namespace.includes('HumanMessage')) {
+      return {
+        type: 'human',
+        content: obj.content ?? obj.lc_kwargs?.content ?? '',
+      };
+    }
+    if (obj.lc_namespace.includes('AIMessage')) {
+      return {
+        type: 'ai',
+        content: obj.content ?? obj.lc_kwargs?.content ?? '',
+      };
+    }
+  }
+  // Role-based fallback
+  if (obj.role === 'user' || obj.role === 'human') {
+    return { type: 'human', content: obj.content ?? '' };
+  }
+  if (obj.role === 'assistant' || obj.role === 'ai') {
+    return { type: 'ai', content: obj.content ?? '' };
+  }
+  return null;
+}
 
-  // First, ensure all tool messages have string content
-  const safeHistory = Array.isArray(history)
-    ? history.map(ensureToolMessageContentIsString)
-    : [];
+function formatChatHistory(history: any[] = []): (HumanMessage | AIMessage)[] {
+  // Map all messages through toRawMessage to ensure minimal shape
+  const raws: RawMessage[] = (history || [])
+    .map(toRawMessage)
+    .filter((msg): msg is RawMessage => !!msg);
 
-  // Log the entire history for debugging
-  console.log(
-    '[Brain API] Processing history with length:',
-    safeHistory.length,
-  );
+  const converted = raws
+    .map((msg) => rawToMessage(msg))
+    .filter((msg): msg is HumanMessage | AIMessage => !!msg);
 
-  // Map history items to proper LangChain messages
-  const convertedMessages = safeHistory
-    .filter(Boolean)
-    .map((msg, index) => {
-      try {
-        // Log each message type to identify potential issues
-        console.log(
-          `[Brain API] Processing message ${index} type:`,
-          typeof msg,
-          msg?.role || 'unknown role',
-        );
-
-        // First sanitize the message, then convert it
-        const sanitizedMsg = ensureToolMessageContentIsString(msg);
-        return convertToLangChainMessage(sanitizedMsg);
-      } catch (err) {
-        console.error('[Brain API] Error in formatChatHistory:', err);
-        return null;
-      }
-    })
-    .filter((msg): msg is HumanMessage | AIMessage => msg !== null);
-
-  console.log(
-    `[Brain API] Successfully converted ${convertedMessages.length} of ${safeHistory.length} messages`,
-  );
-
-  // Final pass to ensure all tool messages are properly stringified
-  return convertedMessages.map(ensureToolMessageContentIsString);
+  // Runtime check for prototype chain
+  converted.forEach((msg, i) => {
+    if (!(msg instanceof HumanMessage || msg instanceof AIMessage)) {
+      console.error(
+        `[ERROR] Message at index ${i} is not a valid LangChain message instance`,
+        msg,
+      );
+      throw new Error(`Invalid message instance at index ${i}`);
+    }
+  });
+  return converted;
+  // Note: Only HumanMessage and AIMessage are supported here. Extend as needed for system/tool messages.
 }
 
 /**
@@ -635,8 +666,8 @@ function ensureToolMessageContentIsString(message: UIMessage | any): any {
     message?.tool_call_id !== undefined ||
     // Check role property
     message?.role === 'tool' ||
-    // Check additional_kwargs name property
-    (message?.additional_kwargs && message.additional_kwargs.name);
+    // Check additional_kwargs name property - use optional chaining
+    message?.additional_kwargs?.name;
 
   if (isToolMessage) {
     console.log(
@@ -645,7 +676,7 @@ function ensureToolMessageContentIsString(message: UIMessage | any): any {
 
     try {
       // Deep clone the message to avoid modifying the original
-      let newMessage;
+      let newMessage: Record<string, any> = {};
       try {
         newMessage = JSON.parse(JSON.stringify(message));
       } catch (e) {
@@ -669,7 +700,7 @@ function ensureToolMessageContentIsString(message: UIMessage | any): any {
             // If the nested content is already a string, use that directly
             console.log(
               '[Brain API DEBUG] Using nested string content:',
-              message.content.content.substring(0, 50) + '...',
+              `${message.content.content.substring(0, 50)}...`,
             );
             newMessage.content = message.content.content;
           } else if (
@@ -706,8 +737,8 @@ function ensureToolMessageContentIsString(message: UIMessage | any): any {
       console.log(
         '[Brain API DEBUG] Final content preview:',
         typeof newMessage.content === 'string'
-          ? newMessage.content.substring(0, 50) + '...'
-          : 'NON-STRING: ' + typeof newMessage.content,
+          ? `${newMessage.content.substring(0, 50)}...`
+          : `NON-STRING: ${typeof newMessage.content}`,
       );
 
       return newMessage;
@@ -729,45 +760,113 @@ function ensureToolMessageContentIsString(message: UIMessage | any): any {
     }
   }
 
-  // Handle regular message objects with role="tool"
-  if (message?.role === 'tool') {
-    console.log(
-      '[Brain API DEBUG] Converting tool message object content to string',
-    );
-    // Deep clone the message to avoid modifying the original
-    const newMessage = JSON.parse(JSON.stringify(message));
+  return message;
+}
 
-    // Convert object content to string
-    if (typeof message.content === 'object' && message.content !== null) {
-      try {
-        // Check for nested content structure
-        if (message.content.content !== undefined) {
-          console.log('[Brain API DEBUG] Tool role message has nested content');
-          if (typeof message.content.content === 'string') {
-            newMessage.content = message.content.content;
-          } else {
-            newMessage.content = JSON.stringify(message.content);
-          }
-        } else {
-          // Use JSON.stringify for clean objects, but fall back to a more robust method
-          newMessage.content = JSON.stringify(message.content);
-        }
-        console.log(
-          '[Brain API DEBUG] Converted tool role message content to:',
-          typeof newMessage.content,
-        );
-      } catch (e) {
-        console.error(
-          '[Brain API DEBUG] Error stringifying content, using toString fallback',
-          e,
-        );
-        newMessage.content = String(message.content);
+// Add this function before executing the agent
+function ensureStringContent(msg: any): any {
+  if (!msg) return msg;
+
+  try {
+    // Create a safe clone to avoid modifying the original
+    const newMsg = structuredClone(msg);
+
+    // Ensure content is a string
+    if (newMsg.content !== undefined) {
+      if (typeof newMsg.content === 'object' && newMsg.content !== null) {
+        // For objects, stringify them
+        newMsg.content = JSON.stringify(newMsg.content);
+      } else if (typeof newMsg.content !== 'string') {
+        // For other non-string types, convert to string
+        newMsg.content = String(newMsg.content || '');
       }
     }
-    return newMessage;
+
+    return newMsg;
+  } catch (e) {
+    // If structuredClone fails (e.g., with circular references), use a simpler approach
+    if (msg.content !== undefined) {
+      if (typeof msg.content === 'object' && msg.content !== null) {
+        return {
+          ...msg,
+          content: JSON.stringify(msg.content),
+        };
+      } else if (typeof msg.content !== 'string') {
+        return {
+          ...msg,
+          content: String(msg.content || ''),
+        };
+      }
+    }
+    return msg;
+  }
+}
+
+/**
+ * Extracts and processes file attachments from messages
+ * Ensures extracted content from files is properly integrated into the context
+ */
+function processAttachments(message: any): string {
+  if (
+    !message ||
+    !message.attachments ||
+    !Array.isArray(message.attachments) ||
+    message.attachments.length === 0
+  ) {
+    return '';
   }
 
-  return message;
+  console.log(
+    `[Brain API] Processing ${message.attachments.length} attachments`,
+  );
+
+  let attachmentContext = '';
+
+  message.attachments.forEach((attachment: any, index: number) => {
+    console.log(
+      `[Brain API] Processing attachment ${index + 1}: ${attachment.name}`,
+    );
+
+    // Extract file information
+    const fileName = attachment.name || 'unknown file';
+    const fileUrl = attachment.url || '';
+    const fileType = attachment.contentType || 'unknown type';
+
+    // Check if we have extracted content as metadata
+    if (attachment.metadata && attachment.metadata.extractedContent) {
+      console.log(`[Brain API] Found extracted content for ${fileName}`);
+
+      let extractedContent = attachment.metadata.extractedContent;
+
+      // Ensure the extracted content is a string
+      if (typeof extractedContent !== 'string') {
+        try {
+          extractedContent = JSON.stringify(extractedContent);
+        } catch (e) {
+          console.error(
+            `[Brain API] Error stringifying extracted content: ${e}`,
+          );
+          extractedContent = 'Error processing file content';
+        }
+      }
+
+      // Limit content length if needed to avoid context length issues
+      if (extractedContent.length > 10000) {
+        console.log(
+          `[Brain API] Truncating long extracted content (${extractedContent.length} chars)`,
+        );
+        extractedContent = `${extractedContent.substring(0, 10000)}... [content truncated due to length]`;
+      }
+
+      // Add to context
+      attachmentContext += `\n\nFile attachment ${index + 1}: ${fileName} (${fileType})\nContent: ${extractedContent}\n`;
+    } else {
+      // Just add reference without content
+      attachmentContext += `\n\nFile attachment ${index + 1}: ${fileName} (${fileType})\nNo extracted content available. Reference URL: ${fileUrl}\n`;
+    }
+  });
+
+  return attachmentContext;
 }
 
 // Explicitly disable authentication middleware for testing
@@ -781,8 +880,45 @@ export const config = {
  */
 export async function POST(req: NextRequest) {
   try {
-    // Parse request body
-    const { messages, id, selectedChatModel } = await req.json();
+    // Parse request body - using let to allow reassignment
+    let reqBody: {
+      messages?: any[];
+      id?: string;
+      selectedChatModel?: string;
+      fileContext?: {
+        filename: string;
+        contentType: string;
+        url: string;
+        extractedText: string;
+      };
+      [key: string]: any;
+    };
+
+    try {
+      reqBody = await req.json();
+    } catch (parseError) {
+      console.error('[Brain API] Error parsing request body:', parseError);
+      return NextResponse.json(
+        { error: 'Failed to parse request body' },
+        { status: 400 },
+      );
+    }
+
+    // Extract data once we have the parsed body
+    const { messages, id, selectedChatModel, fileContext } = reqBody;
+
+    // Add detailed logging of request body
+    console.log(
+      '[Brain API] Received request. Body keys:',
+      Object.keys(reqBody),
+    ); // Log keys to confirm structure
+    console.log(
+      `[Brain API] Raw messages received (count: ${messages?.length}):`,
+      JSON.stringify(messages, null, 2),
+    );
+    console.log(
+      `[Brain API] Chat ID: ${id}, Selected Model: ${selectedChatModel}`,
+    );
 
     // Add this line to process tool messages right after parsing
     const safeMessages = Array.isArray(messages)
@@ -818,8 +954,97 @@ export async function POST(req: NextRequest) {
     const lastMessage = safeMessages[safeMessages.length - 1];
     const message = lastMessage.content;
 
+    // --- Hybrid File Context Integration ---
+    // If fileContext is present, merge its extractedText into the LLM prompt context
+    let fileContextString = '';
+    if (fileContext && fileContext.extractedText) {
+      // Extract the text content from the nested object structure
+      let extractedText = '';
+      console.log(
+        '[Brain API] File context structure:',
+        JSON.stringify(fileContext, null, 2),
+      );
+
+      // Handle different possible structures of extractedText
+      if (
+        typeof fileContext.extractedText === 'object' &&
+        fileContext.extractedText !== null
+      ) {
+        // Type assertion to help TypeScript understand our structure
+        const extractedObj = fileContext.extractedText as Record<string, any>;
+
+        if (extractedObj?.responseBody?.extractedText) {
+          // Handle n8n webhook response structure
+          extractedText = extractedObj.responseBody.extractedText;
+        } else if (extractedObj?.success && extractedObj?.extractedText) {
+          // Handle direct extraction response structure
+          extractedText = extractedObj.extractedText;
+        } else if (extractedObj?.extractedContent) {
+          // Handle fallback extraction structure
+          extractedText = extractedObj.extractedContent;
+          console.log('[Brain API] Using extracted content property');
+        } else {
+          // Fallback to stringify the object if we can't find the text
+          extractedText = JSON.stringify(fileContext.extractedText);
+        }
+
+        // Check if this is a fallback LLM extraction
+        const isFallbackExtraction = extractedObj?.isLlmFallback === true;
+        const isMicrosoftFormat = extractedObj?.isMicrosoftFormat === true;
+
+        if (isFallbackExtraction) {
+          console.log('[Brain API] Using fallback LLM extraction mode');
+
+          // Special handling for Microsoft Office documents
+          if (isMicrosoftFormat) {
+            console.log(
+              '[Brain API] Document is Microsoft Office format that LLM can process directly',
+            );
+            extractedText = `${extractedText}
+
+[SYSTEM INSTRUCTION: This is a Microsoft Office document that you can process directly. As a GPT-4 model, you have native ability to understand Microsoft Office document formats. Do NOT try to use external tools to retrieve this file - instead analyze the document information provided above and respond directly to the user's request about this file. All necessary metadata is already provided.]`;
+          } else {
+            // Add standard fallback instructions for other file types
+            extractedText = `${extractedText}
+
+[SYSTEM INSTRUCTION: This file was processed using fallback extraction because the primary extraction service couldn't process it. Please do your best to interpret the file content and inform the user if you're unable to fully process this file type. If you can't effectively process this content, respond with: "I'm unable to properly process this file type. Please try uploading a different format like PDF, DOCX, TXT, or JSON."]`;
+          }
+        }
+      } else if (typeof fileContext.extractedText === 'string') {
+        // If it's already a string, use it directly
+        extractedText = fileContext.extractedText;
+      } else {
+        // Unexpected type, convert to string for safety
+        extractedText = String(fileContext.extractedText);
+      }
+
+      // Format the file context in a clear way that helps the LLM understand the content
+      fileContextString = `
+
+### FILE CONTEXT ###
+Filename: ${fileContext.filename}
+Content Type: ${fileContext.contentType}
+
+CONTENT:
+${extractedText}
+### END FILE CONTEXT ###
+
+`;
+      console.log('[Brain API] Including fileContext in LLM prompt.');
+      console.log(`[Brain API] Extracted text length: ${extractedText.length}`);
+    }
+
+    // Process any file attachments in the last message (legacy/other attachments)
+    let attachmentContext = processAttachments(lastMessage);
+
     // Use all previous messages as history
     const history = safeMessages.slice(0, -1);
+
+    // Log raw history before formatting
+    console.log(
+      `[Brain API] Raw history being passed to formatChatHistory (count: ${history?.length}):`,
+      JSON.stringify(history, null, 2),
+    );
 
     if (!message) {
       return NextResponse.json(
@@ -830,8 +1055,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // --- Combine user message with fileContext and attachment context ---
+    let combinedMessage = message;
+
+    // Create a file context instruction for the LLM if file context is present
+    const fileContextInstruction = fileContextString
+      ? `I've included the content of a file that you should reference when answering my question. Please use the information from this file to inform your response.`
+      : '';
+
+    if (fileContextString) {
+      combinedMessage = `${fileContextInstruction}\n\n${message}${fileContextString}`;
+    } else if (attachmentContext) {
+      combinedMessage = `${message}\n\n### ATTACHED FILE CONTENT ###${attachmentContext}`;
+    }
+
     console.log(`[Brain API] Processing request for bitId: ${bitId}`);
     console.log(`[Brain API] Message: ${message}`);
+    if (fileContextString) {
+      console.log(
+        `[Brain API] Message includes file context from: ${fileContext?.filename ?? 'unknown'}`,
+      );
+    }
+    if (attachmentContext) {
+      console.log(
+        `[Brain API] Message includes file attachments with extracted content`,
+      );
+    }
+    console.log(`[Brain API] Chat ID: ${id}`);
 
     // Initialize LLM with the appropriate model for this bitId
     const llm = initializeLLM(bitId);
@@ -870,11 +1120,52 @@ export async function POST(req: NextRequest) {
       agent,
       tools,
       verbose: true,
-      callbacks: [new DebugCallbackHandler()],
+      callbacks: [new DebugCallbackHandler() as unknown as BaseCallbackHandler],
     });
 
     // Format chat history
     const chat_history = formatChatHistory(history);
+
+    // Defensive log: check that all are proper instances
+    chat_history.forEach((msg, i) => {
+      if (!(msg instanceof HumanMessage || msg instanceof AIMessage)) {
+        console.error(
+          '[Brain API] Message at index',
+          i,
+          'is not a LangChain message instance:',
+          msg,
+        );
+      }
+    });
+
+    // Log the formatted chat history without JSON.stringify (which causes serialization)
+    console.log(
+      `[Brain API] Formatted chat_history for Langchain (count: ${chat_history?.length}):`,
+    );
+    // Log details without serializing the objects
+    chat_history.forEach((msg, i) => {
+      console.log(
+        `[Brain API] Message ${i}:`,
+        `Type: ${msg instanceof HumanMessage ? 'HumanMessage' : 'AIMessage'}`,
+        `Content: ${
+          typeof msg.content === 'string'
+            ? msg.content.length > 50
+              ? msg.content.substring(0, 50) + '...'
+              : msg.content
+            : 'Non-string content'
+        }`,
+      );
+    });
+
+    // Add a check for message content types after formatting
+    chat_history.forEach((msg, index) => {
+      if (typeof msg.content !== 'string') {
+        console.warn(
+          `[Brain API WARN] Formatted history message ${index} has non-string content:`,
+          typeof msg.content,
+        );
+      }
+    });
 
     // Log the formatted history for debugging
     console.log(
@@ -882,63 +1173,129 @@ export async function POST(req: NextRequest) {
       chat_history.length,
     );
 
-    // Add detailed logging of chat history after formatting
-    console.log(
-      '[DEBUG] Initial History after formatChatHistory:',
-      JSON.stringify(chat_history, null, 2),
-    );
-
-    // Apply sanitization explicitly again as a verification step
-    const sanitized_chat_history = chat_history.map((msg) =>
-      ensureToolMessageContentIsString(msg),
-    );
-    console.log(
-      '[DEBUG] Initial History after Explicit Sanitize:',
-      JSON.stringify(sanitized_chat_history, null, 2),
-    );
-
     let result: any;
 
     // Execute agent
     try {
       console.log(`[Brain API] Invoking agent with message: ${message}`);
+      if (attachmentContext) {
+        console.log(
+          `[Brain API] Including extracted content from ${lastMessage.attachments?.length || 0} attachments`,
+        );
+      }
 
       // If chat history is empty or has errors, use a new empty array to prevent issues
-      const safeHistory = chat_history.length > 0 ? sanitized_chat_history : [];
+      const safeHistory = chat_history.length > 0 ? chat_history : [];
 
       // Apply tool message content stringification to any tool messages in history
-      const sanitizedHistory = safeHistory.map((msg) => {
-        if (
-          msg &&
-          typeof msg === 'object' &&
-          'content' in msg &&
-          typeof msg.content === 'object'
-        ) {
-          console.log(
-            '[Brain API] Sanitizing object content in history message',
-          );
-          return {
-            ...msg,
-            content:
-              typeof msg.content === 'string'
-                ? msg.content
-                : JSON.stringify(msg.content),
-          };
+      const sanitizedHistory = safeHistory.map((message) => {
+        // First apply our standard message content safety
+        let safeMessage = message;
+
+        if (message && typeof message === 'object' && 'content' in message) {
+          // Apply multiple safety layers to ensure string content
+          if (typeof message.content === 'object' && message.content !== null) {
+            console.log(
+              '[Brain API] Sanitizing object content in history message',
+            );
+
+            if (typeof message.content.map === 'function') {
+              // If content has a map function, it's likely an array of something
+              console.log(
+                '[Brain API] Content appears to be an array, converting to string',
+              );
+              safeMessage = {
+                ...message,
+                content: JSON.stringify(message.content),
+              };
+            } else {
+              // Regular object content
+              safeMessage = {
+                ...message,
+                content:
+                  typeof message.content === 'string'
+                    ? message.content
+                    : JSON.stringify(message.content),
+              };
+            }
+          } else if (typeof message.content !== 'string') {
+            // Ensure non-object non-string content is converted to string
+            console.log('[Brain API] Converting non-string content to string');
+            safeMessage = {
+              ...message,
+              content: String(message.content || ''),
+            };
+          }
         }
+
+        // Final safety check
+        return ensureStringContent(safeMessage);
+      });
+
+      // Force reinstantiation of message objects to ensure they are proper class instances
+      // This is critical to prevent serialization issues that cause MessagePlaceholder errors
+      const finalSafeHistory = sanitizedHistory.map((msg) => {
+        if (msg instanceof HumanMessage) {
+          // Always create a fresh instance to ensure it's a real class instance
+          return new HumanMessage({ content: String(msg.content) });
+        }
+
+        if (msg instanceof AIMessage) {
+          // Always create a fresh instance to ensure it's a real class instance
+          return new AIMessage({ content: String(msg.content) });
+        }
+
+        // If we somehow get a non-instance (should never happen with the above checks)
+        console.error(
+          '[Brain API] Unknown message type in final history check:',
+          msg,
+        );
         return msg;
       });
 
-      // Log history state BEFORE invoke
+      // Final verification - log instance check WITHOUT serializing
+      finalSafeHistory.forEach((msg, i) => {
+        console.log(
+          `[Brain API] Final message ${i} instance check:`,
+          `Is HumanMessage: ${msg instanceof HumanMessage}`,
+          `Is AIMessage: ${msg instanceof AIMessage}`,
+        );
+      });
+
       console.log(
-        '[DEBUG] History BEFORE agentExecutor.invoke:',
-        JSON.stringify(sanitizedHistory, null, 2),
+        '[Brain API] Final history check complete, proceeding with invoke',
       );
 
-      // Execute the agent with sanitized inputs
+      // DIRECT CLASS INSTANTIATION: Create fresh instances immediately before invoke
+      // This prevents any serialization issues by bypassing intermediate steps
+      const directInstances = finalSafeHistory.map((msg) => {
+        if (typeof msg?.content !== 'string') {
+          console.log('[Brain API] Forcing string content for message:', msg);
+          return new (msg instanceof HumanMessage ? HumanMessage : AIMessage)({
+            content: String(msg?.content || ''),
+          });
+        }
+        return new (msg instanceof HumanMessage ? HumanMessage : AIMessage)({
+          content: msg.content,
+        });
+      });
+
+      // Log the direct instances we're about to use
+      directInstances.forEach((msg, i) => {
+        const contentPreview =
+          typeof msg.content === 'string'
+            ? `${msg.content.substring(0, 30)}...`
+            : 'Complex content';
+
+        console.log(
+          `[Brain API] Direct instance ${i}: Is HumanMessage: ${msg instanceof HumanMessage}, Is AIMessage: ${msg instanceof AIMessage}, Content: ${contentPreview}`,
+        );
+      });
+
+      // Execute the agent with the validated message and DIRECT instances
       result = await agentExecutor.invoke({
-        input: message,
-        chat_history: sanitizedHistory,
-        bitId, // Pass bitId in case prompt template uses it
+        input: combinedMessage,
+        chat_history: directInstances,
       });
 
       console.log(`[Brain API] Agent execution complete`);
@@ -946,10 +1303,28 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error('[Brain API] Agent execution error:', err);
       console.error('[Brain API] Agent execution error CATCH block:', err);
-      console.error(
-        '[Brain API] History state AT TIME OF ERROR:',
-        JSON.stringify(sanitized_chat_history, null, 2),
-      );
+
+      // Log history without serializing to prevent class instance loss
+      console.error('[Brain API] History state AT TIME OF ERROR:');
+      chat_history.forEach((msg, i) => {
+        console.error(
+          `[Brain API] History item ${i}:`,
+          `Type: ${
+            msg instanceof HumanMessage
+              ? 'HumanMessage'
+              : msg instanceof AIMessage
+                ? 'AIMessage'
+                : 'Unknown'
+          }`,
+          `Content: ${
+            typeof msg.content === 'string'
+              ? msg.content.length > 50
+                ? msg.content.substring(0, 50) + '...'
+                : msg.content
+              : 'Non-string content'
+          }`,
+        );
+      });
 
       if (err instanceof Error && err.stack) {
         console.error('[Brain API] Error Stack:', err.stack);

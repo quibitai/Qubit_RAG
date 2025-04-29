@@ -5,31 +5,27 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2023-11-19
+## [1.2.0] - 2024-06-01
 
 ### Added
-- Initial release of Quibit RAG
-- Google Drive integration for document retrieval
-- LangChain.js integration for agent and tool capabilities
-- Vercel AI SDK integration for streaming responses
-- Supabase vector database for document embedding storage
-- Modern React/Next.js UI with real-time streaming responses
-- Support for conversation history and context-aware responses
-- Multiple AI tools including document search, weather info, and web search
-- Comprehensive error handling and logging system
+- Enhanced fallback extraction for file processing when primary extraction fails
+- Special handling for Microsoft Office documents (DOCX, XLSX, PPTX) leveraging GPT-4's native capabilities
+- Smart detection of file types with format-specific processing strategies
+- Integration of LLM-based fallback content processing for unsupported file formats
+- System instruction improvements for better file context handling
+
+### Changed
+- Updated the file extraction API to detect and handle Microsoft Office formats directly
+- Modified the brain API to process file context more intelligently
+- Improved user-facing messaging for file processing errors
+- Enhanced logging for file extraction process
+- Eliminated unnecessary external tool calls for supported document types
 
 ### Fixed
-- Critical message content handling issue in LangChain integration
-- Tool message serialization for nested content structures
-- Stringification of complex objects returned by tools
-- Multiple layers of content sanitization in the message processing pipeline
-- Error handling for "message.content.map is not a function" issue
-
-### Documentation
-- Comprehensive README with setup instructions
-- Detailed message handling documentation
-- Architecture overview
-- Tool integration documentation
+- Resolved issues with file context not being properly utilized in LLM prompts
+- Fixed Microsoft Office document handling in the chat interface
+- Improved error handling for extraction service failures
+- Enhanced fallback mechanism with clearer instructions to the LLM
 
 ## [3.1.0] - 2024-12-20
 
@@ -87,17 +83,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved UI/UX with better loading states and error messages
 - Enhanced logging for debugging
 
-## [1.2.0] - 2024-01-01
+## [1.0.0] - 2023-11-19
 
 ### Added
-- Custom business queries
-- Advanced document filtering
-- Improved UI/UX with dark mode support
+- Initial release of Quibit RAG
+- Google Drive integration for document retrieval
+- LangChain.js integration for agent and tool capabilities
+- Vercel AI SDK integration for streaming responses
+- Supabase vector database for document embedding storage
+- Modern React/Next.js UI with real-time streaming responses
+- Support for conversation history and context-aware responses
+- Multiple AI tools including document search, weather info, and web search
+- Comprehensive error handling and logging system
 
-### Changed
-- Enhanced documentation
-- Code cleanup and organization
-- Upgraded dependencies
+### Fixed
+- Critical message content handling issue in LangChain integration
+- Tool message serialization for nested content structures
+- Stringification of complex objects returned by tools
+- Multiple layers of content sanitization in the message processing pipeline
+- Error handling for "message.content.map is not a function" issue
+
+### Documentation
+- Comprehensive README with setup instructions
+- Detailed message handling documentation
+- Architecture overview
+- Tool integration documentation
 
 ## [1.1.0] - 2023-12-15
 
