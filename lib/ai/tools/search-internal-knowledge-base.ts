@@ -73,29 +73,25 @@ export const searchInternalKnowledgeBase = new DynamicStructuredTool({
         'Optional JSONB filter for metadata (e.g., {"file_title": "Specific Title"}).',
       ),
   }),
-  func: async ({
-    query,
-    match_count = 5,
-    filter = {},
-  }): Promise<SearchResponse> => {
+  func: async ({ query, match_count = 5, filter = {} }): Promise<string> => {
     console.log(
       `[searchInternalKnowledgeBase] Searching "${query}" (k=${match_count}, filter=${JSON.stringify(filter)})`,
     );
 
     if (!supabaseUrl || !supabaseKey) {
-      return {
+      return JSON.stringify({
         success: false,
         error: 'Supabase credentials are not configured.',
         metadata: { reason: 'configuration_error' },
-      };
+      });
     }
 
     if (!process.env.OPENAI_API_KEY) {
-      return {
+      return JSON.stringify({
         success: false,
         error: 'OpenAI API key is not configured for embeddings.',
         metadata: { reason: 'configuration_error' },
-      };
+      });
     }
 
     try {
@@ -114,7 +110,7 @@ export const searchInternalKnowledgeBase = new DynamicStructuredTool({
 
       if (rpcError) {
         console.error('[searchInternalKnowledgeBase] RPC error', rpcError);
-        return {
+        return JSON.stringify({
           success: false,
           error: `Error during vector search: ${rpcError.message}`,
           metadata: {
@@ -122,12 +118,12 @@ export const searchInternalKnowledgeBase = new DynamicStructuredTool({
             code: rpcError.code,
             details: rpcError.details,
           },
-        };
+        });
       }
 
       // 3) format results
       if (!Array.isArray(docs) || docs.length === 0) {
-        return {
+        return JSON.stringify({
           success: true,
           results: [],
           metadata: {
@@ -135,7 +131,7 @@ export const searchInternalKnowledgeBase = new DynamicStructuredTool({
             matchCount: match_count,
             filter: Object.keys(filter).length ? filter : undefined,
           },
-        };
+        });
       }
 
       // Format the results as structured data
@@ -152,7 +148,7 @@ export const searchInternalKnowledgeBase = new DynamicStructuredTool({
         };
       });
 
-      return {
+      const response = {
         success: true,
         results: formattedResults,
         metadata: {
@@ -162,16 +158,21 @@ export const searchInternalKnowledgeBase = new DynamicStructuredTool({
           filter: Object.keys(filter).length ? filter : undefined,
         },
       };
+
+      console.log(
+        `[searchInternalKnowledgeBase] Returning ${formattedResults.length} results as JSON string`,
+      );
+      return JSON.stringify(response);
     } catch (err: any) {
       console.error('[searchInternalKnowledgeBase] Unexpected error:', err);
-      return {
+      return JSON.stringify({
         success: false,
         error: `Unexpected error during search: ${err.message}`,
         metadata: {
           errorType: err.name || 'Unknown',
           query,
         },
-      };
+      });
     }
   },
 });
