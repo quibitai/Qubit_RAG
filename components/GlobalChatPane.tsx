@@ -208,26 +208,41 @@ export function GlobalChatPane({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="h-8 gap-1">
-              {selectedChatModel.name}
+              {activeBitId === 'chat-model-reasoning'
+                ? 'Orchestrator'
+                : 'Echo Tango Bit'}
               <ChevronDown className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-[200px]">
-            {chatModels.map((model) => (
-              <DropdownMenuItem
-                key={model.id}
-                onClick={() => setActiveBitId(model.id)}
-                className="flex items-center justify-between"
-              >
-                <div className="flex flex-col">
-                  <span>{model.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {model.description}
-                  </span>
-                </div>
-                {model.id === activeBitId && <CheckIcon className="h-4 w-4" />}
-              </DropdownMenuItem>
-            ))}
+            <DropdownMenuItem
+              onClick={() => setActiveBitId('chat-model')}
+              className="flex items-center justify-between"
+            >
+              <div className="flex flex-col">
+                <span>Echo Tango Bit</span>
+                <span className="text-xs text-muted-foreground">
+                  Primary model for all-purpose chat
+                </span>
+              </div>
+              {activeBitId === 'chat-model' && (
+                <CheckIcon className="h-4 w-4" />
+              )}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setActiveBitId('chat-model-reasoning')}
+              className="flex items-center justify-between"
+            >
+              <div className="flex flex-col">
+                <span>Orchestrator</span>
+                <span className="text-xs text-muted-foreground">
+                  Uses advanced reasoning
+                </span>
+              </div>
+              {activeBitId === 'chat-model-reasoning' && (
+                <CheckIcon className="h-4 w-4" />
+              )}
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

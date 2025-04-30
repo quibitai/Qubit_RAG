@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
-import { LayoutGrid, PanelLeft } from 'lucide-react';
+import { LayoutGrid, PanelLeft, FileEdit, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function AppSidebar({ user }: { user: User | undefined }) {
@@ -27,6 +27,8 @@ export function AppSidebar({ user }: { user: User | undefined }) {
   const { setOpenMobile, state, toggleSidebar } = useSidebar();
 
   const isDashboardActive = pathname === '/dashboard';
+  const isEditorActive = pathname.startsWith('/editor');
+  const isChatActive = pathname === '/' || pathname.startsWith('/chat');
 
   return (
     <Sidebar collapsible="icon" className="group-data-[side=left]:border-r-0">
@@ -93,6 +95,93 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                     className="w-8 h-8 flex items-center justify-center"
                   >
                     <LayoutGrid className="h-5 w-5" />
+                  </SidebarMenuButton>
+                </div>
+              )}
+            </Link>
+          </div>
+
+          {/* Bits Section */}
+          {state === 'expanded' && (
+            <div className="mt-6 px-2">
+              <div className="text-xs font-semibold text-muted-foreground mb-2 px-2">
+                Bits
+              </div>
+            </div>
+          )}
+
+          {/* Chat Bit */}
+          <div className="mt-2 flex justify-center">
+            <Link
+              href="/"
+              onClick={() => {
+                setOpenMobile(false);
+              }}
+              className={
+                state === 'collapsed'
+                  ? 'flex justify-center w-full'
+                  : 'w-full px-2'
+              }
+            >
+              {state === 'expanded' ? (
+                <Button
+                  variant={isChatActive ? 'secondary' : 'ghost'}
+                  className={cn(
+                    'w-full justify-start gap-2',
+                    isChatActive && 'bg-secondary text-secondary-foreground',
+                  )}
+                >
+                  <MessageSquare size={18} />
+                  <span>Chat Bit</span>
+                </Button>
+              ) : (
+                <div className="flex justify-center w-full">
+                  <SidebarMenuButton
+                    tooltip="Chat Bit"
+                    isActive={isChatActive}
+                    variant="default"
+                    className="w-8 h-8 flex items-center justify-center"
+                  >
+                    <MessageSquare className="h-5 w-5" />
+                  </SidebarMenuButton>
+                </div>
+              )}
+            </Link>
+          </div>
+
+          {/* Document Bit */}
+          <div className="mt-2 flex justify-center">
+            <Link
+              href="/editor/new"
+              onClick={() => {
+                setOpenMobile(false);
+              }}
+              className={
+                state === 'collapsed'
+                  ? 'flex justify-center w-full'
+                  : 'w-full px-2'
+              }
+            >
+              {state === 'expanded' ? (
+                <Button
+                  variant={isEditorActive ? 'secondary' : 'ghost'}
+                  className={cn(
+                    'w-full justify-start gap-2',
+                    isEditorActive && 'bg-secondary text-secondary-foreground',
+                  )}
+                >
+                  <FileEdit size={18} />
+                  <span>Document Bit</span>
+                </Button>
+              ) : (
+                <div className="flex justify-center w-full">
+                  <SidebarMenuButton
+                    tooltip="Document Bit"
+                    isActive={isEditorActive}
+                    variant="default"
+                    className="w-8 h-8 flex items-center justify-center"
+                  >
+                    <FileEdit className="h-5 w-5" />
                   </SidebarMenuButton>
                 </div>
               )}

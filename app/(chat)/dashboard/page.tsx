@@ -3,7 +3,6 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import { useChatPane } from '@/context/ChatPaneContext';
-import { chatModels } from '@/lib/ai/models';
 import {
   Card,
   CardContent,
@@ -12,7 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Bot, ArrowRight, Brain } from 'lucide-react';
+import { Bot, ArrowRight, Brain, FileEdit } from 'lucide-react';
 import { ChatPaneToggle } from '@/components/ChatPaneToggle';
 import { useSidebar } from '@/components/ui/sidebar';
 
@@ -29,8 +28,12 @@ export default function DashboardPage() {
     // Clear current messages for a fresh chat experience
     setMessages([]);
 
-    // Navigate to the main chat interface
-    router.push('/');
+    // Navigate to the appropriate interface based on model ID
+    if (modelId === 'document-editor') {
+      router.push('/editor/new');
+    } else {
+      router.push('/');
+    }
   };
 
   // Function to get an icon based on the model ID
@@ -38,10 +41,27 @@ export default function DashboardPage() {
     switch (modelId) {
       case 'chat-model-reasoning':
         return <Brain className="h-8 w-8 text-primary" />;
+      case 'document-editor':
+        return <FileEdit className="h-8 w-8 text-primary" />;
       default:
         return <Bot className="h-8 w-8 text-primary" />;
     }
   };
+
+  const modelCards = [
+    {
+      id: 'chat-model',
+      name: 'Chat Bit',
+      description: 'Versatile AI assistant for chat and reasoning',
+      specialization: 'general-purpose chat and reasoning capabilities',
+    },
+    {
+      id: 'document-editor',
+      name: 'Document Bit',
+      description: 'AI-assisted document writing and editing.',
+      specialization: 'document creation and editing',
+    },
+  ];
 
   return (
     <div className="flex flex-col h-full">
@@ -55,8 +75,8 @@ export default function DashboardPage() {
           sidebarState === 'collapsed' ? 'md:pl-14' : ''
         }`}
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {chatModels.map((model) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {modelCards.map((model) => (
             <Card
               key={model.id}
               className="cursor-pointer hover:shadow-lg transition-all hover:border-primary/50 flex flex-col"
@@ -71,10 +91,7 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-sm text-muted-foreground mt-2">
-                  Specialized for{' '}
-                  {model.id === 'chat-model-reasoning'
-                    ? 'complex reasoning and problem-solving'
-                    : 'general assistance and information'}
+                  Specialized for {model.specialization}
                 </div>
               </CardContent>
               <CardFooter className="flex justify-end mt-auto pt-4">
