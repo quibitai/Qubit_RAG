@@ -11,6 +11,7 @@ import {
   inArray,
   lt,
   type SQL,
+  count,
 } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
@@ -596,5 +597,77 @@ export async function ensureChatExists({
     throw error;
   } finally {
     console.log('[DB DEBUG] ========== End Chat Existence Check ==========');
+  }
+}
+
+export async function getDocumentsByUserId({
+  id,
+  limit = 10,
+  startingAfter,
+  endingBefore,
+}: {
+  id: string;
+  limit?: number;
+  startingAfter?: string | null;
+  endingBefore?: string | null;
+}) {
+  try {
+    const extendedLimit = limit + 1;
+
+    const query = (whereCondition?: SQL<unknown>) =>
+      db
+        .select()
+        .from(document)
+        .where(
+          whereCondition
+            ? and(whereCondition, eq(document.userId, id))
+            : eq(document.userId, id),
+        )
+        .orderBy(desc(document.createdAt))
+        .limit(extendedLimit);
+
+    let docs: (typeof document.$inferSelect)[] = [];
+
+    if (startingAfter) {
+      const afterDocument = await db
+        .select()
+        .from(document)
+        .where(eq(document.id, startingAfter))
+        .limit(1);
+
+      if (afterDocument.length > 0) {
+        docs = await query(lt(document.createdAt, afterDocument[0].createdAt));
+      } else {
+        docs = await query();
+      }
+    } else if (endingBefore) {
+      const beforeDocument = await db
+        .select()
+        .from(document)
+        .where(eq(document.id, endingBefore))
+        .limit(1);
+
+      if (beforeDocument.length > 0) {
+        docs = await query(gt(document.createdAt, beforeDocument[0].createdAt));
+      } else {
+        docs = await query();
+      }
+    } else {
+      docs = await query();
+    }
+
+    const hasMore = docs.length > limit;
+
+    if (hasMore) {
+      docs.pop();
+    }
+
+    return {
+      documents: docs,
+      hasMore,
+    };
+  } catch (error) {
+    console.error('Failed to get documents by user id from database');
+    throw error;
   }
 }

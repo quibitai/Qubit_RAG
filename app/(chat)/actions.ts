@@ -436,59 +436,42 @@ export async function createChatAndSaveFirstMessages(params: {
     }
 
     // Generate a meaningful title based on the first user message
-    let title = `Chat ${chatId.slice(0, 8)}`;
+    let title = '';
     try {
-      if (
+      // Extract title from user message content
+      const userContent =
         userMessage.parts &&
         Array.isArray(userMessage.parts) &&
-        userMessage.parts.length > 0
-      ) {
-        const userContent = userMessage.parts.find(
-          (part) =>
-            typeof part === 'object' &&
-            part !== null &&
-            'type' in part &&
-            part.type === 'text' &&
-            'text' in part,
-        );
+        userMessage.parts.length > 0 &&
+        typeof userMessage.parts[0] === 'object' &&
+        userMessage.parts[0] !== null &&
+        'type' in userMessage.parts[0] &&
+        userMessage.parts[0].type === 'text' &&
+        'text' in userMessage.parts[0]
+          ? (userMessage.parts[0].text as string)
+          : '';
 
-        if (
-          userContent &&
-          typeof userContent === 'object' &&
-          'text' in userContent
-        ) {
-          // Only attempt to generate title if there's actual text content
-          const userText = userContent.text as string;
-          if (userText && userText.trim().length > 0) {
-            console.log(
-              `${logContext} Generating title from user message: "${userText.substring(0, 50)}..."`,
-            );
-            try {
-              title = await generateTitleFromUserMessage({
-                message: {
-                  id: userMessage.id,
-                  role: 'user',
-                  content: userText,
-                },
-              });
-              console.log(`${logContext} Generated title: "${title}"`);
-            } catch (titleError) {
-              console.error(
-                `${logContext} Failed to generate title, using fallback:`,
-                titleError,
-              );
-              // Continue with fallback title
-            }
-          }
+      // Use the first few words of user message as title, or fallback to default
+      if (userContent && typeof userContent === 'string') {
+        // Use up to first 5 words or 50 characters
+        const words = userContent.split(' ');
+        title = words.slice(0, 5).join(' ');
+        if (title.length > 50) {
+          title = title.substring(0, 47) + '...';
         }
       }
-    } catch (parseError) {
-      console.error(
-        `${logContext} Error parsing user message for title generation:`,
-        parseError,
-      );
-      // Continue with the default title
+    } catch (error) {
+      console.error(`${logContext} Error generating title:`, error);
     }
+
+    // Use a fallback title if extraction failed
+    if (!title) {
+      title = `Chat ${chatId.slice(0, 8)}`;
+    }
+
+    console.log(
+      `${logContext} Generated title: "${title}" for chat ID: ${chatId}`,
+    );
 
     // First, check if the chat already exists to handle race conditions proactively
     const existingChat = await db

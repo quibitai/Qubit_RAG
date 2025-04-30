@@ -25,28 +25,41 @@ import {
 } from './icons';
 import { memo } from 'react';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
+import { FileEdit, MessageSquare } from 'lucide-react';
 
 const PureChatItem = ({
   chat,
   isActive,
   onDelete,
   setOpenMobile,
+  itemType = 'chat',
 }: {
   chat: Chat;
   isActive: boolean;
   onDelete: (chatId: string) => void;
   setOpenMobile: (open: boolean) => void;
+  itemType?: 'chat' | 'document';
 }) => {
   const { visibilityType, setVisibilityType } = useChatVisibility({
     chatId: chat.id,
     initialVisibility: chat.visibility,
   });
 
+  // Determine which icon to show based on the type
+  const ItemIcon = itemType === 'document' ? FileEdit : MessageSquare;
+  const itemPath =
+    itemType === 'document' ? `/editor/${chat.id}` : `/chat/${chat.id}`;
+
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={isActive}>
-        <Link href={`/chat/${chat.id}`} onClick={() => setOpenMobile(false)}>
-          <span>{chat.title}</span>
+        <Link href={itemPath} onClick={() => setOpenMobile(false)}>
+          <div className="flex items-center gap-2 w-full overflow-hidden">
+            <ItemIcon size={14} className="flex-shrink-0" />
+            <span className="truncate overflow-hidden text-ellipsis whitespace-nowrap">
+              {chat.title}
+            </span>
+          </div>
         </Link>
       </SidebarMenuButton>
 
@@ -114,5 +127,6 @@ const PureChatItem = ({
 
 export const ChatItem = memo(PureChatItem, (prevProps, nextProps) => {
   if (prevProps.isActive !== nextProps.isActive) return false;
+  if (prevProps.itemType !== nextProps.itemType) return false;
   return true;
 });

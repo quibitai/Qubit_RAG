@@ -95,7 +95,7 @@ export function Chat({
   );
   console.log('[Chat] Chat ID:', id);
 
-  const { mutate } = useSWRConfig();
+  const { mutate, cache } = useSWRConfig();
   const [attachments, setAttachments] = useState<Array<Attachment>>([]);
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
   const formRef = useRef<HTMLFormElement>(null);
@@ -348,8 +348,20 @@ export function Chat({
                     prev.map((m) => ({ ...m, __saved: true })),
                   );
 
-                  // Invalidate the chats cache to refresh the sidebar
+                  // Invalidate the chats cache to refresh the sidebar using multiple approaches
+                  // 1. Use the SWR key for the paginated chat history
                   mutate(unstable_serialize(getChatHistoryPaginationKey));
+
+                  // 2. Force a complete invalidation of all history-related caches
+                  for (const key of Object.keys(cache.get() || {})) {
+                    if (key.includes('/api/history')) {
+                      console.log('[Chat] Invalidating cache key:', key);
+                      mutate(key);
+                    }
+                  }
+
+                  // 3. Directly invalidate the first page of history
+                  mutate('/api/history?limit=20');
 
                   // Get the chat ID from the result (if available) or use the current ID
                   const navigateToChatId = result?.chatId || id;
@@ -362,10 +374,8 @@ export function Chat({
                     `[Chat] Full URL to navigate to: /chat/${navigateToChatId}`,
                   );
 
-                  // Navigate to the chat page for this ID - removing router.refresh() to avoid timing issues
+                  // Navigate to the chat page for this ID
                   router.push(`/chat/${navigateToChatId}`);
-
-                  // Don't call router.refresh() as it might interfere with router.push()
                 } else {
                   console.error(
                     '[Chat] Failed to save first messages:',

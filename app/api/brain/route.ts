@@ -125,7 +125,7 @@ class DebugCallbackHandler extends BaseCallbackHandler {
           if (
             msg.additional_kwargs?.tool_call_id ||
             msg.name ||
-            msg.type === 'tool'
+            (msg as any).type === 'tool'
           ) {
             console.log('[Callback ALERT] Found tool message:', {
               contentType,
@@ -149,18 +149,19 @@ class DebugCallbackHandler extends BaseCallbackHandler {
       const generations = output.generations;
       generations.forEach((genList, i) => {
         genList.forEach((gen, j) => {
-          if (gen.message?.additional_kwargs?.tool_calls) {
+          const genMessage = gen as any;
+          if (genMessage.message?.additional_kwargs?.tool_calls) {
             console.log(
               `[Callback] Tool calls found in generation [${i}][${j}]:`,
-              gen.message.additional_kwargs.tool_calls,
+              genMessage.message.additional_kwargs.tool_calls,
             );
           }
 
           // Log generation completion reason
-          if (gen.message?.additional_kwargs?.finish_reason) {
+          if (genMessage.message?.additional_kwargs?.finish_reason) {
             console.log(
               `[Callback] Generation [${i}][${j}] finish_reason:`,
-              gen.message.additional_kwargs.finish_reason,
+              genMessage.message.additional_kwargs.finish_reason,
             );
           }
         });
@@ -1476,15 +1477,32 @@ ${extractedText}
       // DIRECT CLASS INSTANTIATION: Create fresh instances immediately before invoke
       // This prevents any serialization issues by bypassing intermediate steps
       const directInstances = finalSafeHistory.map((msg) => {
-        if (typeof msg?.content !== 'string') {
-          console.log('[Brain API] Forcing string content for message:', msg);
-          return new (msg instanceof HumanMessage ? HumanMessage : AIMessage)({
-            content: String(msg?.content || ''),
-          });
+        // Convert to raw message format first with explicit typing
+        const rawMessage: RawMessage = {
+          type: msg instanceof HumanMessage ? 'human' : 'ai',
+          content:
+            typeof msg?.content === 'string'
+              ? msg.content
+              : String(msg?.content || ''),
+        };
+
+        // Use the rawToMessage utility to create a properly typed instance
+        const properInstance = rawToMessage(rawMessage);
+
+        if (!properInstance) {
+          console.error(
+            '[Brain API] Failed to create proper message instance:',
+            msg,
+          );
+          // Fallback: use direct instantiation with explicit type check
+          if (msg instanceof HumanMessage) {
+            return new HumanMessage({ content: String(msg?.content || '') });
+          } else {
+            return new AIMessage({ content: String(msg?.content || '') });
+          }
         }
-        return new (msg instanceof HumanMessage ? HumanMessage : AIMessage)({
-          content: msg.content,
-        });
+
+        return properInstance;
       });
 
       // Log the direct instances we're about to use
@@ -1502,7 +1520,7 @@ ${extractedText}
       // Execute the agent with the validated message and DIRECT instances
       result = await agentExecutor.invoke({
         input: combinedMessage,
-        chat_history: directInstances,
+        chat_history: directInstances as (HumanMessage | AIMessage)[],
       });
 
       console.log(`[Brain API] Agent execution complete`);

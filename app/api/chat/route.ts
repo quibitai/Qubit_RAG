@@ -10,6 +10,7 @@ import {
   createChatAndSaveFirstMessages,
   saveSubsequentMessages,
 } from '@/app/(chat)/actions';
+import { deleteChatById } from '@/lib/db/queries';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
@@ -86,7 +87,9 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Implement chat deletion logic here
+    // Actually delete the chat from the database
+    await deleteChatById({ id });
+    console.log(`[API] Successfully deleted chat with ID: ${id}`);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
