@@ -1,7 +1,17 @@
 import 'server-only';
 
 import { genSaltSync, hashSync } from 'bcrypt-ts';
-import { and, asc, desc, eq, gt, gte, inArray, lt, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  lt,
+  type SQL,
+} from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
@@ -58,14 +68,17 @@ export async function saveChat({
   title: string;
 }) {
   try {
-    return await db.insert(chat).values({
+    console.log('[DB] Attempting to save chat:', { id, userId, title });
+    const result = await db.insert(chat).values({
       id,
       createdAt: new Date(),
       userId,
       title,
     });
+    console.log('[DB] Successfully saved chat:', { id, result });
+    return result;
   } catch (error) {
-    console.error('Failed to save chat in database');
+    console.error('[DB] Failed to save chat in database:', error);
     throw error;
   }
 }
@@ -152,10 +165,22 @@ export async function getChatsByUserId({
 
 export async function getChatById({ id }: { id: string }) {
   try {
+    console.log(`[DB:getChatById] Fetching chat with ID: ${id}`);
     const [selectedChat] = await db.select().from(chat).where(eq(chat.id, id));
+    console.log(
+      `[DB:getChatById] Result for ${id}: ${selectedChat ? 'Found' : 'Not found'}`,
+    );
+    if (selectedChat) {
+      console.log(
+        `[DB:getChatById] Chat details: title=${selectedChat.title}, userId=${selectedChat.userId}, createdAt=${selectedChat.createdAt}`,
+      );
+    }
     return selectedChat;
   } catch (error) {
-    console.error('Failed to get chat by id from database');
+    console.error(
+      `[DB:getChatById] Failed to get chat with ID ${id} from database:`,
+      error,
+    );
     throw error;
   }
 }
@@ -165,23 +190,119 @@ export async function saveMessages({
 }: {
   messages: Array<DBMessage>;
 }) {
+  console.log(
+    '[saveMessages] Function called. Number of messages received:',
+    Array.isArray(messages) ? messages.length : 'Not an array!',
+  );
+  if (Array.isArray(messages) && messages.length > 0) {
+    // Log structure of the first message to check format
+    console.log(
+      '[saveMessages] Structure of first message:',
+      JSON.stringify(messages[0], null, 2),
+    );
+  } else if (!Array.isArray(messages)) {
+    console.error('[saveMessages] Input is not an array:', messages);
+  }
+
   try {
-    return await db.insert(message).values(messages);
-  } catch (error) {
-    console.error('Failed to save messages in database', error);
+    console.log('[saveMessages] Received messages type:', typeof messages);
+    console.log('[saveMessages] Is Array:', Array.isArray(messages));
+    try {
+      console.log(
+        '[saveMessages] Received messages value:',
+        JSON.stringify(messages, null, 2),
+      );
+    } catch (e) {
+      console.error('[saveMessages] Could not stringify received messages:', e);
+      console.log('[saveMessages] Raw received messages value:', messages);
+    }
+
+    // Guard clause to ensure messages is an array
+    if (!Array.isArray(messages)) {
+      console.error(
+        '[saveMessages] FATAL: Input "messages" is not an array. Aborting save operation. Received:',
+        messages,
+      );
+      throw new Error(
+        'Invalid input to saveMessages: The "messages" parameter must be an array.',
+      );
+    }
+
+    console.log('[DB] Attempting to save messages, count:', messages.length);
+    console.log('[DB] Message sample:', JSON.stringify(messages[0], null, 2));
+
+    // Validate message format and ensure proper date objects
+    for (const msg of messages) {
+      // Validate required fields
+      if (!msg.id || !msg.chatId || !msg.role) {
+        console.error('[DB] Missing required fields:', msg);
+        throw new Error('Invalid message format: missing required fields');
+      }
+
+      // Validate parts array
+      if (!msg.parts || !Array.isArray(msg.parts) || msg.parts.length === 0) {
+        console.error('[DB] Invalid message parts:', msg);
+        throw new Error('Invalid message format: parts array is required');
+      }
+
+      // Validate attachments array
+      if (!msg.attachments || !Array.isArray(msg.attachments)) {
+        console.error('[DB] Invalid message attachments:', msg);
+        throw new Error(
+          'Invalid message format: attachments array is required',
+        );
+      }
+
+      // Ensure createdAt is a valid Date object
+      if (msg.createdAt && !(msg.createdAt instanceof Date)) {
+        console.log('[DB] Converting createdAt to Date object');
+        msg.createdAt = new Date(msg.createdAt);
+      }
+
+      // If no createdAt is provided, it will use the database default (NOW())
+      if (!msg.createdAt) {
+        console.log('[DB] No createdAt provided, will use database default');
+      }
+    }
+
+    console.log('[saveMessages] Preparing to execute db.insert(message)...');
+    const result = await db.insert(message).values(messages);
+    console.log('[saveMessages] db.insert(message) executed successfully.');
+
+    return result;
+  } catch (error: any) {
+    console.error('[saveMessages] Error during db.insert(message):', error);
+    // Log specific DB error details if available
+    if (error.code) {
+      console.error(`[saveMessages] DB Error Code: ${error.code}`);
+    }
+    if (error.message) {
+      console.error(`[saveMessages] DB Error Message: ${error.message}`);
+    }
     throw error;
   }
 }
 
 export async function getMessagesByChatId({ id }: { id: string }) {
   try {
-    return await db
+    console.log(
+      `[DB:getMessagesByChatId] Fetching messages for chat ID: ${id}`,
+    );
+    const messages = await db
       .select()
       .from(message)
       .where(eq(message.chatId, id))
       .orderBy(asc(message.createdAt));
+
+    console.log(
+      `[DB:getMessagesByChatId] Found ${messages.length} messages for chat ID: ${id}`,
+    );
+    return messages;
   } catch (error) {
-    console.error('Failed to get messages by chat id from database', error);
+    console.error(
+      `[DB:getMessagesByChatId] Failed to get messages for chat ID ${id} from database:`,
+      error,
+    );
     throw error;
   }
 }
@@ -403,5 +524,77 @@ export async function updateChatVisiblityById({
   } catch (error) {
     console.error('Failed to update chat visibility in database');
     throw error;
+  }
+}
+
+export async function ensureChatExists({
+  chatId,
+  userId,
+}: {
+  chatId: string;
+  userId: string;
+}) {
+  try {
+    console.log('[DB DEBUG] ========== Chat Existence Check ==========');
+    console.log('[DB DEBUG] Checking chat existence for:', { chatId, userId });
+
+    // First try to find the chat
+    console.log('[DB DEBUG] Executing SELECT query...');
+    const existingChat = await db
+      .select({
+        id: chat.id,
+        userId: chat.userId,
+        createdAt: chat.createdAt,
+      })
+      .from(chat)
+      .where(eq(chat.id, chatId))
+      .limit(1);
+
+    console.log('[DB DEBUG] SELECT query result:', existingChat);
+
+    if (existingChat.length === 0) {
+      console.log('[DB DEBUG] Chat not found, initiating creation process');
+      try {
+        console.log('[DB DEBUG] Executing INSERT query...');
+        const insertResult = await db.insert(chat).values({
+          id: chatId,
+          createdAt: new Date(),
+          userId: userId,
+          title: 'New Chat', // Default title, can be updated later
+        });
+        console.log('[DB DEBUG] INSERT query result:', insertResult);
+        console.log('[DB DEBUG] Successfully created chat');
+        return true;
+      } catch (insertError: any) {
+        // Handle potential race condition where chat was created by another request
+        if (insertError.code === '23505') {
+          // Unique constraint violation
+          console.log(
+            '[DB DEBUG] Chat creation failed due to unique constraint - chat likely exists from concurrent request',
+          );
+          return true;
+        }
+        console.error(
+          '[DB DEBUG] Chat creation failed with unexpected error:',
+          insertError,
+        );
+        throw insertError;
+      }
+    } else {
+      console.log('[DB DEBUG] Chat found in database:', {
+        id: existingChat[0].id,
+        userId: existingChat[0].userId,
+        createdAt: existingChat[0].createdAt,
+      });
+      return true;
+    }
+  } catch (error) {
+    console.error(
+      '[DB DEBUG] Unexpected error during chat existence check:',
+      error,
+    );
+    throw error;
+  } finally {
+    console.log('[DB DEBUG] ========== End Chat Existence Check ==========');
   }
 }

@@ -25,6 +25,27 @@ import { SuggestedActions } from './suggested-actions';
 import equal from 'fast-deep-equal';
 import type { UseChatHelpers } from '@ai-sdk/react';
 
+export interface MultimodalInputProps {
+  chatId: string;
+  input: UseChatHelpers['input'];
+  setInput: UseChatHelpers['setInput'];
+  status: UseChatHelpers['status'];
+  stop: () => void;
+  attachments: Array<Attachment>;
+  setAttachments: Dispatch<SetStateAction<Array<Attachment>>>;
+  messages: Array<UIMessage>;
+  setMessages: UseChatHelpers['setMessages'];
+  append: UseChatHelpers['append'];
+  handleSubmit: UseChatHelpers['handleSubmit'];
+  className?: string;
+  onFileProcessed?: (fileMeta: {
+    filename: string;
+    contentType: string;
+    url: string;
+    extractedText: string;
+  }) => void;
+}
+
 function PureMultimodalInput({
   chatId,
   input,
@@ -38,20 +59,8 @@ function PureMultimodalInput({
   append,
   handleSubmit,
   className,
-}: {
-  chatId: string;
-  input: UseChatHelpers['input'];
-  setInput: UseChatHelpers['setInput'];
-  status: UseChatHelpers['status'];
-  stop: () => void;
-  attachments: Array<Attachment>;
-  setAttachments: Dispatch<SetStateAction<Array<Attachment>>>;
-  messages: Array<UIMessage>;
-  setMessages: UseChatHelpers['setMessages'];
-  append: UseChatHelpers['append'];
-  handleSubmit: UseChatHelpers['handleSubmit'];
-  className?: string;
-}) {
+  onFileProcessed,
+}: MultimodalInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
 
@@ -161,44 +170,138 @@ function PureMultimodalInput({
     }
   };
 
-  const processFiles = useCallback(
-    async (files: File[]) => {
-      if (files.length === 0) return;
+  const extractFileContent = async (file: File) => {
+    try {
+      // Create FormData for the extraction API
+      const formData = new FormData();
+      formData.append('file', file);
 
-      setUploadQueue(files.map((file) => file.name));
+      console.log(
+        `[MultimodalInput] Extracting content from file "${file.name}"`,
+      );
 
-      try {
-        const uploadPromises = files.map((file) => uploadFile(file));
-        const uploadedAttachments = await Promise.all(uploadPromises);
-        const successfullyUploadedAttachments = uploadedAttachments.filter(
-          (attachment) => attachment !== undefined,
+      // Send the file to our extraction API which connects to n8n
+      const response = await fetch('/api/files/extract', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.error || `Error ${response.status}: ${response.statusText}`,
         );
+      }
 
+      const data = await response.json();
+
+      if (!data.success || !data.extractedContent) {
+        throw new Error('Extraction failed: No content returned');
+      }
+
+      console.log(
+        `[MultimodalInput] Successfully extracted content from "${file.name}"`,
+      );
+
+      // Return the extracted content as a success result
+      // This will be used as metadata with the file attachment
+      return {
+        success: true,
+        extractedContent: data.extractedContent,
+      };
+    } catch (error) {
+      console.error('[MultimodalInput] File extraction error:', error);
+      toast.error(
+        `Failed to extract content: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return { success: false };
+    }
+  };
+
+  const handleFileUploadAndExtract = async (files: File[]) => {
+    if (files.length === 0) return;
+
+    setUploadQueue(files.map((file) => file.name));
+
+    try {
+      // For each file, first try to extract content for text-based files
+      const processPromises = files.map(async (file) => {
+        // Process text-based files with extraction
+        if (
+          file.type.includes('text/') ||
+          file.type.includes('application/pdf') ||
+          file.type.includes('application/msword') ||
+          file.type.includes('application/vnd.openxmlformats-officedocument') ||
+          file.type.includes('application/json') ||
+          file.name.endsWith('.md')
+        ) {
+          // Try to extract content first
+          const extractionResult = await extractFileContent(file);
+
+          // Upload the file regardless of extraction success
+          const uploadResult = await uploadFile(file);
+
+          if (uploadResult && extractionResult.success) {
+            // Notify parent component about processed file with extracted content
+            if (onFileProcessed) {
+              onFileProcessed({
+                filename: file.name,
+                contentType: file.type,
+                url: uploadResult.url,
+                extractedText: extractionResult.extractedContent,
+              });
+            }
+
+            // Attach the extracted content as metadata to the file attachment
+            return {
+              ...uploadResult,
+              metadata: {
+                extractedContent: extractionResult.extractedContent,
+              },
+            };
+          }
+
+          return uploadResult;
+        } else {
+          // For other files like images, just upload
+          return uploadFile(file);
+        }
+      });
+
+      const results = await Promise.all(processPromises);
+
+      // Filter out nulls (files that failed to upload)
+      const successfulAttachments = results.filter(
+        (attachment): attachment is NonNullable<typeof attachment> =>
+          attachment !== null && attachment !== undefined,
+      );
+
+      // Add successfully uploaded files to attachments
+      if (successfulAttachments.length > 0) {
         setAttachments((currentAttachments) => [
           ...currentAttachments,
-          ...successfullyUploadedAttachments,
+          ...successfulAttachments,
         ]);
-      } catch (error) {
-        console.error('Error uploading files!', error);
-        toast.error('Error uploading files. Please try again.');
-      } finally {
-        setUploadQueue([]);
       }
-    },
-    [setAttachments],
-  );
+    } catch (error) {
+      console.error('[MultimodalInput] Error processing files:', error);
+      toast.error('Error processing files. Please try again.');
+    } finally {
+      setUploadQueue([]);
+    }
+  };
 
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.target.files || []);
-      await processFiles(files);
+      await handleFileUploadAndExtract(files);
 
       // Clear the file input value to allow re-uploading the same file
       if (event.target.value) {
         event.target.value = '';
       }
     },
-    [processFiles],
+    [handleFileUploadAndExtract],
   );
 
   // Drag and drop handlers
@@ -228,22 +331,60 @@ function PureMultimodalInput({
     setIsDragging(false);
   }, []);
 
-  const handleDrop = useCallback(
-    async (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
+  const dropHandler = useCallback(
+    async (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
       setIsDragging(false);
 
-      if (status !== 'ready') {
-        toast.error('Please wait for the model to finish its response!');
-        return;
+      if (event.dataTransfer && event.dataTransfer.files.length > 0) {
+        const files = Array.from(event.dataTransfer.files);
+        await handleFileUploadAndExtract(files);
+      }
+    },
+    [handleFileUploadAndExtract],
+  );
+
+  const handlePaste = useCallback(
+    async (event: ClipboardEvent) => {
+      const clipboardItems = event.clipboardData?.items;
+      if (!clipboardItems) return;
+
+      const files: File[] = [];
+
+      for (let i = 0; i < clipboardItems.length; i++) {
+        const item = clipboardItems[i];
+
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
       }
 
-      const droppedFiles = Array.from(e.dataTransfer.files);
-      await processFiles(droppedFiles);
+      if (files.length > 0) {
+        await handleFileUploadAndExtract(files);
+      }
     },
-    [processFiles, status],
+    [handleFileUploadAndExtract],
   );
+
+  useEffect(() => {
+    const pasteHandler = (e: ClipboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+      handlePaste(e);
+    };
+
+    window.addEventListener('paste', pasteHandler);
+
+    return () => {
+      window.removeEventListener('paste', pasteHandler);
+    };
+  }, [handlePaste]);
 
   return (
     <div
@@ -257,7 +398,7 @@ function PureMultimodalInput({
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onDrop={dropHandler}
     >
       {isDragging && (
         <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
@@ -356,13 +497,47 @@ function PureMultimodalInput({
 }
 
 export const MultimodalInput = memo(
-  PureMultimodalInput,
+  ({
+    chatId,
+    input,
+    setInput,
+    status,
+    stop,
+    attachments,
+    setAttachments,
+    messages,
+    setMessages,
+    append,
+    handleSubmit,
+    className,
+    onFileProcessed,
+  }: MultimodalInputProps) => {
+    return (
+      <PureMultimodalInput
+        chatId={chatId}
+        input={input}
+        setInput={setInput}
+        status={status}
+        stop={stop}
+        attachments={attachments}
+        setAttachments={setAttachments}
+        messages={messages}
+        setMessages={setMessages}
+        append={append}
+        handleSubmit={handleSubmit}
+        className={className}
+        onFileProcessed={onFileProcessed}
+      />
+    );
+  },
   (prevProps, nextProps) => {
-    if (prevProps.input !== nextProps.input) return false;
-    if (prevProps.status !== nextProps.status) return false;
-    if (!equal(prevProps.attachments, nextProps.attachments)) return false;
-
-    return true;
+    return (
+      prevProps.chatId === nextProps.chatId &&
+      prevProps.input === nextProps.input &&
+      prevProps.status === nextProps.status &&
+      equal(prevProps.attachments, nextProps.attachments) &&
+      equal(prevProps.messages, nextProps.messages)
+    );
   },
 );
 

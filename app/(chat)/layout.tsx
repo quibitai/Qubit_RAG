@@ -12,7 +12,12 @@ export default async function Layout({
 }: {
   children: React.ReactNode;
 }) {
+  console.log('[Chat Layout] Starting to fetch auth session...');
   const [session, cookieStore] = await Promise.all([auth(), cookies()]);
+  console.log('[Chat Layout] Session object received:', session);
+  console.log('[Chat Layout] User ID:', session?.user?.id);
+  console.log('[Chat Layout] User Email:', session?.user?.email);
+
   const isCollapsed = cookieStore.get('sidebar:state')?.value !== 'true';
 
   return (

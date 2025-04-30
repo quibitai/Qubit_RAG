@@ -160,3 +160,59 @@ export function getTrailingMessageId({
 
   return trailingMessage.id;
 }
+
+/**
+ * Retry a function with exponential backoff
+ * @param fn Function to retry
+ * @param maxRetries Maximum number of retries
+ * @param baseDelay Base delay in ms
+ * @param validator Optional validator function to check result
+ * @returns Result from the function or null if all retries fail
+ */
+export async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  baseDelay = 300,
+  validator?: (result: T) => boolean,
+): Promise<T | null> {
+  let retries = 0;
+  let lastError: Error | null = null;
+
+  while (retries < maxRetries) {
+    try {
+      const result = await fn();
+
+      // If no validator or validator returns true, return the result
+      if (!validator || validator(result)) {
+        return result;
+      }
+
+      console.log(
+        `Retry attempt ${retries + 1}/${maxRetries}: Valid result not yet available`,
+      );
+    } catch (error) {
+      console.error(
+        `Retry attempt ${retries + 1}/${maxRetries} failed:`,
+        error,
+      );
+      lastError = error as Error;
+    }
+
+    // Exponential backoff
+    await new Promise((r) => setTimeout(r, baseDelay * Math.pow(2, retries)));
+    retries++;
+  }
+
+  if (lastError) {
+    console.error(
+      `All ${maxRetries} retry attempts failed with error:`,
+      lastError,
+    );
+  } else {
+    console.error(
+      `All ${maxRetries} retry attempts failed to produce a valid result`,
+    );
+  }
+
+  return null;
+}

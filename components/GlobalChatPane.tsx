@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useChatPane } from '@/context/ChatPaneContext';
-import { cn } from '@/lib/utils';
+import { cn, generateUUID } from '@/lib/utils';
 import { PreviewMessage, ThinkingMessage } from './message';
 import { useScrollToBottom } from './use-scroll-to-bottom';
 import { Button } from './ui/button';
@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import useSWR from 'swr';
 import { fetcher } from '@/lib/utils';
-import type { Vote } from '@/lib/db/schema';
+import type { Vote, DBMessage } from '@/lib/db/schema';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,8 +27,62 @@ import {
 } from './ui/dropdown-menu';
 import { chatModels } from '@/lib/ai/models';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { createChatAndSaveFirstMessages } from '../app/(chat)/actions';
+
+// Add utility function for fallback API calls
+const callServerActionWithFallback = async (
+  action: 'createChatAndSaveFirstMessages' | 'saveSubsequentMessages',
+  payload: any,
+) => {
+  try {
+    // First try using the server action directly
+    if (
+      action === 'createChatAndSaveFirstMessages' &&
+      typeof createChatAndSaveFirstMessages === 'function'
+    ) {
+      console.log('[FALLBACK] Trying direct server action first');
+      return await createChatAndSaveFirstMessages(payload);
+    }
+
+    // If server action is not available or fails, use the API fallback
+    console.log('[FALLBACK] Using API route fallback for', action);
+    const response = await fetch('/api/chat-actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, ...payload }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API fallback failed with status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('[FALLBACK] Error in callServerActionWithFallback:', error);
+    return { success: false, error: (error as Error).message };
+  }
+};
+
+console.log('[GlobalChatPane] action (relative import):', {
+  createChatAndSaveFirstMessages,
+  isServerAction:
+    typeof createChatAndSaveFirstMessages === 'function' &&
+    (createChatAndSaveFirstMessages as any)?.__$SERVER_REFERENCE !== undefined,
+});
+
+// Export the utility function for use in ChatPaneContext
+export { callServerActionWithFallback };
 
 export function GlobalChatPane() {
+  // Debug: Check if server action is correctly identified
+  console.log('[CLIENT] Server action check in GlobalChatPane:', {
+    isFunction: typeof createChatAndSaveFirstMessages === 'function',
+    hasServerRef:
+      typeof createChatAndSaveFirstMessages === 'object' &&
+      (createChatAndSaveFirstMessages as any)?.__$SERVER_REFERENCE,
+    serverActionId: (createChatAndSaveFirstMessages as any).__next_action_id,
+  });
+
   const { chatState, activeBitId, isPaneOpen, setActiveBitId } = useChatPane();
   const {
     messages,
@@ -43,6 +97,16 @@ export function GlobalChatPane() {
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  // Ref to hold the last user message
+  const lastUserMsgRef = React.useRef<{
+    id: string;
+    chatId: string;
+    role: string;
+    parts: Array<{ type: string; text: string }>;
+    attachments: Array<any>;
+    createdAt: Date;
+  } | null>(null);
 
   // Get votes for the messages if available
   const { data: votes } = useSWR<Array<Vote>>(
@@ -72,10 +136,54 @@ export function GlobalChatPane() {
     }
   }, [input, adjustHeight]);
 
-  const submitMessage = (e: React.FormEvent<HTMLFormElement>) => {
+  // Reset chatPersistedRef when a new chat is created
+  React.useEffect(() => {
+    if (chatState.messages.length === 0) {
+      console.log(
+        '[GlobalChatPane] New chat detected, resetting persistence state',
+      );
+      chatPersistedRef.current = false;
+    }
+  }, [chatState.messages.length]);
+
+  // Ref to track chat persistence
+  const chatPersistedRef = React.useRef<boolean>(false);
+
+  const submitMessage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!input.trim()) return;
-    handleSubmit(e, { body: { selectedChatModel: activeBitId } });
+
+    // Create and store the user message before submitting
+    const currentChatId = chatState.id || generateUUID();
+
+    const userMsg = {
+      id: generateUUID(),
+      chatId: currentChatId,
+      role: 'user',
+      parts: [{ type: 'text', text: input }],
+      attachments: [],
+      createdAt: new Date(),
+    };
+
+    // Store in ref for later use in onFinish
+    lastUserMsgRef.current = userMsg;
+
+    console.log('[GlobalChatPane] Storing user message in ref:', userMsg);
+    console.log(
+      '[GlobalChatPane] Chat persistence state:',
+      chatPersistedRef.current ? 'persisted' : 'not persisted',
+    );
+    console.log('[GlobalChatPane] Using chat ID:', currentChatId);
+
+    // Send the message to the AI with model selection
+    handleSubmit(e, {
+      body: {
+        selectedChatModel: activeBitId,
+        chatId: currentChatId,
+      },
+    });
+
+    // Clear the input and reset height
     setInput('');
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
