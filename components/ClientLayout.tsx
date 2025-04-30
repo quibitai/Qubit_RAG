@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Toaster } from 'sonner';
 import { useChatPane } from '@/context/ChatPaneContext';
 import {
@@ -10,9 +10,21 @@ import {
 } from '@/components/ui/resizable';
 import { GlobalChatPane } from '@/components/GlobalChatPane';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { usePathname } from 'next/navigation';
 
 export function ClientLayout({ children }: { children: React.ReactNode }) {
   const { isPaneOpen } = useChatPane();
+  const pathname = usePathname();
+  const [chatTitle, setChatTitle] = useState('Quibit');
+
+  // Set different chat panel title based on route
+  useEffect(() => {
+    if (pathname.includes('/dashboard')) {
+      setChatTitle('Quibit');
+    } else {
+      setChatTitle('Quibit');
+    }
+  }, [pathname]);
 
   return (
     <TooltipProvider>
@@ -34,7 +46,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
                 collapsedSize={4}
                 id="chat-pane"
               >
-                <GlobalChatPane />
+                <GlobalChatPane title={chatTitle} />
               </ResizablePanel>
             </>
           )}

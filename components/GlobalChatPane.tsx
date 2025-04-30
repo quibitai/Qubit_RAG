@@ -73,7 +73,13 @@ console.log('[GlobalChatPane] action (relative import):', {
 // Export the utility function for use in ChatPaneContext
 export { callServerActionWithFallback };
 
-export function GlobalChatPane() {
+interface GlobalChatPaneProps {
+  title?: string;
+}
+
+export function GlobalChatPane({
+  title = 'Chat Assistant',
+}: GlobalChatPaneProps) {
   // Debug: Check if server action is correctly identified
   console.log('[CLIENT] Server action check in GlobalChatPane:', {
     isFunction: typeof createChatAndSaveFirstMessages === 'function',
@@ -197,7 +203,7 @@ export function GlobalChatPane() {
   return (
     <div className="flex flex-col h-full bg-background border-l">
       <div className="px-4 py-2 border-b flex items-center justify-between">
-        <h2 className="font-semibold">Chat Assistant</h2>
+        <h2 className="font-semibold">{title}</h2>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

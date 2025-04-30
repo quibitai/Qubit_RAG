@@ -193,6 +193,10 @@ export function Chat({
                     console.log(
                       `[Chat] Processing ${debugData.toolCalls.length} tool calls`,
                     );
+                    console.log(
+                      `[Chat] Tool calls details:`,
+                      debugData.toolCalls,
+                    );
 
                     const event = new CustomEvent('debug-tool-calls', {
                       detail: debugData.toolCalls,
@@ -201,6 +205,7 @@ export function Chat({
                   }
                 } catch (e) {
                   console.error('[Chat] Failed to process debug data:', e);
+                  console.error('[Chat] Raw debug chunk:', match);
                 }
               }
             }
@@ -255,6 +260,14 @@ export function Chat({
             '[Chat] Assistant message has no content, finish_reason:',
             extendedMessage.finish_reason,
           );
+
+          // Add specific logging for tool_calls finish reason
+          if (extendedMessage.finish_reason === 'tool_calls') {
+            console.log(
+              '[Chat] IMPORTANT: Message has tool_calls finish_reason but no content',
+              extendedMessage,
+            );
+          }
         }
       }
 
@@ -560,7 +573,7 @@ export function Chat({
     );
   };
 
-  // Updated handleSubmit to store the user message in the ref
+  // Updated handleSubmit to store the user message in the ref and add logging
   const handleSubmit = useCallback(
     async (
       event?: { preventDefault?: () => void } | undefined,
@@ -573,8 +586,40 @@ export function Chat({
       try {
         console.log('[Chat] Including fileContext in request:', fileContext);
 
+        // Log the user message before sending
+        console.log('[Chat] New user message:', input);
+
+        // Prepare the message structure to monitor
+        const userMsg = {
+          id: generateUUID(),
+          role: 'user',
+          content: input,
+          createdAt: new Date().toISOString(),
+        };
+
+        // Store this message in the ref for later persistence
+        lastUserMsgRef.current = {
+          id: userMsg.id,
+          chatId: id,
+          role: userMsg.role,
+          parts: [{ type: 'text', text: userMsg.content }],
+          attachments: [],
+          createdAt: new Date(),
+        };
+
+        console.log(
+          '[Chat] Set lastUserMsgRef.current:',
+          lastUserMsgRef.current,
+        );
+
         // Clear input field immediately for better UX
         setInput('');
+
+        // Log current state of messages
+        console.log(
+          '[Chat] Current messages before adding user message:',
+          messages.map((m) => ({ id: m.id, role: m.role })),
+        );
 
         // Use the original handleSubmit from AI SDK to handle streaming response
         await originalHandleSubmit(event, {
@@ -585,13 +630,13 @@ export function Chat({
           },
         });
 
-        console.log('[Chat] Message processing complete');
+        console.log('[Chat] Message submission complete');
       } catch (err) {
         console.error('[Chat] Error in handleSubmit:', err);
         toast.error('Failed to process your message. Please try again.');
       }
     },
-    [input, originalHandleSubmit, setInput, fileContext, toast], // Add fileContext to dependencies
+    [input, originalHandleSubmit, setInput, fileContext, toast, id, messages], // Add all dependencies
   );
 
   return (

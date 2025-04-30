@@ -120,6 +120,20 @@ class DebugCallbackHandler extends BaseCallbackHandler {
               msg,
             );
           }
+
+          // Deep check for tool messages with non-string content
+          if (
+            msg.additional_kwargs?.tool_call_id ||
+            msg.name ||
+            msg.type === 'tool'
+          ) {
+            console.log('[Callback ALERT] Found tool message:', {
+              contentType,
+              name: msg.name,
+              toolCallId: msg.additional_kwargs?.tool_call_id,
+              content: msg.content,
+            });
+          }
         }
       }
     } catch (e) {
@@ -129,6 +143,31 @@ class DebugCallbackHandler extends BaseCallbackHandler {
 
   handleLLMEnd(output: LLMResult, runId: string): void | Promise<void> {
     console.log(`[Callback] handleLLMEnd: ${runId}`, { output });
+
+    // Check if output contains tool calls
+    try {
+      const generations = output.generations;
+      generations.forEach((genList, i) => {
+        genList.forEach((gen, j) => {
+          if (gen.message?.additional_kwargs?.tool_calls) {
+            console.log(
+              `[Callback] Tool calls found in generation [${i}][${j}]:`,
+              gen.message.additional_kwargs.tool_calls,
+            );
+          }
+
+          // Log generation completion reason
+          if (gen.message?.additional_kwargs?.finish_reason) {
+            console.log(
+              `[Callback] Generation [${i}][${j}] finish_reason:`,
+              gen.message.additional_kwargs.finish_reason,
+            );
+          }
+        });
+      });
+    } catch (e) {
+      console.error('[Callback] Error checking LLM output for tool calls:', e);
+    }
   }
 
   handleLLMError(err: Error, runId: string): void | Promise<void> {
@@ -137,17 +176,44 @@ class DebugCallbackHandler extends BaseCallbackHandler {
     console.error(`[Callback] LLM Error Name: ${err.name}`);
     console.error(`[Callback] LLM Error Stack: ${err.stack}`);
 
-    // Check for common OpenAI errors
-    if (err.message.includes('rate') || err.message.includes('limit')) {
-      console.error(`[Callback] POSSIBLE RATE LIMIT ERROR`);
+    // Enhanced error classification
+    const errorMap = {
+      rateLimit: ['rate', 'limit', 'too many', '429', 'requests per min'],
+      tokenLimit: ['token', 'context', 'length', 'too long', 'maximum'],
+      formatError: [
+        'format',
+        'invalid',
+        'json',
+        'parse',
+        'schema',
+        'malformed',
+      ],
+      toolError: [
+        'tool',
+        'function',
+        'not found',
+        'argument',
+        'parameter',
+        'schema',
+      ],
+      authError: ['auth', 'key', 'credential', '401', 'permission'],
+    };
+
+    const errorType = Object.entries(errorMap).find(([_, patterns]) =>
+      patterns.some((pattern) =>
+        err.message.toLowerCase().includes(pattern.toLowerCase()),
+      ),
+    );
+
+    if (errorType) {
+      console.error(`[Callback] DETECTED ERROR CATEGORY: ${errorType[0]}`);
     }
 
-    if (err.message.includes('token') || err.message.includes('context')) {
-      console.error(`[Callback] POSSIBLE TOKEN LIMIT/CONTEXT LENGTH ERROR`);
-    }
-
-    if (err.message.includes('format') || err.message.includes('invalid')) {
-      console.error(`[Callback] POSSIBLE MESSAGE FORMAT ERROR IN LLM CALL`);
+    // Special handling for tool-related errors
+    if (err.message.includes('tool') || err.message.includes('function')) {
+      console.error(
+        `[Callback] PROBABLE TOOL ERROR - Check tool definitions and usage`,
+      );
     }
   }
 
@@ -179,22 +245,57 @@ class DebugCallbackHandler extends BaseCallbackHandler {
     console.error(`[Callback] Chain Error Name: ${err.name}`);
     console.error(`[Callback] Chain Error Stack: ${err.stack}`);
 
-    // Check for specific error patterns
-    if (err.message.includes('map') || err.message.includes('iterate')) {
-      console.error(`[Callback] POSSIBLE ARRAY/ITERATION ERROR IN CHAIN`);
-    }
+    // More specific error pattern detection for chains
+    const chainErrorPatterns = {
+      iterationError: ['map', 'iterate', 'array', 'foreach', 'for each'],
+      messageFormatError: [
+        'message',
+        'content',
+        'field',
+        'expected string',
+        'not a string',
+      ],
+      parsingError: ['parse', 'json', 'stringify', 'deserialize'],
+      toolCallError: ['tool', 'function', 'call', 'args', 'arguments'],
+      agentError: ['agent', 'executor', 'execution', 'thought', 'action'],
+    };
 
-    if (err.message.includes('message') || err.message.includes('content')) {
+    // Check for specific error patterns
+    Object.entries(chainErrorPatterns).forEach(([errorType, patterns]) => {
+      if (
+        patterns.some(
+          (pattern) =>
+            err.message.toLowerCase().includes(pattern.toLowerCase()) ||
+            (err.stack &&
+              err.stack.toLowerCase().includes(pattern.toLowerCase())),
+        )
+      ) {
+        console.error(`[Callback] DETECTED CHAIN ERROR TYPE: ${errorType}`);
+      }
+    });
+
+    // Additional context for message format errors
+    if (
+      err.message.toLowerCase().includes('message') ||
+      err.message.toLowerCase().includes('content')
+    ) {
       console.error(`[Callback] POSSIBLE MESSAGE FORMAT ERROR IN CHAIN`);
 
-      // Add additional context for message format errors
-      if (
-        err.stack?.includes('formatChatHistory') ||
-        err.stack?.includes('convertToLangChainMessage')
-      ) {
-        console.error(
-          `[Callback] Error appears to be in message conversion functions`,
-        );
+      // Extract specific function names from stack trace for more context
+      if (err.stack) {
+        const relevantFrames = [
+          'formatChatHistory',
+          'convertToLangChainMessage',
+          'toRawMessage',
+          'sanitizeMessages',
+          'ensureToolMessageContentIsString',
+        ];
+
+        relevantFrames.forEach((frame) => {
+          if (err.stack?.includes(frame)) {
+            console.error(`[Callback] Error appears in function: ${frame}`);
+          }
+        });
       }
     }
   }
@@ -222,6 +323,21 @@ class DebugCallbackHandler extends BaseCallbackHandler {
         `[Tool:${tool.id || tool.name}] Detailed input:`,
         JSON.stringify(input, null, 2),
       );
+
+      // Log tool input parameters more explicitly
+      if (typeof input === 'object' && input !== null) {
+        console.log(
+          `[Tool:${tool.id || tool.name}] Input keys:`,
+          Object.keys(input),
+        );
+
+        // Validate required tool parameters
+        const toolId = tool.id || tool.name;
+        if (toolId && typeof toolId === 'string') {
+          // This could be expanded to check for required parameters based on tool type
+          console.log(`[Tool:${toolId}] Validating input parameters...`);
+        }
+      }
     } catch (e) {
       console.error(
         `[Tool:${tool.id || tool.name}] Error stringifying input:`,
@@ -269,10 +385,37 @@ class DebugCallbackHandler extends BaseCallbackHandler {
     console.error(`[Callback] Tool Error Name: ${err.name}`);
     console.error(`[Callback] Tool Error Stack: ${err.stack}`);
 
-    // Check for specific error types
-    if (err.message.includes('content') || err.message.includes('Content')) {
-      console.error(`[Callback] POSSIBLE MESSAGE FORMAT ERROR IN TOOL CALL`);
-    }
+    // Categorize specific tool error types
+    const toolErrorCategories = {
+      parameterError: [
+        'parameter',
+        'argument',
+        'missing',
+        'required',
+        'input',
+        'invalid',
+      ],
+      formatError: ['format', 'json', 'parse', 'stringify', 'object'],
+      accessError: ['permission', 'denied', 'unauthorized', 'access', '403'],
+      networkError: [
+        'network',
+        'timeout',
+        'connection',
+        'unavailable',
+        'endpoint',
+        'fetch',
+      ],
+    };
+
+    Object.entries(toolErrorCategories).forEach(([category, patterns]) => {
+      if (
+        patterns.some((pattern) =>
+          err.message.toLowerCase().includes(pattern.toLowerCase()),
+        )
+      ) {
+        console.error(`[Callback] IDENTIFIED TOOL ERROR CATEGORY: ${category}`);
+      }
+    });
 
     // Log error properties
     console.error(
@@ -283,10 +426,17 @@ class DebugCallbackHandler extends BaseCallbackHandler {
 
   handleAgentAction(action: AgentAction, runId: string): void | Promise<void> {
     console.log(`[Callback] handleAgentAction: ${runId}`, { action });
+
+    // Add specific logging for agent tool selection
+    console.log(`[Agent] Selected tool: ${action.tool}`);
+    console.log(`[Agent] Tool input:`, action.toolInput);
   }
 
   handleAgentEnd(action: AgentFinish, runId: string): void | Promise<void> {
     console.log(`[Callback] handleAgentEnd: ${runId}`, { action });
+
+    // Log agent output and reasoning
+    console.log(`[Agent] Final output: ${action.returnValues.output}`);
   }
 }
 
@@ -913,12 +1063,48 @@ export async function POST(req: NextRequest) {
       Object.keys(reqBody),
     ); // Log keys to confirm structure
     console.log(
-      `[Brain API] Raw messages received (count: ${messages?.length}):`,
+      `[Brain API] Raw messages received (count: ${messages?.length || 0}):`,
       JSON.stringify(messages, null, 2),
     );
     console.log(
       `[Brain API] Chat ID: ${id}, Selected Model: ${selectedChatModel}`,
     );
+
+    // Add specific diagnostics for message content types
+    if (Array.isArray(messages)) {
+      console.log('[Brain API DIAGNOSTIC] Message content types:');
+      messages.forEach((msg, index) => {
+        console.log(`[Brain API DIAGNOSTIC] Message ${index}:`, {
+          role: msg.role,
+          id: msg.id,
+          contentType: typeof msg.content,
+          isNull: msg.content === null,
+          isArray: Array.isArray(msg.content),
+          isObject: msg.content !== null && typeof msg.content === 'object',
+          hasToolCalls: !!(
+            msg.tool_calls &&
+            Array.isArray(msg.tool_calls) &&
+            msg.tool_calls.length > 0
+          ),
+          finishReason: msg.finish_reason || 'none',
+        });
+
+        // Log specific details for tool messages
+        if (msg.role === 'tool') {
+          console.log(
+            `[Brain API DIAGNOSTIC] Tool message details for message ${index}:`,
+            {
+              toolName: msg.name,
+              toolCallId: msg.tool_call_id,
+              contentFirstChars:
+                typeof msg.content === 'string'
+                  ? msg.content.substring(0, 50) + '...'
+                  : 'not a string',
+            },
+          );
+        }
+      });
+    }
 
     // Add this line to process tool messages right after parsing
     const safeMessages = Array.isArray(messages)
@@ -1042,9 +1228,30 @@ ${extractedText}
 
     // Log raw history before formatting
     console.log(
-      `[Brain API] Raw history being passed to formatChatHistory (count: ${history?.length}):`,
+      `[Brain API] Raw history being passed to formatChatHistory (count: ${history?.length || 0}):`,
       JSON.stringify(history, null, 2),
     );
+
+    // Add diagnostic check for each history message
+    if (Array.isArray(history)) {
+      history.forEach((histMsg, idx) => {
+        if (histMsg && typeof histMsg === 'object') {
+          console.log(`[Brain API] History message ${idx} structure:`, {
+            keys: Object.keys(histMsg),
+            role: histMsg.role,
+            contentType: typeof histMsg.content,
+            hasToolCalls: !!(
+              histMsg.tool_calls && Array.isArray(histMsg.tool_calls)
+            ),
+          });
+        } else {
+          console.log(
+            `[Brain API] Invalid history message at index ${idx}:`,
+            histMsg,
+          );
+        }
+      });
+    }
 
     if (!message) {
       return NextResponse.json(

@@ -16,27 +16,41 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from '@/components/ui/sidebar';
 
 export function SidebarUserNav({ user }: { user: User }) {
   const { setTheme, theme } = useTheme();
+  const { state } = useSidebar();
 
   return (
     <SidebarMenu>
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <SidebarMenuButton className="data-[state=open]:bg-sidebar-accent bg-background data-[state=open]:text-sidebar-accent-foreground h-10">
-              <Image
-                src={`https://avatar.vercel.sh/${user.email}`}
-                alt={user.email ?? 'User Avatar'}
-                width={24}
-                height={24}
-                className="rounded-full"
-              />
-              <span className="truncate">{user?.email}</span>
-              <ChevronUp className="ml-auto" />
-            </SidebarMenuButton>
+            {state === 'expanded' ? (
+              <SidebarMenuButton className="data-[state=open]:bg-sidebar-accent bg-background data-[state=open]:text-sidebar-accent-foreground h-10">
+                <Image
+                  src={`https://avatar.vercel.sh/${user.email}`}
+                  alt={user.email ?? 'User Avatar'}
+                  width={24}
+                  height={24}
+                  className="rounded-full"
+                />
+                <span className="truncate">{user?.email}</span>
+                <ChevronUp className="ml-auto" />
+              </SidebarMenuButton>
+            ) : (
+              <div className="flex justify-center w-full py-2">
+                <Image
+                  src={`https://avatar.vercel.sh/${user.email}`}
+                  alt={user.email ?? 'User Avatar'}
+                  width={30}
+                  height={30}
+                  className="rounded-full cursor-pointer"
+                />
+              </div>
+            )}
           </DropdownMenuTrigger>
           <DropdownMenuContent
             side="top"
