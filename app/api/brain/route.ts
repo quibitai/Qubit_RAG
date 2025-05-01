@@ -34,7 +34,7 @@ import {
   getWeatherTool,
 } from '@/lib/ai/tools';
 import { tavilyExtractTool } from '@/lib/ai/tools/tavilyExtractTool';
-import { getSystemPromptFor } from '@/lib/ai/prompts';
+import { getSystemPromptFor, orchestratorSystemPrompt } from '@/lib/ai/prompts';
 import { modelMapping } from '@/lib/ai/models';
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import type {
@@ -1042,6 +1042,9 @@ export async function POST(req: NextRequest) {
         url: string;
         extractedText: string;
       };
+      // Add the new context variables from Task 0.3
+      activeBitContextId?: string | null;
+      activeDocId?: string | null;
       [key: string]: any;
     };
 
@@ -1056,7 +1059,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Extract data once we have the parsed body
-    const { messages, id, selectedChatModel, fileContext } = reqBody;
+    const {
+      messages,
+      id,
+      selectedChatModel,
+      fileContext,
+      // Extract the context variables from request (Task 0.4)
+      activeBitContextId = null,
+      activeDocId = null,
+    } = reqBody;
 
     // Add detailed logging of request body
     console.log(
@@ -1068,7 +1079,7 @@ export async function POST(req: NextRequest) {
       JSON.stringify(messages, null, 2),
     );
     console.log(
-      `[Brain API] Chat ID: ${id}, Selected Model: ${selectedChatModel}`,
+      `[Brain API] Chat ID: ${id}, Selected Model: ${selectedChatModel}, Active Bit: ${activeBitContextId}, Active Doc: ${activeDocId}`,
     );
 
     // Add specific diagnostics for message content types
@@ -1121,8 +1132,12 @@ export async function POST(req: NextRequest) {
       expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Expires in 24 hours
     } as const;
 
-    // Extract the bitId from selectedChatModel or use a default
-    const bitId = selectedChatModel || 'knowledge-base';
+    // TASK 0.4: Always use Quibit orchestrator configuration
+    // Always use 'chat-model-reasoning' ID instead of selectedChatModel
+    const quibitModelId = 'chat-model-reasoning';
+    console.log(
+      `[Brain API] Using Quibit orchestrator (${quibitModelId}) regardless of selected model`,
+    );
 
     // Extract the last message from the messages array
     if (
@@ -1263,8 +1278,24 @@ ${extractedText}
       );
     }
 
-    // --- Combine user message with fileContext and attachment context ---
+    // TASK 0.4: Create context prefix string based on activeBitContextId and activeDocId
+    let contextPrefix = '';
+    if (activeBitContextId === 'document-editor' && activeDocId) {
+      contextPrefix = `[CONTEXT: Document Editor (ID: ${activeDocId})] `;
+    } else if (activeBitContextId === 'chat-model') {
+      contextPrefix = `[CONTEXT: Chat Bit] `;
+    } else if (activeBitContextId) {
+      contextPrefix = `[CONTEXT: ${activeBitContextId}] `;
+    }
+
+    // --- Combine user message with contextPrefix, fileContext and attachment context ---
     let combinedMessage = message;
+
+    // TASK 0.4: Prepend the context prefix to the user's message
+    if (contextPrefix) {
+      combinedMessage = `${contextPrefix}${combinedMessage}`;
+      console.log(`[Brain API] Added context prefix: "${contextPrefix}"`);
+    }
 
     // Create a file context instruction for the LLM if file context is present
     const fileContextInstruction = fileContextString
@@ -1272,13 +1303,14 @@ ${extractedText}
       : '';
 
     if (fileContextString) {
-      combinedMessage = `${fileContextInstruction}\n\n${message}${fileContextString}`;
+      combinedMessage = `${fileContextInstruction}\n\n${combinedMessage}${fileContextString}`;
     } else if (attachmentContext) {
-      combinedMessage = `${message}\n\n### ATTACHED FILE CONTENT ###${attachmentContext}`;
+      combinedMessage = `${combinedMessage}\n\n### ATTACHED FILE CONTENT ###${attachmentContext}`;
     }
 
-    console.log(`[Brain API] Processing request for bitId: ${bitId}`);
-    console.log(`[Brain API] Message: ${message}`);
+    console.log(`[Brain API] Processing request for Quibit orchestrator`);
+    console.log(`[Brain API] Final combined message: ${combinedMessage}`);
+
     if (fileContextString) {
       console.log(
         `[Brain API] Message includes file context from: ${fileContext?.filename ?? 'unknown'}`,
@@ -1291,8 +1323,8 @@ ${extractedText}
     }
     console.log(`[Brain API] Chat ID: ${id}`);
 
-    // Initialize LLM with the appropriate model for this bitId
-    const llm = initializeLLM(bitId);
+    // TASK 0.4: Initialize LLM always using the Quibit orchestrator model
+    const llm = initializeLLM(quibitModelId);
 
     // Configure tools with Supabase knowledge tools and Tavily tools
     const tools = [
@@ -1306,8 +1338,10 @@ ${extractedText}
       getWeatherTool,
     ];
 
-    // Get system prompt for the requested Bit
-    const systemPrompt = getSystemPromptFor(bitId);
+    // TASK 0.4: Always use the orchestratorSystemPrompt
+    // Import directly from the prompts file rather than using getSystemPromptFor
+    const systemPrompt = orchestratorSystemPrompt;
+    console.log('[Brain API] Using orchestratorSystemPrompt for all requests');
 
     // Create prompt template
     const prompt = ChatPromptTemplate.fromMessages([
@@ -1385,7 +1419,9 @@ ${extractedText}
 
     // Execute agent
     try {
-      console.log(`[Brain API] Invoking agent with message: ${message}`);
+      console.log(
+        `[Brain API] Invoking agent with message: ${combinedMessage}`,
+      );
       if (attachmentContext) {
         console.log(
           `[Brain API] Including extracted content from ${lastMessage.attachments?.length || 0} attachments`,

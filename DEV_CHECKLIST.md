@@ -27,11 +27,12 @@ This checklist tracks our progress implementing the modular, enterprise-grade RA
     - [x] Always identify requests as coming from Quibit
     - [x] Include current context variables in API requests
 
-- [ ] **Task 0.4: Modify Brain API for Context Injection**
-  - [ ] Update `/api/brain/route.ts` to initialize with Quibit model
-  - [ ] Ensure consistent use of `orchestratorSystemPrompt`
-  - [ ] Extract and use context information from requests
-  - [ ] Inject context into input for LangChain agent
+- [x] **Task 0.4: Modify Brain API for Context Injection**
+  - [x] Update `/api/brain/route.ts` to initialize with Quibit model
+  - [x] Ensure consistent use of `orchestratorSystemPrompt`
+  - [x] Extract and use context information from requests
+  - [x] Inject context into input for LangChain agent
+  - [x] Fix template parsing error by escaping literal curly braces in `orchestratorSystemPrompt`
 
 ## Phase 1: Implement Global Collapsible/Resizable Chat Pane
 - [x] **Task 1.1: Modify Root Layout for Resizable Panels**
@@ -132,6 +133,7 @@ This checklist tracks our progress implementing the modular, enterprise-grade RA
   - [ ] Verify correct model mapping (`chat-model` → mini, Quibit → 4.1, `document-editor` → 4o)
   - [ ] Confirm Quibit panel consistently uses `gpt-4.1` & `orchestratorSystemPrompt`
   - [ ] Test `activeBitContextId`/`activeDocId` passing to `/api/brain`
+  - [ ] Verify fixed template parsing with escaped curly braces in examples works correctly
 
 - [ ] **Task 4.2: Integration Testing**
   - [x] Test navigation between dashboard, editor, and other pages
@@ -150,11 +152,11 @@ This checklist tracks our progress implementing the modular, enterprise-grade RA
   - [x] Add responsive design tweaks for mobile/tablet
   - [ ] Optimize performance for large documents
 
-## Current Focus (v1.5.1)
-- [ ] Implement Quibit as central orchestrator architecture 
-- [ ] Complete Phase 0 configuration and context refinement
-- [ ] Update context management to use `activeBitContextId` and `activeDocId`
-- [ ] Enhance brain API to use context information from requests
+## Current Focus (v1.5.5)
+- [x] Implement Quibit as central orchestrator architecture 
+- [x] Complete Phase 0 configuration and context refinement
+- [x] Update context management to use `activeBitContextId` and `activeDocId`
+- [x] Enhance brain API to use context information from requests
 - [ ] Test Quibit's context-aware assistance capabilities
 
 ## Planned for v1.6.0
