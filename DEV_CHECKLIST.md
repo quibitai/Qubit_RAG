@@ -34,6 +34,7 @@ This checklist tracks our progress implementing the modular, enterprise-grade RA
   - [x] Inject context into input for LangChain agent
   - [x] Fix template parsing error by escaping literal curly braces in `orchestratorSystemPrompt`
   - [x] Fix missing input variable error in LangChain agent prompt template
+  - [x] Fix variable name collision between request messages and prompt template messages
 
 ## Phase 1: Implement Global Collapsible/Resizable Chat Pane
 - [x] **Task 1.1: Modify Root Layout for Resizable Panels**
