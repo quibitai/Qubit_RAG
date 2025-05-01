@@ -2,6 +2,37 @@
 
 This checklist tracks our progress implementing the modular, enterprise-grade RAG system with enhanced features as outlined in the development roadmap.
 
+## Phase 0: Configuration & Context Refinement
+- [x] **Task 0.1: Update Model Definitions & Mapping**
+  - [x] Update model mappings in `lib/ai/models.ts`
+    - [x] Ensure `'chat-model'` maps to `'gpt-4.1-mini'`
+    - [x] Ensure `'chat-model-reasoning'` maps to `'gpt-4.1'` (consider renaming to `'quibit-orchestrator'`)
+    - [x] Ensure `'document-editor'` maps to `'gpt-4.1'`
+    - [x] Review default model mapping
+  - [x] Update `chatModels` array
+    - [x] Verify "Chat Bit" and "Document Editor" definitions
+    - [x] Remove or comment out the "Quibit" entry to hide it from dashboard
+
+- [ ] **Task 0.2: Refine System Prompts & Context Handling**
+  - [ ] Enhance `orchestratorSystemPrompt` in `lib/ai/prompts.ts`
+  - [ ] Modify prompt selection logic to ensure Quibit panel uses `orchestratorSystemPrompt`
+  - [ ] Define context passing mechanism (`activeBitContextId`, `activeDocId`) from client to API
+
+- [x] **Task 0.3: Update Global Context Management**
+  - [x] Add context state variables in `context/ChatPaneContext.tsx`:
+    - [x] `activeBitContextId: string | null`
+    - [x] `activeDocId: string | null`
+  - [x] Update card click handlers to set `activeBitContextId`
+  - [x] Modify `handleSubmit` function to:
+    - [x] Always identify requests as coming from Quibit
+    - [x] Include current context variables in API requests
+
+- [ ] **Task 0.4: Modify Brain API for Context Injection**
+  - [ ] Update `/api/brain/route.ts` to initialize with Quibit model
+  - [ ] Ensure consistent use of `orchestratorSystemPrompt`
+  - [ ] Extract and use context information from requests
+  - [ ] Inject context into input for LangChain agent
+
 ## Phase 1: Implement Global Collapsible/Resizable Chat Pane
 - [x] **Task 1.1: Modify Root Layout for Resizable Panels**
   - [x] Import components from `react-resizable-panels`
@@ -44,10 +75,10 @@ This checklist tracks our progress implementing the modular, enterprise-grade RA
   - [x] Display bit name and description on cards
   - [x] Prepare for future API integration for user permissions
 
-- [x] **Task 2.3: Implement Navigation from Cards**
+- [ ] **Task 2.3: Implement Context Setting from Cards**
   - [x] Make each card clickable with Next.js `<Link>` or `useRouter`
   - [x] Navigate to appropriate interface on click
-  - [x] Update `ChatPaneContext` to set `selectedChatModel` based on clicked bit
+  - [ ] Update to set `activeBitContextId` instead of `selectedChatModel`
   - [x] Clear current messages for fresh chat experience
 
 - [x] **Task 2.4: Implement Consistent Navigation**
@@ -83,10 +114,9 @@ This checklist tracks our progress implementing the modular, enterprise-grade RA
   - [x] Add local storage backup for recovery
   - [x] Add visual indicators for save status (saving, saved, failed, conflict)
 
-- [x] **Task 3.5: Integrate Editor with Global Chat Context**
+- [ ] **Task 3.5: Integrate Editor with Global Chat Context**
   - [x] Update `ChatPaneContext` when editor page mounts
-  - [x] Set `selectedChatModel` to `'document-editor'`
-  - [x] Store current `docId` in context
+  - [ ] Update to set `activeBitContextId` to `'document-editor'` and `activeDocId` to `params.docId`
   - [x] Modify `handleSubmit` to include document context in requests
   - [x] Update system prompt generation for editor mode
 
@@ -98,18 +128,20 @@ This checklist tracks our progress implementing the modular, enterprise-grade RA
   - [x] Maintain user focus and cursor position during updates
 
 ## Phase 4: Testing and Refinement
-- [ ] **Task 4.1: Component Testing**
-  - [x] Test resizable layout components
-  - [x] Test dashboard card components
-  - [x] Test editor component in isolation
+- [ ] **Task 4.1: Configuration Testing**
+  - [ ] Verify correct model mapping (`chat-model` → mini, Quibit → 4.1, `document-editor` → 4o)
+  - [ ] Confirm Quibit panel consistently uses `gpt-4.1` & `orchestratorSystemPrompt`
+  - [ ] Test `activeBitContextId`/`activeDocId` passing to `/api/brain`
 
 - [ ] **Task 4.2: Integration Testing**
   - [x] Test navigation between dashboard, editor, and other pages
   - [x] Verify chat pane functionality across navigation
-  - [x] Test initiating chats with different bits
+  - [ ] Test context switching (selecting different Bits)
   - [x] Test editor functionality (load, edit, save)
-  - [ ] Test AI-assisted edits via chat
-  - [ ] Test real-time updates in editor
+  - [ ] Test document versioning (multiple edits creating new versions)
+  - [ ] Test Quibit contextual interactions:
+    - [ ] With Chat Bit context active
+    - [ ] With Document Editor context active
   - [ ] Test edge cases (empty documents, large documents, errors)
 
 - [ ] **Task 4.3: UI/UX Refinement**
@@ -118,16 +150,14 @@ This checklist tracks our progress implementing the modular, enterprise-grade RA
   - [x] Add responsive design tweaks for mobile/tablet
   - [ ] Optimize performance for large documents
 
-## Current Focus (v1.3.0)
-- [x] Deploy global chat pane functionality
-- [x] Create basic dashboard page
-- [x] Implement consistent navigation with sidebar on all pages
-- [x] Define document editor bit
-- [x] Implement simple editor route and component
-- [x] Connect editor to chat pane for AI assistance
-- [x] Implement robust document auto-save system
+## Current Focus (v1.5.1)
+- [ ] Implement Quibit as central orchestrator architecture 
+- [ ] Complete Phase 0 configuration and context refinement
+- [ ] Update context management to use `activeBitContextId` and `activeDocId`
+- [ ] Enhance brain API to use context information from requests
+- [ ] Test Quibit's context-aware assistance capabilities
 
-## Planned for v1.4.0
+## Planned for v1.6.0
 - [ ] Add collaboration features
 - [ ] Implement document version history UI
 - [ ] Add document sharing and permissions

@@ -17,13 +17,16 @@ import { useSidebar } from '@/components/ui/sidebar';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { chatState, setActiveBitId } = useChatPane();
+  const { chatState, setActiveBitContextId, setActiveDocId } = useChatPane();
   const { setMessages } = chatState;
   const { state: sidebarState } = useSidebar();
 
   const handleBitSelection = (modelId: string) => {
-    // Update the selected chat model in the global context
-    setActiveBitId(modelId);
+    // Update the active bit context in the global context
+    setActiveBitContextId(modelId);
+
+    // Clear any active document ID when switching bits
+    setActiveDocId(null);
 
     // Clear current messages for a fresh chat experience
     setMessages([]);

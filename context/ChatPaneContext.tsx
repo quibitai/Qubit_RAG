@@ -33,8 +33,14 @@ export interface ChatPaneContextType {
   chatState: UseChatHelpers;
   isPaneOpen: boolean;
   togglePane: () => void;
-  activeBitId: string | null;
-  setActiveBitId: (id: string | null) => void;
+  activeBitContextId: string | null;
+  setActiveBitContextId: (id: string | null) => void;
+  activeDocId: string | null;
+  setActiveDocId: (id: string | null) => void;
+  submitMessage: (options?: {
+    message?: any;
+    data?: Record<string, any>;
+  }) => Promise<string | null | undefined>;
 }
 
 export const ChatPaneContext = createContext<ChatPaneContextType | undefined>(
@@ -63,9 +69,10 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   // Initialize with localStorage value if available (client-side only)
   const [isPaneOpen, setIsPaneOpen] = useState<boolean>(true);
-  const [activeBitId, setActiveBitId] = useState<string | null>(
+  const [activeBitContextId, setActiveBitContextId] = useState<string | null>(
     DEFAULT_CHAT_MODEL,
   );
+  const [activeDocId, setActiveDocId] = useState<string | null>(null);
   const router = useRouter();
 
   // Track if the current chat has been persisted to avoid duplicate saves
@@ -91,16 +98,27 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
       const storedBitId = localStorage.getItem('chat-active-bit');
       if (storedBitId) {
-        setActiveBitId(storedBitId);
+        setActiveBitContextId(storedBitId);
+      }
+
+      const storedDocId = localStorage.getItem('chat-active-doc');
+      if (storedDocId) {
+        setActiveDocId(storedDocId);
       }
     } catch (error) {
       console.error('Error accessing localStorage:', error);
     }
   }, []);
 
-  const chatState = useChat({
+  const baseState = useChat({
     api: '/api/brain',
-    body: { selectedChatModel: activeBitId },
+    body: {
+      // Always identify as Quibit orchestrator
+      selectedChatModel: 'chat-model-reasoning',
+      // Include the active context information
+      activeBitContextId,
+      activeDocId,
+    },
     experimental_throttle: 100,
     sendExtraMessageFields: true,
     onFinish: async (message) => {
@@ -130,12 +148,44 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     },
   });
 
+  // Create custom submitMessage function to ensure context is always included
+  const submitMessage = useCallback(
+    async (options?: {
+      message?: any;
+      data?: Record<string, any>;
+    }) => {
+      console.log('[ChatPaneContext] Submitting message with context:', {
+        activeBitContextId,
+        activeDocId,
+      });
+
+      // Prepare the body with context information
+      const bodyPayload = {
+        // Always identify as Quibit to the backend
+        selectedChatModel: 'chat-model-reasoning',
+        // Include the active context information
+        activeBitContextId,
+        activeDocId,
+        // Include any other data from options?.data
+        ...(options?.data || {}),
+      };
+
+      console.log('[ChatPaneContext] Sending request with body:', bodyPayload);
+
+      // Call the original handleSubmit with our enhanced body
+      return baseState.handleSubmit(options?.message, {
+        body: bodyPayload,
+      });
+    },
+    [baseState.handleSubmit, activeBitContextId, activeDocId],
+  );
+
   // Reset the chatPersistedRef when starting a new chat
   useEffect(() => {
-    if (chatState.messages.length === 0) {
+    if (baseState.messages.length === 0) {
       chatPersistedRef.current = false;
     }
-  }, [chatState.messages.length]);
+  }, [baseState.messages.length]);
 
   const togglePane = useCallback(() => {
     setIsPaneOpen((prev) => {
@@ -149,26 +199,52 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     });
   }, []);
 
-  // Store activeBitId in localStorage when it changes
+  // Store context in localStorage when it changes
   useEffect(() => {
     try {
-      if (activeBitId) {
-        localStorage.setItem('chat-active-bit', activeBitId);
+      if (activeBitContextId) {
+        localStorage.setItem('chat-active-bit', activeBitContextId);
+      }
+
+      if (activeDocId) {
+        localStorage.setItem('chat-active-doc', activeDocId);
+      } else {
+        localStorage.removeItem('chat-active-doc');
       }
     } catch (error) {
-      console.error('Error saving bit ID to localStorage:', error);
+      console.error('Error saving context to localStorage:', error);
     }
-  }, [activeBitId]);
+  }, [activeBitContextId, activeDocId]);
+
+  // Combine baseState with our custom submit function
+  const chatState = useMemo(
+    () => ({
+      ...baseState,
+      // Override the handleSubmit with our custom function
+      handleSubmit: submitMessage,
+    }),
+    [baseState, submitMessage],
+  );
 
   const contextValue = useMemo(
     () => ({
       chatState,
       isPaneOpen,
       togglePane,
-      activeBitId,
-      setActiveBitId,
+      activeBitContextId,
+      setActiveBitContextId,
+      activeDocId,
+      setActiveDocId,
+      submitMessage,
     }),
-    [chatState, isPaneOpen, togglePane, activeBitId],
+    [
+      chatState,
+      isPaneOpen,
+      togglePane,
+      activeBitContextId,
+      activeDocId,
+      submitMessage,
+    ],
   );
 
   return (

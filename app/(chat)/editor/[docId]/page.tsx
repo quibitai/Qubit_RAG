@@ -16,6 +16,7 @@ import { useRouter } from 'next/navigation';
 import useSWR, { useSWRConfig } from 'swr';
 import { getDocumentHistoryPaginationKey } from '@/components/sidebar-history';
 import { unstable_serialize } from 'swr/infinite';
+import { useChatPane } from '@/context/ChatPaneContext';
 
 interface DocumentData {
   id: string;
@@ -51,6 +52,7 @@ interface DocumentState {
 export default function EditorPage({ params }: { params: { docId: string } }) {
   const router = useRouter();
   const { mutate } = useSWRConfig();
+  const { setActiveBitContextId, setActiveDocId } = useChatPane();
 
   // Extract document ID to a state variable to avoid params reference issues
   const [documentId, setDocumentId] = useState<string>(params.docId || 'new');
@@ -524,6 +526,32 @@ export default function EditorPage({ params }: { params: { docId: string } }) {
     };
   }, [saveStatus]);
 
+  // Update context when document ID changes
+  useEffect(() => {
+    // Set document editor as the active bit context
+    setActiveBitContextId('document-editor');
+
+    // Set the current document ID in the global context
+    // Only set a real doc ID (not 'new') to avoid confusion
+    if (documentId !== 'new') {
+      setActiveDocId(documentId);
+    }
+
+    console.log('[EditorPage] Updated global context:', {
+      activeBitContextId: 'document-editor',
+      activeDocId: documentId !== 'new' ? documentId : null,
+    });
+
+    // Clean up context when unmounting
+    return () => {
+      // Only clean up if we're still on this document when unmounting
+      if (currentDocIdRef.current === documentId) {
+        console.log('[EditorPage] Clearing document context on unmount');
+        setActiveDocId(null);
+      }
+    };
+  }, [documentId, setActiveBitContextId, setActiveDocId]);
+
   // Fetch document content on initial load
   useEffect(() => {
     async function fetchDocument() {
@@ -555,6 +583,11 @@ export default function EditorPage({ params }: { params: { docId: string } }) {
 
         // Update the current document ID reference
         currentDocIdRef.current = documentId;
+
+        // Also update the active document ID in context once we have loaded a real document
+        if (documentId !== 'new') {
+          setActiveDocId(documentId);
+        }
       } catch (error) {
         console.error('Error fetching document:', error);
         toast.error('Failed to load the document. Please try again.');
@@ -568,7 +601,7 @@ export default function EditorPage({ params }: { params: { docId: string } }) {
     }
 
     fetchDocument();
-  }, [documentId, setDocContent, setDocTitle]);
+  }, [documentId, setDocContent, setDocTitle, setActiveDocId]);
 
   // Auto-generate title based on content
   useEffect(() => {
