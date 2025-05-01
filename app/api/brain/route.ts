@@ -1344,12 +1344,26 @@ ${extractedText}
     console.log('[Brain API] Using orchestratorSystemPrompt for all requests');
 
     // Create prompt template
-    const prompt = ChatPromptTemplate.fromMessages([
-      ['system', systemPrompt],
-      new MessagesPlaceholder('chat_history'),
-      ['human', '{input}'],
-      new MessagesPlaceholder('agent_scratchpad'),
-    ]);
+    // Original implementation (causing issues with missing input variables):
+    // const prompt = ChatPromptTemplate.fromMessages([
+    //   ['system', systemPrompt],
+    //   new MessagesPlaceholder('chat_history'),
+    //   ['human', '{input}'],
+    //   new MessagesPlaceholder('agent_scratchpad'),
+    // ]);
+
+    // --- Explicitly Create Agent Prompt Template ---
+    // Define the messages explicitly with proper structure
+    const messages = [
+      ['system', systemPrompt], // Use the orchestratorSystemPrompt directly
+      new MessagesPlaceholder('chat_history'), // Standard placeholder for conversation history
+      ['human', '{input}'], // Simple input variable for user message
+      new MessagesPlaceholder('agent_scratchpad'), // Required for agent's internal reasoning/tools
+    ];
+
+    // Create the prompt with explicit type declaration
+    const prompt = ChatPromptTemplate.fromMessages(messages);
+    // --- End Explicitly Create Agent Prompt Template ---
 
     // Create agent and executor
     const agent = await createOpenAIToolsAgent({
