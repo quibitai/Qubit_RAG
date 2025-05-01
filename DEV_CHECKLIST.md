@@ -35,6 +35,8 @@ This checklist tracks our progress implementing the modular, enterprise-grade RA
   - [x] Fix template parsing error by escaping literal curly braces in `orchestratorSystemPrompt`
   - [x] Fix missing input variable error in LangChain agent prompt template
   - [x] Fix variable name collision between request messages and prompt template messages
+  - [x] Test agent with empty tools array to isolate source of input variable error
+  - [ ] Fix missing input variables error related to Google Calendar tool (summary, startDateTime, endDateTime)
 
 ## Phase 1: Implement Global Collapsible/Resizable Chat Pane
 - [x] **Task 1.1: Modify Root Layout for Resizable Panels**

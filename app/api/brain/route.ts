@@ -1327,16 +1327,20 @@ ${extractedText}
     const llm = initializeLLM(quibitModelId);
 
     // Configure tools with Supabase knowledge tools and Tavily tools
-    const tools = [
-      listDocumentsTool,
-      getFileContentsTool,
-      searchInternalKnowledgeBase,
-      tavilySearch,
-      tavilyExtractTool,
-      createDocumentTool,
-      requestSuggestionsTool,
-      getWeatherTool,
-    ];
+    // const tools = [
+    //   listDocumentsTool,
+    //   getFileContentsTool,
+    //   searchInternalKnowledgeBase,
+    //   tavilySearch,
+    //   tavilyExtractTool,
+    //   createDocumentTool,
+    //   requestSuggestionsTool,
+    //   getWeatherTool,
+    // ];
+
+    // Temporarily provide an empty array of tools to test if this resolves the missing variable error
+    const tools = [];
+    console.log('[Brain API] WARNING: Using empty tools array for testing');
 
     // TASK 0.4: Always use the orchestratorSystemPrompt
     // Import directly from the prompts file rather than using getSystemPromptFor
@@ -1344,16 +1348,17 @@ ${extractedText}
     console.log('[Brain API] Using orchestratorSystemPrompt for all requests');
 
     // --- Explicitly Create Agent Prompt Template ---
-    // Define the messages explicitly with proper structure
-    const agentPromptDefinition = [
-      ['system', systemPrompt], // Use the orchestratorSystemPrompt directly
-      new MessagesPlaceholder('chat_history'), // Standard placeholder for conversation history
-      ['human', '{input}'], // Simple input variable for user message
-      new MessagesPlaceholder('agent_scratchpad'), // Required for agent's internal reasoning/tools
-    ];
+    // Create a proper ChatPromptTemplate with only required input variables
+    const prompt = ChatPromptTemplate.fromMessages([
+      ['system', systemPrompt],
+      new MessagesPlaceholder('chat_history'),
+      ['human', '{input}'],
+      new MessagesPlaceholder('agent_scratchpad'),
+    ]);
 
-    // Create the prompt with explicit type declaration
-    const prompt = ChatPromptTemplate.fromMessages(agentPromptDefinition);
+    console.log(
+      '[Brain API] Agent prompt template created with agent_scratchpad placeholder',
+    );
     // --- End Explicitly Create Agent Prompt Template ---
 
     // Create agent and executor
