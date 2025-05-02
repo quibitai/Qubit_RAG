@@ -8,6 +8,17 @@ import { authConfig } from './auth.config';
 
 // Add top-level log to check if this file is being loaded
 console.log('[Auth Module] auth.ts file is being loaded');
+console.log('[Auth Module] Checking for auth secrets...');
+
+// Check for authentication secrets
+const authSecret = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET;
+if (authSecret) {
+  console.log('[Auth Module] Found authentication secret');
+} else {
+  console.error(
+    '[Auth Module] WARNING: No authentication secret found in environment variables. This will cause auth to fail.',
+  );
+}
 
 // --- START ADDED DEBUG LOG ---
 console.log(
@@ -48,6 +59,7 @@ export const {
   signOut,
 } = NextAuth({
   ...authConfig,
+  secret: authSecret,
   providers: [
     Credentials({
       credentials: {},

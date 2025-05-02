@@ -54,7 +54,7 @@ export function PureMessageActions({
                 }
 
                 await copyToClipboard(textFromParts);
-                toast.success('Copied to clipboard!');
+                console.log('[MessageActions] Copied message to clipboard');
               }}
             >
               <CopyIcon />
@@ -71,43 +71,48 @@ export function PureMessageActions({
               disabled={vote?.isUpvoted}
               variant="outline"
               onClick={async () => {
-                const upvote = fetch('/api/vote', {
-                  method: 'PATCH',
-                  body: JSON.stringify({
-                    chatId,
-                    messageId: message.id,
-                    type: 'up',
-                  }),
-                });
+                try {
+                  const response = await fetch('/api/vote', {
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                      chatId,
+                      messageId: message.id,
+                      type: 'up',
+                    }),
+                  });
 
-                toast.promise(upvote, {
-                  loading: 'Upvoting Response...',
-                  success: () => {
-                    mutate<Array<Vote>>(
-                      `/api/vote?chatId=${chatId}`,
-                      (currentVotes) => {
-                        if (!currentVotes) return [];
+                  if (!response.ok) {
+                    toast.error('Failed to upvote response.');
+                    return;
+                  }
 
-                        const votesWithoutCurrent = currentVotes.filter(
-                          (vote) => vote.messageId !== message.id,
-                        );
+                  // Update the votes cache
+                  mutate<Array<Vote>>(
+                    `/api/vote?chatId=${chatId}`,
+                    (currentVotes) => {
+                      if (!currentVotes) return [];
 
-                        return [
-                          ...votesWithoutCurrent,
-                          {
-                            chatId,
-                            messageId: message.id,
-                            isUpvoted: true,
-                          },
-                        ];
-                      },
-                      { revalidate: false },
-                    );
+                      const votesWithoutCurrent = currentVotes.filter(
+                        (vote) => vote.messageId !== message.id,
+                      );
 
-                    return 'Upvoted Response!';
-                  },
-                  error: 'Failed to upvote response.',
-                });
+                      return [
+                        ...votesWithoutCurrent,
+                        {
+                          chatId,
+                          messageId: message.id,
+                          isUpvoted: true,
+                        },
+                      ];
+                    },
+                    { revalidate: false },
+                  );
+
+                  console.log('[MessageActions] Response upvoted');
+                } catch (error) {
+                  console.error('[MessageActions] Error upvoting:', error);
+                  toast.error('Failed to upvote response.');
+                }
               }}
             >
               <ThumbUpIcon />
@@ -124,43 +129,48 @@ export function PureMessageActions({
               variant="outline"
               disabled={vote && !vote.isUpvoted}
               onClick={async () => {
-                const downvote = fetch('/api/vote', {
-                  method: 'PATCH',
-                  body: JSON.stringify({
-                    chatId,
-                    messageId: message.id,
-                    type: 'down',
-                  }),
-                });
+                try {
+                  const response = await fetch('/api/vote', {
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                      chatId,
+                      messageId: message.id,
+                      type: 'down',
+                    }),
+                  });
 
-                toast.promise(downvote, {
-                  loading: 'Downvoting Response...',
-                  success: () => {
-                    mutate<Array<Vote>>(
-                      `/api/vote?chatId=${chatId}`,
-                      (currentVotes) => {
-                        if (!currentVotes) return [];
+                  if (!response.ok) {
+                    toast.error('Failed to downvote response.');
+                    return;
+                  }
 
-                        const votesWithoutCurrent = currentVotes.filter(
-                          (vote) => vote.messageId !== message.id,
-                        );
+                  // Update the votes cache
+                  mutate<Array<Vote>>(
+                    `/api/vote?chatId=${chatId}`,
+                    (currentVotes) => {
+                      if (!currentVotes) return [];
 
-                        return [
-                          ...votesWithoutCurrent,
-                          {
-                            chatId,
-                            messageId: message.id,
-                            isUpvoted: false,
-                          },
-                        ];
-                      },
-                      { revalidate: false },
-                    );
+                      const votesWithoutCurrent = currentVotes.filter(
+                        (vote) => vote.messageId !== message.id,
+                      );
 
-                    return 'Downvoted Response!';
-                  },
-                  error: 'Failed to downvote response.',
-                });
+                      return [
+                        ...votesWithoutCurrent,
+                        {
+                          chatId,
+                          messageId: message.id,
+                          isUpvoted: false,
+                        },
+                      ];
+                    },
+                    { revalidate: false },
+                  );
+
+                  console.log('[MessageActions] Response downvoted');
+                } catch (error) {
+                  console.error('[MessageActions] Error downvoting:', error);
+                  toast.error('Failed to downvote response.');
+                }
               }}
             >
               <ThumbDownIcon />

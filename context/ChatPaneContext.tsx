@@ -28,11 +28,19 @@ console.log('[ChatPaneContext] actions:', {
 import type { DBMessage } from '@/lib/db/schema';
 import { unstable_serialize } from 'swr/infinite';
 import { getChatHistoryPaginationKey } from '@/components/sidebar-history';
+import type { ChatRequestOptions } from 'ai';
+import { useDocumentState } from './DocumentContext';
+import { toast } from 'sonner';
 
 export interface ChatPaneContextType {
-  chatState: UseChatHelpers;
+  chatState: Omit<UseChatHelpers, 'handleSubmit'> & {
+    handleSubmit: (options?: {
+      message?: any;
+      data?: Record<string, any>;
+    }) => Promise<void | string | null | undefined>;
+  };
   isPaneOpen: boolean;
-  togglePane: () => void;
+  setIsPaneOpen: (isOpen: boolean) => void;
   activeBitContextId: string | null;
   setActiveBitContextId: (id: string | null) => void;
   activeDocId: string | null;
@@ -40,7 +48,9 @@ export interface ChatPaneContextType {
   submitMessage: (options?: {
     message?: any;
     data?: Record<string, any>;
-  }) => Promise<string | null | undefined>;
+  }) => Promise<void | string | null | undefined>;
+  streamedContentMap: Record<string, string>;
+  lastStreamUpdateTs: number;
 }
 
 export const ChatPaneContext = createContext<ChatPaneContextType | undefined>(
@@ -59,20 +69,32 @@ export const useChatPane = (): ChatPaneContextType => {
 
 export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
   // Debug: Check if server action is correctly identified
-  console.log('[CLIENT] Server action check in ChatPaneContext:', {
-    isFunction: typeof saveSubsequentMessages === 'function',
-    hasServerRef:
-      typeof saveSubsequentMessages === 'object' &&
-      (saveSubsequentMessages as any)?.__$SERVER_REFERENCE,
-    serverActionId: (saveSubsequentMessages as any).__next_action_id,
-  });
+  // Only log once during development
+  const hasLoggedServerActionCheck = useRef(false);
 
-  // Initialize with localStorage value if available (client-side only)
+  useEffect(() => {
+    if (!hasLoggedServerActionCheck.current) {
+      console.log('[CLIENT] Server action check in ChatPaneContext:', {
+        isFunction: typeof saveSubsequentMessages === 'function',
+        hasServerRef:
+          typeof saveSubsequentMessages === 'object' &&
+          (saveSubsequentMessages as any)?.__$SERVER_REFERENCE,
+        serverActionId: (saveSubsequentMessages as any).__next_action_id,
+      });
+      hasLoggedServerActionCheck.current = true;
+    }
+  }, []);
+
+  // Initialize with static value - no toggle functionality
   const [isPaneOpen, setIsPaneOpen] = useState<boolean>(true);
   const [activeBitContextId, setActiveBitContextId] = useState<string | null>(
-    DEFAULT_CHAT_MODEL,
+    null,
   );
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
+  const [streamedContentMap, setStreamedContentMap] = useState<
+    Record<string, string>
+  >({});
+  const [lastStreamUpdateTs, setLastStreamUpdateTs] = useState<number>(0);
   const router = useRouter();
 
   // Track if the current chat has been persisted to avoid duplicate saves
@@ -88,23 +110,29 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     createdAt: Date;
   } | null>(null);
 
+  // Get the document context for applying AI-driven updates
+  const { applyStreamedUpdate } = useDocumentState();
+
   // Initialize from localStorage after component mounts (client-side)
   useEffect(() => {
     try {
-      const storedPaneState = localStorage.getItem('chat-pane-open');
-      if (storedPaneState !== null) {
-        setIsPaneOpen(storedPaneState === 'true');
-      }
+      // Use RAF to defer state updates to prevent React cycle violations
+      requestAnimationFrame(() => {
+        const storedPaneState = localStorage.getItem('chat-pane-open');
+        if (storedPaneState !== null) {
+          setIsPaneOpen(storedPaneState === 'true');
+        }
 
-      const storedBitId = localStorage.getItem('chat-active-bit');
-      if (storedBitId) {
-        setActiveBitContextId(storedBitId);
-      }
+        const storedBitId = localStorage.getItem('chat-active-bit');
+        if (storedBitId) {
+          setActiveBitContextId(storedBitId);
+        }
 
-      const storedDocId = localStorage.getItem('chat-active-doc');
-      if (storedDocId) {
-        setActiveDocId(storedDocId);
-      }
+        const storedDocId = localStorage.getItem('chat-active-doc');
+        if (storedDocId) {
+          setActiveDocId(storedDocId);
+        }
+      });
     } catch (error) {
       console.error('Error accessing localStorage:', error);
     }
@@ -187,35 +215,6 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [baseState.messages.length]);
 
-  const togglePane = useCallback(() => {
-    setIsPaneOpen((prev) => {
-      const newState = !prev;
-      try {
-        localStorage.setItem('chat-pane-open', String(newState));
-      } catch (error) {
-        console.error('Error saving to localStorage:', error);
-      }
-      return newState;
-    });
-  }, []);
-
-  // Store context in localStorage when it changes
-  useEffect(() => {
-    try {
-      if (activeBitContextId) {
-        localStorage.setItem('chat-active-bit', activeBitContextId);
-      }
-
-      if (activeDocId) {
-        localStorage.setItem('chat-active-doc', activeDocId);
-      } else {
-        localStorage.removeItem('chat-active-doc');
-      }
-    } catch (error) {
-      console.error('Error saving context to localStorage:', error);
-    }
-  }, [activeBitContextId, activeDocId]);
-
   // Combine baseState with our custom submit function
   const chatState = useMemo(
     () => ({
@@ -230,22 +229,93 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     () => ({
       chatState,
       isPaneOpen,
-      togglePane,
+      setIsPaneOpen,
       activeBitContextId,
       setActiveBitContextId,
       activeDocId,
       setActiveDocId,
       submitMessage,
+      streamedContentMap,
+      lastStreamUpdateTs,
     }),
     [
       chatState,
       isPaneOpen,
-      togglePane,
+      setIsPaneOpen,
       activeBitContextId,
       activeDocId,
       submitMessage,
+      streamedContentMap,
+      lastStreamUpdateTs,
     ],
   );
+
+  // Add a useEffect to detect document updates in chat messages
+  useEffect(() => {
+    const currentActiveDocId = activeDocId;
+
+    // Skip if no active document
+    if (!currentActiveDocId) return;
+
+    // Process messages for document updates
+    const processDocumentUpdates = () => {
+      baseState.messages.forEach((message) => {
+        if (message.data && typeof message.data === 'object') {
+          const data = message.data as any;
+
+          // Check for document updates
+          if (
+            data.type === 'document-update-delta' &&
+            data.docId &&
+            data.content
+          ) {
+            console.log(
+              `[ChatPaneContext] Detected document update for ${data.docId}`,
+            );
+
+            // Only apply if it matches the active document or explicitly targeting a document
+            if (
+              data.docId === currentActiveDocId ||
+              data.docId.startsWith('doc-')
+            ) {
+              // Extract the actual document ID if in format doc-{id}
+              const targetDocId = data.docId.startsWith('doc-')
+                ? data.docId.substring(4)
+                : data.docId;
+
+              // Apply the update to document state - use setTimeout to defer state update
+              setTimeout(() => {
+                applyStreamedUpdate(data.content, targetDocId);
+              }, 0);
+
+              // Show toast notification - but only once per update batch
+              toast?.info('AI is updating your document...');
+            }
+          }
+        }
+      });
+    };
+
+    // Use requestAnimationFrame to schedule the state update for the next frame
+    requestAnimationFrame(processDocumentUpdates);
+  }, [baseState.messages, activeDocId, applyStreamedUpdate]);
+
+  // Clear stale data when activeDocId changes
+  useEffect(() => {
+    if (activeDocId && Object.keys(streamedContentMap).length > 0) {
+      // Use requestAnimationFrame to prevent state updates during render
+      requestAnimationFrame(() => {
+        // Keep only the current document's content, remove old entries
+        setStreamedContentMap((prevMap) => {
+          const newMap: Record<string, string> = {};
+          if (activeDocId && prevMap[activeDocId]) {
+            newMap[activeDocId] = prevMap[activeDocId];
+          }
+          return newMap;
+        });
+      });
+    }
+  }, [activeDocId, streamedContentMap]);
 
   return (
     <ChatPaneContext.Provider value={contextValue}>

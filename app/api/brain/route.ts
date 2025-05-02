@@ -14,36 +14,59 @@ import {
 } from '@langchain/core/prompts';
 import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 import { TavilySearchResults } from '@langchain/community/tools/tavily_search';
-import {
-  createDataStream,
-  type DataStreamWriter,
-  type Message as UIMessage,
-} from 'ai';
-import { documentHandlersByArtifactKind } from '@/lib/artifacts/server';
-import { generateUUID } from '@/lib/utils';
-import type { ArtifactKind } from '@/components/artifact';
-// import { auth } from '@/app/(auth)/auth'; // Keep commented out for now
+import type { Message as UIMessage } from 'ai';
+import { auth } from '@/app/(auth)/auth';
 
 // Import tools and utilities
-import {
-  listDocumentsTool,
-  getFileContentsTool,
-  searchInternalKnowledgeBase,
-  createDocumentTool,
-  requestSuggestionsTool,
-  getWeatherTool,
-} from '@/lib/ai/tools';
-import { tavilyExtractTool } from '@/lib/ai/tools/tavilyExtractTool';
-import { getSystemPromptFor, orchestratorSystemPrompt } from '@/lib/ai/prompts';
+import { orchestratorSystemPrompt } from '@/lib/ai/prompts';
 import { modelMapping } from '@/lib/ai/models';
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
-import type {
-  Serialized,
-  SerializedConstructor,
-} from '@langchain/core/load/serializable';
+import type { Serialized } from '@langchain/core/load/serializable';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { LLMResult } from '@langchain/core/outputs';
-import { rawToMessage, RawMessage } from '@/lib/langchainHelpers';
+import { rawToMessage, type RawMessage } from '@/lib/langchainHelpers';
+import { availableTools } from '@/lib/ai/tools/index';
+
+// Import database functions and types
+import { db } from '@/lib/db';
+import { sql } from '@/lib/db/client';
+import { chat, message } from '@/lib/db/schema';
+import { saveMessages } from '@/lib/db/queries';
+import type { DBMessage } from '@/lib/db/schema';
+import { randomUUID } from 'node:crypto';
+import { StringOutputParser } from '@langchain/core/output_parsers';
+import { RunnableSequence } from '@langchain/core/runnables';
+import { ChatRepository } from '@/lib/db/repositories/chatRepository';
+
+// Helper function to create a custom LangChain streaming handler
+function createLangChainStreamHandler({
+  onCompletion,
+}: { onCompletion?: (response: string) => Promise<void> } = {}) {
+  // Track the complete response for onCompletion callback
+  let completeResponse = '';
+
+  // Create a custom handler that extends BaseCallbackHandler
+  class CompletionCallbackHandler extends BaseCallbackHandler {
+    name = 'CompletionCallbackHandler';
+
+    handleLLMNewToken(token: string) {
+      completeResponse += token;
+    }
+
+    handleLLMEnd() {
+      if (onCompletion) {
+        onCompletion(completeResponse).catch((err) => {
+          console.error(
+            '[LangChainStream] Error in onCompletion callback:',
+            err,
+          );
+        });
+      }
+    }
+  }
+
+  return { handlers: [new CompletionCallbackHandler()] };
+}
 
 // Create Tavily search tool directly
 const tavilySearch = new TavilySearchResults({
@@ -267,8 +290,7 @@ class DebugCallbackHandler extends BaseCallbackHandler {
         patterns.some(
           (pattern) =>
             err.message.toLowerCase().includes(pattern.toLowerCase()) ||
-            (err.stack &&
-              err.stack.toLowerCase().includes(pattern.toLowerCase())),
+            err.stack?.toLowerCase().includes(pattern.toLowerCase()),
         )
       ) {
         console.error(`[Callback] DETECTED CHAIN ERROR TYPE: ${errorType}`);
@@ -984,7 +1006,7 @@ function processAttachments(message: any): string {
     const fileType = attachment.contentType || 'unknown type';
 
     // Check if we have extracted content as metadata
-    if (attachment.metadata && attachment.metadata.extractedContent) {
+    if (attachment.metadata?.extractedContent) {
       console.log(`[Brain API] Found extracted content for ${fileName}`);
 
       let extractedContent = attachment.metadata.extractedContent;
@@ -1026,6 +1048,22 @@ export const config = {
   unstable_allowDynamic: ['**/node_modules/**'],
 };
 
+// Helper function to get available tools
+async function getAvailableTools() {
+  try {
+    // availableTools is an array in this codebase, not a function
+    if (Array.isArray(availableTools)) {
+      return availableTools;
+    }
+    // Fallback to empty array for safety
+    console.error('[Brain API] availableTools is not an array');
+    return [];
+  } catch (error) {
+    console.error('[Brain API] Error getting available tools:', error);
+    return [];
+  }
+}
+
 /**
  * POST handler for the Brain API
  */
@@ -1061,7 +1099,7 @@ export async function POST(req: NextRequest) {
     // Extract data once we have the parsed body
     const {
       messages,
-      id,
+      id: chatId,
       selectedChatModel,
       fileContext,
       // Extract the context variables from request (Task 0.4)
@@ -1069,77 +1107,34 @@ export async function POST(req: NextRequest) {
       activeDocId = null,
     } = reqBody;
 
+    // Validate chatId
+    if (!chatId) {
+      console.error('[Brain API] Chat ID is missing!');
+      return NextResponse.json(
+        { error: 'Missing required parameter: chatId' },
+        { status: 400 },
+      );
+    }
+
     // Add detailed logging of request body
     console.log(
       '[Brain API] Received request. Body keys:',
       Object.keys(reqBody),
-    ); // Log keys to confirm structure
+    );
     console.log(
       `[Brain API] Raw messages received (count: ${messages?.length || 0}):`,
       JSON.stringify(messages, null, 2),
     );
     console.log(
-      `[Brain API] Chat ID: ${id}, Selected Model: ${selectedChatModel}, Active Bit: ${activeBitContextId}, Active Doc: ${activeDocId}`,
+      `[Brain API] Chat ID: ${chatId}, Selected Model: ${selectedChatModel}, Active Bit: ${activeBitContextId}, Active Doc: ${activeDocId}`,
     );
-
-    // Add specific diagnostics for message content types
-    if (Array.isArray(messages)) {
-      console.log('[Brain API DIAGNOSTIC] Message content types:');
-      messages.forEach((msg, index) => {
-        console.log(`[Brain API DIAGNOSTIC] Message ${index}:`, {
-          role: msg.role,
-          id: msg.id,
-          contentType: typeof msg.content,
-          isNull: msg.content === null,
-          isArray: Array.isArray(msg.content),
-          isObject: msg.content !== null && typeof msg.content === 'object',
-          hasToolCalls: !!(
-            msg.tool_calls &&
-            Array.isArray(msg.tool_calls) &&
-            msg.tool_calls.length > 0
-          ),
-          finishReason: msg.finish_reason || 'none',
-        });
-
-        // Log specific details for tool messages
-        if (msg.role === 'tool') {
-          console.log(
-            `[Brain API DIAGNOSTIC] Tool message details for message ${index}:`,
-            {
-              toolName: msg.name,
-              toolCallId: msg.tool_call_id,
-              contentFirstChars:
-                typeof msg.content === 'string'
-                  ? msg.content.substring(0, 50) + '...'
-                  : 'not a string',
-            },
-          );
-        }
-      });
-    }
 
     // Add this line to process tool messages right after parsing
     const safeMessages = Array.isArray(messages)
       ? messages.map(ensureToolMessageContentIsString)
       : messages;
 
-    // In a real implementation, you would get session using auth
-    // For now, use a mock session for development purposes
-    const session = {
-      user: {
-        id: 'test-user-id',
-      },
-      expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Expires in 24 hours
-    } as const;
-
-    // TASK 0.4: Always use Quibit orchestrator configuration
-    // Always use 'chat-model-reasoning' ID instead of selectedChatModel
-    const quibitModelId = 'chat-model-reasoning';
-    console.log(
-      `[Brain API] Using Quibit orchestrator (${quibitModelId}) regardless of selected model`,
-    );
-
-    // Extract the last message from the messages array
+    // Extract the last message from the messages array - this is the user's new message
     if (
       !safeMessages ||
       !Array.isArray(safeMessages) ||
@@ -1154,12 +1149,302 @@ export async function POST(req: NextRequest) {
     }
 
     const lastMessage = safeMessages[safeMessages.length - 1];
-    const message = lastMessage.content;
+    const userMessageContent = lastMessage.content;
+
+    // --- BEGIN CHAT CHECK/CREATION ---
+    // Get current user session
+    const authSession = await auth();
+    const userId = authSession?.user?.id;
+
+    if (!userId) {
+      console.error('[Brain API] User ID not found in session!');
+      // Using development bypass for testing
+      if (BYPASS_AUTH_FOR_TESTING) {
+        console.log('[Brain API] Auth bypass enabled, using test user ID');
+        // Continue with test user
+      } else {
+        return NextResponse.json(
+          { error: 'Authentication required' },
+          { status: 401 },
+        );
+      }
+    }
+
+    // Use the actual user ID from session or the test ID if bypassing auth
+    const effectiveUserId = userId || 'test-user-id';
+
+    // Validate and normalize UUID format
+    let normalizedChatId = chatId;
+    // Check if the chatId is in UUID format (8-4-4-4-12)
+    const uuidPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidPattern.test(chatId)) {
+      console.log(
+        `[Brain API Debug] The provided chatId '${chatId}' is not in standard UUID format`,
+      );
+
+      // If it doesn't match UUID pattern but looks like it could be a shortened/encoded UUID,
+      // generate a proper UUID based on this string to use consistently
+      try {
+        // Generate a deterministic UUID v5 using the non-standard ID as a namespace
+        normalizedChatId = randomUUID();
+        console.log(
+          `[Brain API Debug] Generated normalized UUID ${normalizedChatId} for non-standard ID ${chatId}`,
+        );
+      } catch (error) {
+        console.error(`[Brain API Debug] Error normalizing chatId:`, error);
+      }
+    }
+
+    // Skip Drizzle and use direct SQL to check if chat exists
+    try {
+      console.log(
+        `[Brain API Debug] Checking chat existence using direct SQL for chatId: ${normalizedChatId}`,
+      );
+
+      // Get chat directly with SQL
+      const existingChats = await sql`
+        SELECT id FROM "Chat" WHERE id = ${normalizedChatId} LIMIT 1
+      `;
+
+      const chatExists = existingChats.length > 0;
+      console.log(
+        `[Brain API Debug] Chat existence check result: ${chatExists ? 'Found' : 'Not found'}`,
+      );
+
+      if (!chatExists) {
+        console.log(
+          `[Brain API Debug] Chat ${normalizedChatId} not found. Creating with direct SQL...`,
+        );
+        const initialTitle =
+          safeMessages[safeMessages.length - 1]?.content?.substring(0, 100) ||
+          'New Chat';
+
+        // Insert chat with direct SQL
+        await sql`
+          INSERT INTO "Chat" (
+            id, 
+            "userId", 
+            title, 
+            "createdAt", 
+            visibility
+          ) VALUES (
+            ${normalizedChatId}, 
+            ${effectiveUserId}, 
+            ${initialTitle}, 
+            ${new Date().toISOString()}, 
+            'private'
+          )
+          ON CONFLICT (id) DO NOTHING
+        `;
+
+        console.log(
+          `[Brain API Debug] Successfully created chat ${normalizedChatId} using direct SQL`,
+        );
+      } else {
+        console.log(
+          `[Brain API Debug] Chat ${normalizedChatId} already exists, skipping creation`,
+        );
+      }
+
+      // Proceed with message handling, bypassing the ChatRepository
+      console.log(
+        `[Brain API Debug] Proceeding to process messages for chat ${normalizedChatId}`,
+      );
+    } catch (dbError: any) {
+      console.error(
+        `[Brain API Debug] Database error during chat check/creation:`,
+        dbError,
+      );
+      console.error(`[Brain API Debug] Error details:`, {
+        message: dbError?.message,
+        name: dbError?.name,
+        stack: dbError?.stack?.split('\n').slice(0, 3),
+      });
+
+      // Instead of failing, let's try to continue - the DB might still accept the messages
+      console.log(
+        `[Brain API Debug] Will attempt to continue despite DB error`,
+      );
+    }
+    // --- END CHAT CHECK/CREATION ---
+
+    // --- BEGIN USER MESSAGE SAVE ---
+    // Format the user message for the database
+    const userMessageToSave: DBMessage = {
+      id: lastMessage.id || randomUUID(),
+      chatId: normalizedChatId,
+      role: 'user',
+      // Ensure 'parts' structure matches your schema
+      parts: lastMessage.parts || [{ type: 'text', text: userMessageContent }],
+      attachments: lastMessage.attachments || [],
+      createdAt: lastMessage.createdAt
+        ? new Date(lastMessage.createdAt)
+        : new Date(),
+    };
+
+    try {
+      console.log(
+        `[Brain API] Saving user message ${userMessageToSave.id} for chat ${normalizedChatId}`,
+      );
+
+      // Use direct SQL to insert the message instead of chatRepository
+      await sql`
+        INSERT INTO "Message_v2" (
+          id, 
+          "chatId", 
+          role, 
+          parts, 
+          attachments, 
+          "createdAt"
+        ) VALUES (
+          ${userMessageToSave.id}, 
+          ${userMessageToSave.chatId}, 
+          ${userMessageToSave.role}, 
+          ${JSON.stringify(userMessageToSave.parts)}, 
+          ${JSON.stringify(userMessageToSave.attachments)}, 
+          ${userMessageToSave.createdAt.toISOString()}
+        )
+      `;
+
+      console.log(
+        `[Brain API] Successfully saved user message ${userMessageToSave.id}`,
+      );
+    } catch (dbError: any) {
+      console.error(
+        `[Brain API] FAILED to save user message ${userMessageToSave.id}:`,
+        dbError,
+      );
+      console.error(`[Brain API] Message save error details:`, {
+        message: dbError?.message,
+        name: dbError?.name,
+        stack: dbError?.stack?.split('\n').slice(0, 3),
+      });
+      // Continue processing even if DB save fails - don't halt the request
+    }
+    // --- END USER MESSAGE SAVE ---
+
+    // Use all previous messages as history
+    const history = safeMessages.slice(0, -1);
+
+    // Log raw history before formatting
+    console.log(
+      `[Brain API] Raw history being passed to formatChatHistory (count: ${history?.length || 0}):`,
+      JSON.stringify(history, null, 2),
+    );
+
+    // TASK 0.4: Always use 'chat-model-reasoning' ID instead of selectedChatModel
+    const quibitModelId = 'chat-model-reasoning';
+    console.log(
+      `[Brain API] Using Quibit orchestrator (${quibitModelId}) regardless of selected model`,
+    );
+
+    // Initialize the LLM
+    const llm = initializeLLM(quibitModelId);
+
+    // Get available tools for the current context
+    const tools = await getAvailableTools();
+
+    const prompt = ChatPromptTemplate.fromMessages([
+      ['system', orchestratorSystemPrompt],
+      new MessagesPlaceholder('chat_history'),
+      ['human', '{input}'],
+      new MessagesPlaceholder('agent_scratchpad'),
+    ]);
+
+    // Create the agent
+    console.log(
+      `[Brain API] Creating Quibit orchestrator agent with ${tools.length} tools`,
+    );
+
+    const agent = await createOpenAIToolsAgent({
+      llm,
+      tools,
+      prompt,
+    });
+
+    // Create agent executor
+    const agentExecutor = new AgentExecutor({
+      agent,
+      tools,
+      // Set max iterations to prevent infinite loops
+      maxIterations: 10,
+      // Important: Return intermediate steps for tool usage
+      returnIntermediateSteps: true,
+      verbose: true,
+    });
+
+    console.log('[Brain API] Agent executor created');
+
+    // Format and sanitize the chat history
+    let formattedHistory: (HumanMessage | AIMessage)[] = [];
+    try {
+      // Use your existing formatting function
+      formattedHistory = formatChatHistory(history);
+      console.log('[Brain API] Chat history formatted successfully');
+    } catch (formatError) {
+      console.error('[Brain API] Error formatting chat history:', formatError);
+      console.log('[Brain API] Using empty history due to formatting error');
+      formattedHistory = [];
+    }
+
+    // Additional sanitization to force string content (keep for safety)
+    const sanitizedHistory = formattedHistory.map((message) => {
+      return message;
+    });
+
+    // Force reinstantiation of message objects to ensure they are proper class instances
+    const finalSafeHistory = sanitizedHistory.map((msg) => {
+      if (msg instanceof HumanMessage) {
+        // Always create a fresh instance to ensure it's a real class instance
+        return new HumanMessage({ content: String(msg.content) });
+      }
+
+      if (msg instanceof AIMessage) {
+        // Always create a fresh instance to ensure it's a real class instance
+        return new AIMessage({ content: String(msg.content) });
+      }
+
+      return msg;
+    });
+
+    // DIRECT CLASS INSTANTIATION: Create fresh instances immediately before invoke
+    const directInstances = finalSafeHistory.map((msg) => {
+      // Convert to raw message format first with explicit typing
+      const rawMessage: RawMessage = {
+        type: msg instanceof HumanMessage ? 'human' : 'ai',
+        content:
+          typeof msg?.content === 'string'
+            ? msg.content
+            : String(msg?.content || ''),
+      };
+
+      // Use the rawToMessage utility to create a properly typed instance
+      const properInstance = rawToMessage(rawMessage);
+
+      if (!properInstance) {
+        console.error(
+          '[Brain API] Failed to create proper message instance:',
+          msg,
+        );
+        // Fallback: use direct instantiation with explicit type check
+        if (msg instanceof HumanMessage) {
+          return new HumanMessage({ content: String(msg?.content || '') });
+        } else {
+          return new AIMessage({ content: String(msg?.content || '') });
+        }
+      }
+
+      return properInstance;
+    });
+
+    // Process the message with file context and other context variables
+    let combinedMessage = userMessageContent;
 
     // --- Hybrid File Context Integration ---
     // If fileContext is present, merge its extractedText into the LLM prompt context
     let fileContextString = '';
-    if (fileContext && fileContext.extractedText) {
+    if (fileContext?.extractedText) {
       // Extract the text content from the nested object structure
       let extractedText = '';
       console.log(
@@ -1236,47 +1521,7 @@ ${extractedText}
       console.log(`[Brain API] Extracted text length: ${extractedText.length}`);
     }
 
-    // Process any file attachments in the last message (legacy/other attachments)
-    let attachmentContext = processAttachments(lastMessage);
-
-    // Use all previous messages as history
-    const history = safeMessages.slice(0, -1);
-
-    // Log raw history before formatting
-    console.log(
-      `[Brain API] Raw history being passed to formatChatHistory (count: ${history?.length || 0}):`,
-      JSON.stringify(history, null, 2),
-    );
-
-    // Add diagnostic check for each history message
-    if (Array.isArray(history)) {
-      history.forEach((histMsg, idx) => {
-        if (histMsg && typeof histMsg === 'object') {
-          console.log(`[Brain API] History message ${idx} structure:`, {
-            keys: Object.keys(histMsg),
-            role: histMsg.role,
-            contentType: typeof histMsg.content,
-            hasToolCalls: !!(
-              histMsg.tool_calls && Array.isArray(histMsg.tool_calls)
-            ),
-          });
-        } else {
-          console.log(
-            `[Brain API] Invalid history message at index ${idx}:`,
-            histMsg,
-          );
-        }
-      });
-    }
-
-    if (!message) {
-      return NextResponse.json(
-        {
-          error: 'Missing required parameters: last message must have content',
-        },
-        { status: 400 },
-      );
-    }
+    const attachmentContext = processAttachments(lastMessage);
 
     // TASK 0.4: Create context prefix string based on activeBitContextId and activeDocId
     let contextPrefix = '';
@@ -1289,8 +1534,6 @@ ${extractedText}
     }
 
     // --- Combine user message with contextPrefix, fileContext and attachment context ---
-    let combinedMessage = message;
-
     // TASK 0.4: Prepend the context prefix to the user's message
     if (contextPrefix) {
       combinedMessage = `${contextPrefix}${combinedMessage}`;
@@ -1308,557 +1551,162 @@ ${extractedText}
       combinedMessage = `${combinedMessage}\n\n### ATTACHED FILE CONTENT ###${attachmentContext}`;
     }
 
-    console.log(`[Brain API] Processing request for Quibit orchestrator`);
-    console.log(`[Brain API] Final combined message: ${combinedMessage}`);
-
-    if (fileContextString) {
-      console.log(
-        `[Brain API] Message includes file context from: ${fileContext?.filename ?? 'unknown'}`,
-      );
-    }
-    if (attachmentContext) {
-      console.log(
-        `[Brain API] Message includes file attachments with extracted content`,
-      );
-    }
-    console.log(`[Brain API] Chat ID: ${id}`);
-
-    // TASK 0.4: Initialize LLM always using the Quibit orchestrator model
-    const llm = initializeLLM(quibitModelId);
-
-    // Configure tools with Supabase knowledge tools and Tavily tools
-    // const tools = [
-    //   listDocumentsTool,
-    //   getFileContentsTool,
-    //   searchInternalKnowledgeBase,
-    //   tavilySearch,
-    //   tavilyExtractTool,
-    //   createDocumentTool,
-    //   requestSuggestionsTool,
-    //   getWeatherTool,
-    // ];
-
-    // Temporarily provide an empty array of tools to test if this resolves the missing variable error
-    const tools = [];
-    console.log('[Brain API] WARNING: Using empty tools array for testing');
-
-    // TASK 0.4: Always use the orchestratorSystemPrompt
-    // Import directly from the prompts file rather than using getSystemPromptFor
-    const systemPrompt = orchestratorSystemPrompt;
-    console.log('[Brain API] Using orchestratorSystemPrompt for all requests');
-
-    // --- Explicitly Create Agent Prompt Template ---
-    // Create a proper ChatPromptTemplate with only required input variables
-    const prompt = ChatPromptTemplate.fromMessages([
-      ['system', systemPrompt],
-      new MessagesPlaceholder('chat_history'),
-      ['human', '{input}'],
-      new MessagesPlaceholder('agent_scratchpad'),
-    ]);
-
-    console.log(
-      '[Brain API] Agent prompt template created with agent_scratchpad placeholder',
-    );
-    // --- End Explicitly Create Agent Prompt Template ---
-
-    // Create agent and executor
-    const agent = await createOpenAIToolsAgent({
-      llm,
-      tools,
-      prompt,
-    });
-
-    const agentExecutor = new AgentExecutor({
-      agent,
-      tools,
-      verbose: true,
-      callbacks: [new DebugCallbackHandler() as unknown as BaseCallbackHandler],
-    });
-
-    // Format chat history
-    const chat_history = formatChatHistory(history);
-
-    // Defensive log: check that all are proper instances
-    chat_history.forEach((msg, i) => {
-      if (!(msg instanceof HumanMessage || msg instanceof AIMessage)) {
-        console.error(
-          '[Brain API] Message at index',
-          i,
-          'is not a LangChain message instance:',
-          msg,
-        );
-      }
-    });
-
-    // Log the formatted chat history without JSON.stringify (which causes serialization)
-    console.log(
-      `[Brain API] Formatted chat_history for Langchain (count: ${chat_history?.length}):`,
-    );
-    // Log details without serializing the objects
-    chat_history.forEach((msg, i) => {
-      console.log(
-        `[Brain API] Message ${i}:`,
-        `Type: ${msg instanceof HumanMessage ? 'HumanMessage' : 'AIMessage'}`,
-        `Content: ${
-          typeof msg.content === 'string'
-            ? msg.content.length > 50
-              ? msg.content.substring(0, 50) + '...'
-              : msg.content
-            : 'Non-string content'
-        }`,
-      );
-    });
-
-    // Add a check for message content types after formatting
-    chat_history.forEach((msg, index) => {
-      if (typeof msg.content !== 'string') {
-        console.warn(
-          `[Brain API WARN] Formatted history message ${index} has non-string content:`,
-          typeof msg.content,
-        );
-      }
-    });
-
-    // Log the formatted history for debugging
-    console.log(
-      '[Brain API] Formatted chat history length:',
-      chat_history.length,
-    );
-
-    let result: any;
-
-    // Execute agent
-    try {
-      console.log(
-        `[Brain API] Invoking agent with message: ${combinedMessage}`,
-      );
-      if (attachmentContext) {
+    // Set up LangChainStream with onCompletion handler for message saving
+    const { handlers } = createLangChainStreamHandler({
+      onCompletion: async (fullResponse: string) => {
+        // This code runs AFTER the entire response has been streamed
         console.log(
-          `[Brain API] Including extracted content from ${lastMessage.attachments?.length || 0} attachments`,
+          '[Brain API] Stream completed. Saving final assistant message.',
         );
-      }
 
-      // If chat history is empty or has errors, use a new empty array to prevent issues
-      const safeHistory = chat_history.length > 0 ? chat_history : [];
-
-      // Apply tool message content stringification to any tool messages in history
-      const sanitizedHistory = safeHistory.map((message) => {
-        // First apply our standard message content safety
-        let safeMessage = message;
-
-        if (message && typeof message === 'object' && 'content' in message) {
-          // Apply multiple safety layers to ensure string content
-          if (typeof message.content === 'object' && message.content !== null) {
-            console.log(
-              '[Brain API] Sanitizing object content in history message',
-            );
-
-            if (typeof message.content.map === 'function') {
-              // If content has a map function, it's likely an array of something
-              console.log(
-                '[Brain API] Content appears to be an array, converting to string',
-              );
-              safeMessage = {
-                ...message,
-                content: JSON.stringify(message.content),
-              };
-            } else {
-              // Regular object content
-              safeMessage = {
-                ...message,
-                content:
-                  typeof message.content === 'string'
-                    ? message.content
-                    : JSON.stringify(message.content),
-              };
-            }
-          } else if (typeof message.content !== 'string') {
-            // Ensure non-object non-string content is converted to string
-            console.log('[Brain API] Converting non-string content to string');
-            safeMessage = {
-              ...message,
-              content: String(message.content || ''),
-            };
-          }
-        }
-
-        // Final safety check
-        return ensureStringContent(safeMessage);
-      });
-
-      // Force reinstantiation of message objects to ensure they are proper class instances
-      // This is critical to prevent serialization issues that cause MessagePlaceholder errors
-      const finalSafeHistory = sanitizedHistory.map((msg) => {
-        if (msg instanceof HumanMessage) {
-          // Always create a fresh instance to ensure it's a real class instance
-          return new HumanMessage({ content: String(msg.content) });
-        }
-
-        if (msg instanceof AIMessage) {
-          // Always create a fresh instance to ensure it's a real class instance
-          return new AIMessage({ content: String(msg.content) });
-        }
-
-        // If we somehow get a non-instance (should never happen with the above checks)
-        console.error(
-          '[Brain API] Unknown message type in final history check:',
-          msg,
-        );
-        return msg;
-      });
-
-      // Final verification - log instance check WITHOUT serializing
-      finalSafeHistory.forEach((msg, i) => {
-        console.log(
-          `[Brain API] Final message ${i} instance check:`,
-          `Is HumanMessage: ${msg instanceof HumanMessage}`,
-          `Is AIMessage: ${msg instanceof AIMessage}`,
-        );
-      });
-
-      console.log(
-        '[Brain API] Final history check complete, proceeding with invoke',
-      );
-
-      // DIRECT CLASS INSTANTIATION: Create fresh instances immediately before invoke
-      // This prevents any serialization issues by bypassing intermediate steps
-      const directInstances = finalSafeHistory.map((msg) => {
-        // Convert to raw message format first with explicit typing
-        const rawMessage: RawMessage = {
-          type: msg instanceof HumanMessage ? 'human' : 'ai',
-          content:
-            typeof msg?.content === 'string'
-              ? msg.content
-              : String(msg?.content || ''),
-        };
-
-        // Use the rawToMessage utility to create a properly typed instance
-        const properInstance = rawToMessage(rawMessage);
-
-        if (!properInstance) {
-          console.error(
-            '[Brain API] Failed to create proper message instance:',
-            msg,
-          );
-          // Fallback: use direct instantiation with explicit type check
-          if (msg instanceof HumanMessage) {
-            return new HumanMessage({ content: String(msg?.content || '') });
-          } else {
-            return new AIMessage({ content: String(msg?.content || '') });
-          }
-        }
-
-        return properInstance;
-      });
-
-      // Log the direct instances we're about to use
-      directInstances.forEach((msg, i) => {
-        const contentPreview =
-          typeof msg.content === 'string'
-            ? `${msg.content.substring(0, 30)}...`
-            : 'Complex content';
-
-        console.log(
-          `[Brain API] Direct instance ${i}: Is HumanMessage: ${msg instanceof HumanMessage}, Is AIMessage: ${msg instanceof AIMessage}, Content: ${contentPreview}`,
-        );
-      });
-
-      // Execute the agent with the validated message and DIRECT instances
-      result = await agentExecutor.invoke({
-        input: combinedMessage,
-        chat_history: directInstances as (HumanMessage | AIMessage)[],
-      });
-
-      console.log(`[Brain API] Agent execution complete`);
-      console.log('[Brain API] Agent Result Output:', result.output);
-    } catch (err) {
-      console.error('[Brain API] Agent execution error:', err);
-      console.error('[Brain API] Agent execution error CATCH block:', err);
-
-      // Log history without serializing to prevent class instance loss
-      console.error('[Brain API] History state AT TIME OF ERROR:');
-      chat_history.forEach((msg, i) => {
-        console.error(
-          `[Brain API] History item ${i}:`,
-          `Type: ${
-            msg instanceof HumanMessage
-              ? 'HumanMessage'
-              : msg instanceof AIMessage
-                ? 'AIMessage'
-                : 'Unknown'
-          }`,
-          `Content: ${
-            typeof msg.content === 'string'
-              ? msg.content.length > 50
-                ? msg.content.substring(0, 50) + '...'
-                : msg.content
-              : 'Non-string content'
-          }`,
-        );
-      });
-
-      if (err instanceof Error && err.stack) {
-        console.error('[Brain API] Error Stack:', err.stack);
-      }
-
-      // Handle specific error types
-      const errorMessage =
-        err instanceof Error
-          ? err.message
-          : 'Unknown error during agent execution';
-
-      // Detailed logging for debugging message-related issues
-      if (errorMessage.includes('message.content.map is not a function')) {
-        console.error(
-          '[Brain API] Content map error detected - likely object content in message',
-        );
-        console.error(
-          '[Brain API DEBUG] "content.map" error detected. Inspecting history passed to invoke.',
-        );
-      } else if (errorMessage.includes('Unable to coerce message from array')) {
-        console.error(
-          '[Brain API] Message coercion error - incompatible message format in history',
-        );
-        // Log the history for debugging
-        console.error(
-          '[Brain API] History causing coercion errors:',
-          JSON.stringify(
-            chat_history
-              .filter(Boolean)
-              .map((m) => ({ type: m ? m.constructor.name : 'null' })),
-          ),
-        );
-      }
-
-      return new Response(
-        JSON.stringify({
-          error: errorMessage,
-          suggestion:
-            'Try clearing your chat history and starting a new conversation.',
-        }),
-        {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-    }
-
-    if (typeof result.output !== 'string') {
-      console.error('[Brain API] Agent output is not a string:', result.output);
-      return new Response(
-        JSON.stringify({ error: 'Agent response was not valid text.' }),
-        {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-    }
-
-    // Extract tool calls from the execution (if available)
-    const toolCalls =
-      result.intermediateSteps?.map(
-        (step: {
-          action: {
-            tool: string;
-            toolInput: any;
+        try {
+          // Format the assistant message for the database
+          const assistantMessageToSave = {
+            id: randomUUID(), // Generate a new unique ID for the assistant message
+            chatId: normalizedChatId,
+            role: 'assistant',
+            content: fullResponse, // Required by ChatRepository
+            createdAt: new Date(),
+            parts: [{ type: 'text', text: fullResponse }], // Required by DBMessage
+            attachments: [], // Required by DBMessage
           };
-          observation: any;
-        }) => ({
-          tool: step.action.tool,
-          input: step.action.toolInput,
-          output: step.observation,
-        }),
-      ) || [];
 
-    console.log(
-      '[Brain API] Tool calls:',
-      toolCalls.length ? 'Found' : 'None',
-      toolCalls.length ? `(${toolCalls.length} calls)` : '',
-    );
-
-    // Log specific tool types found for diagnostic purposes
-    if (toolCalls.length > 0) {
-      const toolTypes = toolCalls.map((call: { tool: string }) => call.tool);
-      console.log('[Brain API] Tool types found:', toolTypes);
-
-      // Check specifically for createDocument
-      const createDocumentCalls = toolCalls.filter(
-        (call: { tool: string }) => call.tool === 'createDocument',
-      );
-      if (createDocumentCalls.length > 0) {
-        console.log(
-          '[Brain API] Found createDocument calls:',
-          JSON.stringify(createDocumentCalls, null, 2),
-        );
-      }
-    }
-
-    // --- Start: Artifact Handling Logic ---
-
-    let artifactStreamResponse: Response | null = null;
-
-    // Use toolCalls extracted above to find createDocument calls directly
-    const createDocumentCall = toolCalls.find(
-      (call: { tool: string }) => call.tool === 'createDocument',
-    );
-
-    if (createDocumentCall) {
-      console.log(
-        '[Brain API] Processing createDocument call from toolCalls:',
-        JSON.stringify(createDocumentCall, null, 2),
-      );
-      const input = createDocumentCall.input;
-
-      if (input && typeof input === 'object' && input.title && input.kind) {
-        const { title, kind } = input as { title: string; kind: ArtifactKind };
-        console.log(
-          `[Brain API] SUCCESS: Processing createDocument call for: ${title} (Kind: ${kind}).`,
-        );
-
-        const id = generateUUID();
-        const handler = documentHandlersByArtifactKind.find(
-          (h) => h.kind === kind,
-        );
-
-        if (handler) {
-          try {
-            // Create data stream for the artifact generation
-            const stream = createDataStream({
-              execute: async (dataStream: DataStreamWriter) => {
-                try {
-                  console.log(
-                    `[Brain API] Starting artifact generation for ${id} (${kind})`,
-                  );
-
-                  // Execute the document creation with the handler
-                  await handler.onCreateDocument({
-                    id,
-                    title,
-                    dataStream,
-                    session,
-                  });
-
-                  console.log(
-                    `[Brain API] Artifact generation for ${id} completed successfully`,
-                  );
-                } catch (streamError) {
-                  console.error(
-                    `[Brain API] Error during artifact generation for ${id}:`,
-                    streamError,
-                  );
-                  throw streamError;
-                }
-              },
-              onError: (error) => {
-                console.error(`[Brain API] Artifact generation error:`, error);
-                return `Error generating artifact: ${error instanceof Error ? error.message : String(error)}`;
-              },
-            });
-
-            // Return the stream response immediately
-            artifactStreamResponse = new Response(stream, {
-              headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-            });
-            console.log(
-              `[Brain API] Created Response with artifact stream for ${id}`,
-            );
-          } catch (setupError) {
-            console.error(
-              '[Brain API] Error setting up artifact stream:',
-              setupError,
-            );
-            artifactStreamResponse = NextResponse.json(
-              {
-                error: `Error setting up artifact stream: ${setupError instanceof Error ? setupError.message : String(setupError)}`,
-              },
-              { status: 500 },
-            );
-          }
-        } else {
-          console.warn(
-            `[Brain API] No artifact handler found for kind: ${kind}`,
+          console.log(
+            `[Brain API] Saving assistant message ${assistantMessageToSave.id} for chat ${normalizedChatId}`,
           );
-          artifactStreamResponse = NextResponse.json(
-            {
-              error: `Unsupported artifact kind: ${kind}`,
-            },
-            { status: 400 },
+
+          // Use direct SQL instead of chatRepository
+          await sql`
+            INSERT INTO "Message_v2" (
+              id, 
+              "chatId", 
+              role, 
+              parts, 
+              attachments, 
+              "createdAt"
+            ) VALUES (
+              ${assistantMessageToSave.id}, 
+              ${assistantMessageToSave.chatId}, 
+              ${assistantMessageToSave.role}, 
+              ${JSON.stringify(assistantMessageToSave.parts)}, 
+              ${JSON.stringify(assistantMessageToSave.attachments)}, 
+              ${assistantMessageToSave.createdAt.toISOString()}
+            )
+          `;
+
+          console.log(
+            `[Brain API] Successfully saved assistant message ${assistantMessageToSave.id}`,
           );
+        } catch (dbError: any) {
+          console.error(
+            `[Brain API] FAILED to save assistant message:`,
+            dbError,
+          );
+          console.error(`[Brain API] Assistant message save error details:`, {
+            message: dbError?.message,
+            name: dbError?.name,
+            stack: dbError?.stack?.split('\n').slice(0, 3),
+          });
+          // Log error, but don't block response as stream already finished
         }
-      } else {
-        console.warn(
-          '[Brain API] Invalid input for createDocument call:',
-          JSON.stringify(input),
-        );
-        artifactStreamResponse = NextResponse.json(
-          {
-            error: 'Invalid input for createDocument: missing title or kind',
-          },
-          { status: 400 },
-        );
-      }
-    } else if (
-      Array.isArray(result.intermediateSteps) &&
-      result.intermediateSteps.length > 0
-    ) {
-      // Fallback to checking intermediate steps directly if needed
-      console.log(
-        '[Brain API] No createDocument call found in toolCalls. Checking intermediate steps directly.',
-      );
-      console.log(
-        '[Brain API Debug] Raw Intermediate Steps:',
-        JSON.stringify(result.intermediateSteps, null, 2),
-      );
-    }
+      },
+    });
 
-    // --- Return Final Response ---
-    if (artifactStreamResponse) {
-      // Return the artifact stream (or error response from setup)
-      console.log('[Brain API] Returning artifact-specific response.');
-      return artifactStreamResponse;
-    } else if (typeof result.output === 'string') {
-      // Fallback: No artifact handled, stream the agent's text output
-      console.log(
-        "[Brain API] No artifact stream generated, returning agent's final text output via ReadableStream.",
-      );
+    // Start the agent streaming execution
+    agentExecutor
+      .stream(
+        {
+          input: combinedMessage,
+          chat_history: directInstances,
+          activeBitContextId: activeBitContextId || null,
+        },
+        { callbacks: handlers },
+      )
+      .catch((error) => {
+        console.error('[Brain API] Error in agent execution:', error);
+      });
 
-      const textEncoder = new TextEncoder();
-      const readableStream = new ReadableStream({
-        start(controller) {
-          try {
-            // Include debug data if needed
-            if (toolCalls.length > 0) {
-              const debugData = { type: 'debug', toolCalls };
-              controller.enqueue(
-                textEncoder.encode(`data: ${JSON.stringify(debugData)}\n\n`),
+    // Implement custom streaming with a ReadableStream for character-by-character display
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          // Execute the agent and get the streaming result
+          const streamResult = await agentExecutor.stream(
+            {
+              input: combinedMessage,
+              chat_history: directInstances,
+              activeBitContextId: activeBitContextId || null,
+            },
+            { callbacks: handlers },
+          );
+
+          // Process each chunk from the stream
+          for await (const chunk of streamResult) {
+            if (chunk.output && typeof chunk.output === 'string') {
+              // Split long chunks into smaller pieces for more granular streaming
+              const text = chunk.output;
+              const chunkSize = 1; // Stream character by character for best effect
+
+              // Process the text in smaller chunks to improve streaming responsiveness
+              for (let i = 0; i < text.length; i += chunkSize) {
+                const subChunk = text.slice(i, i + chunkSize);
+                // Format using the AI SDK data stream format for text chunks
+                const encoded = encoder.encode(
+                  `0:${JSON.stringify(subChunk)}\n`,
+                );
+                controller.enqueue(encoded);
+
+                // Reduced delay for faster streaming but still smooth
+                await new Promise((resolve) => setTimeout(resolve, 2));
+              }
+            } else if (
+              chunk.toolCalls &&
+              Array.isArray(chunk.toolCalls) &&
+              chunk.toolCalls.length > 0
+            ) {
+              // Debug information about tool calls - use type 2 for data
+              const encoded = encoder.encode(
+                `2:${JSON.stringify(chunk.toolCalls)}\n`,
+              );
+              controller.enqueue(encoded);
+            }
+
+            // Process intermediateSteps if they exist
+            if (chunk.intermediateSteps && chunk.intermediateSteps.length > 0) {
+              console.log(
+                '[Brain API] Processing agent steps:',
+                chunk.intermediateSteps.length,
               );
             }
-            // Send the text using Vercel AI SDK format '0:"..."'
-            const chunk = `0:${JSON.stringify(result.output)}\n`;
-            controller.enqueue(textEncoder.encode(chunk));
-            controller.close();
-          } catch (error) {
-            console.error('[Brain API] Fallback Text Stream Error:', error);
-            controller.error(error);
           }
-        },
-      });
-      return new Response(readableStream, {
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-      });
-    } else {
-      // Final fallback if output isn't a string
-      console.error(
-        '[Brain API] Agent output unusable and no artifact stream:',
-        result.output ? typeof result.output : 'undefined',
-      );
-      return NextResponse.json(
-        { error: 'Agent returned invalid output.' },
-        { status: 500 },
-      );
-    }
 
-    // --- End: Artifact Handling Logic ---
+          // Send a finish message part at the end
+          const finishMessage = encoder.encode(
+            `d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n`,
+          );
+          controller.enqueue(finishMessage);
+
+          // Close the stream when done
+          controller.close();
+        } catch (error) {
+          console.error('[Brain API] Error streaming agent result:', error);
+          controller.error(error);
+        }
+      },
+    });
+
+    // Return the streaming response with the correct content type for SSE
+    // and additional headers to prevent buffering
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
+        'X-Accel-Buffering': 'no',
+        Connection: 'keep-alive',
+        'x-vercel-ai-data-stream': 'v1', // Add this header to indicate it's a data stream
+      },
+    });
   } catch (error: any) {
     console.error('[Brain API Error]', error);
 

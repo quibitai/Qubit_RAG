@@ -28,6 +28,7 @@ import {
 import { chatModels } from '@/lib/ai/models';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { createChatAndSaveFirstMessages } from '../app/(chat)/actions';
+import { toast } from 'sonner';
 
 // Add utility function for fallback API calls
 const callServerActionWithFallback = async (
@@ -81,15 +82,25 @@ export function GlobalChatPane({
   title = 'Chat Assistant',
 }: GlobalChatPaneProps) {
   // Debug: Check if server action is correctly identified
-  console.log('[CLIENT] Server action check in GlobalChatPane:', {
-    isFunction: typeof createChatAndSaveFirstMessages === 'function',
-    hasServerRef:
-      typeof createChatAndSaveFirstMessages === 'object' &&
-      (createChatAndSaveFirstMessages as any)?.__$SERVER_REFERENCE,
-    serverActionId: (createChatAndSaveFirstMessages as any).__next_action_id,
-  });
+  // Only log once during development to reduce console spam
+  const hasLoggedServerActionCheck = React.useRef(false);
 
-  const { chatState, activeBitId, isPaneOpen, setActiveBitId } = useChatPane();
+  React.useEffect(() => {
+    if (!hasLoggedServerActionCheck.current) {
+      console.log('[CLIENT] Server action check in GlobalChatPane:', {
+        isFunction: typeof createChatAndSaveFirstMessages === 'function',
+        hasServerRef:
+          typeof createChatAndSaveFirstMessages === 'object' &&
+          (createChatAndSaveFirstMessages as any)?.__$SERVER_REFERENCE,
+        serverActionId: (createChatAndSaveFirstMessages as any)
+          .__next_action_id,
+      });
+      hasLoggedServerActionCheck.current = true;
+    }
+  }, []);
+
+  const { chatState, activeBitContextId, isPaneOpen, setActiveBitContextId } =
+    useChatPane();
   const {
     messages,
     input,
@@ -114,6 +125,12 @@ export function GlobalChatPane({
     createdAt: Date;
   } | null>(null);
 
+  // Track saved message IDs to prevent duplicate saves
+  const savedMessageIdsRef = React.useRef<Set<string>>(new Set<string>());
+
+  // Track currently processing message IDs to prevent duplicate requests
+  const processingMessageIdsRef = React.useRef<Set<string>>(new Set<string>());
+
   // Get votes for the messages if available
   const { data: votes } = useSWR<Array<Vote>>(
     messages.length >= 2 ? `/api/vote?chatId=${chatState.id}` : null,
@@ -123,37 +140,246 @@ export function GlobalChatPane({
   // Find the selected model details
   const selectedChatModel = React.useMemo(
     () =>
-      chatModels.find((chatModel) => chatModel.id === activeBitId) ||
+      chatModels.find((chatModel) => chatModel.id === activeBitContextId) ||
       chatModels[0],
-    [activeBitId],
+    [activeBitContextId],
   );
 
   // Adjust textarea height as user types
   const adjustHeight = React.useCallback(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight + 2}px`;
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+          textareaRef.current.style.height = `${textareaRef.current.scrollHeight + 2}px`;
+        }
+      });
     }
   }, []);
 
   React.useEffect(() => {
     if (textareaRef.current) {
-      adjustHeight();
+      requestAnimationFrame(() => {
+        adjustHeight();
+      });
     }
   }, [input, adjustHeight]);
 
   // Reset chatPersistedRef when a new chat is created
   React.useEffect(() => {
     if (chatState.messages.length === 0) {
-      console.log(
-        '[GlobalChatPane] New chat detected, resetting persistence state',
-      );
-      chatPersistedRef.current = false;
+      requestAnimationFrame(() => {
+        console.log(
+          '[GlobalChatPane] New chat detected, resetting persistence state',
+        );
+        chatPersistedRef.current = false;
+        // Also clear saved message tracking
+        savedMessageIdsRef.current.clear();
+        processingMessageIdsRef.current.clear();
+      });
     }
   }, [chatState.messages.length]);
 
   // Ref to track chat persistence
   const chatPersistedRef = React.useRef<boolean>(false);
+
+  // Add onFinish handler for GlobalChatPane
+  React.useEffect(() => {
+    // Create a custom message handler function
+    const handleMessageCompletion = (message: any) => {
+      // Skip messages with no content
+      if (!message.content) {
+        console.log('[GlobalChatPane] Skipping persistence for empty message');
+        return;
+      }
+
+      // Skip if we already saved or are processing this message
+      if (
+        savedMessageIdsRef.current.has(message.id) ||
+        processingMessageIdsRef.current.has(message.id)
+      ) {
+        console.log(
+          `[GlobalChatPane] Message ${message.id} already saved or being processed, skipping`,
+        );
+        return;
+      }
+
+      // Mark this message as being processed
+      processingMessageIdsRef.current.add(message.id);
+      console.log(`[GlobalChatPane] Started processing message ${message.id}`);
+
+      // Get the user message from our ref
+      if (!lastUserMsgRef.current) {
+        console.log(
+          '[GlobalChatPane] No user message ref found for persistence',
+        );
+        processingMessageIdsRef.current.delete(message.id);
+        return;
+      }
+
+      const currentChatId = chatState.id;
+
+      // Skip if chat is already persisted
+      if (chatPersistedRef.current) {
+        console.log('[GlobalChatPane] Chat already persisted, adding messages');
+
+        // Save subsequent messages
+        fetch('/api/chat-actions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'saveSubsequentMessages',
+            chatId: currentChatId,
+            userMessage: lastUserMsgRef.current,
+            assistantMessage: {
+              id: message.id,
+              chatId: currentChatId,
+              role: message.role,
+              parts: Array.isArray(message.parts)
+                ? message.parts
+                : [{ type: 'text', text: message.content }],
+              attachments: message.attachments || [],
+              createdAt: new Date(),
+            },
+          }),
+        })
+          .then((res) => res.json())
+          .then((result) => {
+            console.log(
+              '[GlobalChatPane] saveSubsequentMessages result:',
+              result,
+            );
+
+            // Mark this message as saved
+            savedMessageIdsRef.current.add(message.id);
+            processingMessageIdsRef.current.delete(message.id);
+            console.log(
+              `[GlobalChatPane] Marked message ${message.id} as saved`,
+            );
+          })
+          .catch((err) => {
+            console.error('[GlobalChatPane] Error saving messages:', err);
+            processingMessageIdsRef.current.delete(message.id);
+          });
+      } else {
+        console.log('[GlobalChatPane] New chat, creating with messages');
+
+        // Create new chat with first messages
+        fetch('/api/chat-actions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'createChatAndSaveFirstMessages',
+            chatId: currentChatId,
+            userMessage: lastUserMsgRef.current,
+            assistantMessage: {
+              id: message.id,
+              chatId: currentChatId,
+              role: message.role,
+              parts: Array.isArray(message.parts)
+                ? message.parts
+                : [{ type: 'text', text: message.content }],
+              attachments: message.attachments || [],
+              createdAt: new Date(),
+            },
+          }),
+        })
+          .then((res) => res.json())
+          .then((result) => {
+            console.log(
+              '[GlobalChatPane] createChatAndSaveFirstMessages result:',
+              result,
+            );
+            if (result.success) {
+              // Mark chat as persisted to avoid future creations
+              chatPersistedRef.current = true;
+              // Mark this message as saved
+              savedMessageIdsRef.current.add(message.id);
+              console.log(
+                `[GlobalChatPane] Marked message ${message.id} as saved`,
+              );
+            }
+            processingMessageIdsRef.current.delete(message.id);
+          })
+          .catch((err) => {
+            console.error('[GlobalChatPane] Error creating chat:', err);
+            processingMessageIdsRef.current.delete(message.id);
+          });
+      }
+
+      // Reset the user message ref
+      lastUserMsgRef.current = null;
+    };
+
+    // Create an event handler to listen for message completions
+    const handleMessageEvent = (event: CustomEvent) => {
+      if (event.detail && event.detail.role === 'assistant') {
+        handleMessageCompletion(event.detail);
+      }
+    };
+
+    // Register a custom event listener for completed messages
+    window.addEventListener(
+      'ai-message-complete',
+      handleMessageEvent as EventListener,
+    );
+
+    // Dispatch an event whenever new messages appear
+    const messagesObserver = new MutationObserver(() => {
+      const assistantMessages = chatState.messages.filter(
+        (m) => m.role === 'assistant',
+      );
+      if (assistantMessages.length > 0) {
+        const lastAssistantMessage =
+          assistantMessages[assistantMessages.length - 1];
+        // Ensure we only fire for completed messages that have content
+        if (lastAssistantMessage.content && !chatState.isLoading) {
+          // Skip if we've already processed this message
+          if (
+            savedMessageIdsRef.current.has(lastAssistantMessage.id) ||
+            processingMessageIdsRef.current.has(lastAssistantMessage.id)
+          ) {
+            console.log(
+              `[GlobalChatPane] Skipping event for already processed message ${lastAssistantMessage.id}`,
+            );
+            return;
+          }
+
+          console.log(
+            `[GlobalChatPane] Dispatching event for message ${lastAssistantMessage.id}`,
+          );
+          const event = new CustomEvent('ai-message-complete', {
+            detail: lastAssistantMessage,
+          });
+          window.dispatchEvent(event);
+        }
+      }
+    });
+
+    // Observe the messages container for changes
+    const messagesContainer = document.querySelector(
+      '[data-testid="messages-container"]',
+    );
+    if (messagesContainer) {
+      messagesObserver.observe(messagesContainer, {
+        childList: true,
+        subtree: true,
+      });
+    }
+
+    return () => {
+      // Clean up event listener and observer
+      window.removeEventListener(
+        'ai-message-complete',
+        handleMessageEvent as EventListener,
+      );
+      messagesObserver.disconnect();
+    };
+  }, [chatState]);
 
   const submitMessage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -171,29 +397,33 @@ export function GlobalChatPane({
       createdAt: new Date(),
     };
 
-    // Store in ref for later use in onFinish
-    lastUserMsgRef.current = userMsg;
+    // Store in ref for later use in onFinish - use requestAnimationFrame to defer updates
+    requestAnimationFrame(() => {
+      lastUserMsgRef.current = userMsg;
 
-    console.log('[GlobalChatPane] Storing user message in ref:', userMsg);
-    console.log(
-      '[GlobalChatPane] Chat persistence state:',
-      chatPersistedRef.current ? 'persisted' : 'not persisted',
-    );
-    console.log('[GlobalChatPane] Using chat ID:', currentChatId);
+      console.log('[GlobalChatPane] Storing user message in ref:', userMsg);
+      console.log(
+        '[GlobalChatPane] Chat persistence state:',
+        chatPersistedRef.current ? 'persisted' : 'not persisted',
+      );
+      console.log('[GlobalChatPane] Using chat ID:', currentChatId);
+    });
 
     // Send the message to the AI with model selection
-    handleSubmit(e, {
-      body: {
-        selectedChatModel: activeBitId,
+    await handleSubmit({
+      data: {
+        selectedChatModel: activeBitContextId,
         chatId: currentChatId,
       },
     });
 
-    // Clear the input and reset height
-    setInput('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
+    // Clear the input and reset height - defer to next frame
+    requestAnimationFrame(() => {
+      setInput('');
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+    });
   };
 
   if (!isPaneOpen) {
@@ -202,13 +432,38 @@ export function GlobalChatPane({
 
   return (
     <div className="flex flex-col h-full bg-background border-l">
-      <div className="px-4 py-2 border-b flex items-center justify-between">
-        <h2 className="font-semibold">{title}</h2>
+      <div className="px-3 py-2 border-b flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-full hover:bg-muted"
+                onClick={() => {
+                  // Clear the chat state to start a new conversation
+                  chatState.setMessages([]);
+                  setInput('');
+                  chatPersistedRef.current = false;
+                  savedMessageIdsRef.current.clear();
+                  processingMessageIdsRef.current.clear();
+                  lastUserMsgRef.current = null;
+                }}
+                aria-label="New Chat"
+                title="New Chat"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>New Chat</TooltipContent>
+          </Tooltip>
+          <h2 className="font-semibold">{title}</h2>
+        </div>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="h-8 gap-1">
-              {activeBitId === 'chat-model-reasoning'
+              {activeBitContextId === 'chat-model-reasoning'
                 ? 'Orchestrator'
                 : 'Echo Tango Bit'}
               <ChevronDown className="h-3 w-3" />
@@ -216,7 +471,7 @@ export function GlobalChatPane({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-[200px]">
             <DropdownMenuItem
-              onClick={() => setActiveBitId('chat-model')}
+              onClick={() => setActiveBitContextId('chat-model')}
               className="flex items-center justify-between"
             >
               <div className="flex flex-col">
@@ -225,12 +480,12 @@ export function GlobalChatPane({
                   Primary model for all-purpose chat
                 </span>
               </div>
-              {activeBitId === 'chat-model' && (
+              {activeBitContextId === 'chat-model' && (
                 <CheckIcon className="h-4 w-4" />
               )}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => setActiveBitId('chat-model-reasoning')}
+              onClick={() => setActiveBitContextId('chat-model-reasoning')}
               className="flex items-center justify-between"
             >
               <div className="flex flex-col">
@@ -239,7 +494,7 @@ export function GlobalChatPane({
                   Uses advanced reasoning
                 </span>
               </div>
-              {activeBitId === 'chat-model-reasoning' && (
+              {activeBitContextId === 'chat-model-reasoning' && (
                 <CheckIcon className="h-4 w-4" />
               )}
             </DropdownMenuItem>
@@ -251,6 +506,7 @@ export function GlobalChatPane({
       <div
         ref={messagesContainerRef}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
+        data-testid="messages-container"
       >
         {messages.length === 0 ? (
           <div className="text-center text-muted-foreground py-8">
@@ -310,20 +566,16 @@ export function GlobalChatPane({
 
           <div className="absolute bottom-0 inset-x-0 p-2 flex flex-row justify-between">
             <div className="pl-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    type="button"
-                    className="size-6 text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-1 focus-visible:ring-primary transition-colors"
-                    aria-label="Attach files"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Attach files</TooltipContent>
-              </Tooltip>
+              <Button
+                variant="ghost"
+                size="icon"
+                type="button"
+                className="size-6 text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-1 focus-visible:ring-primary transition-colors"
+                aria-label="Attach files"
+                title="Attach files"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
             </div>
             <div>
               {status === 'streaming' ? (

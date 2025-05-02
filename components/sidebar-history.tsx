@@ -333,19 +333,22 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
   }, [paginatedDocumentHistories]);
 
   const handleDelete = async () => {
-    const deletePromise = fetch(`/api/chat?id=${deleteId}`, {
-      method: 'DELETE',
-    });
+    try {
+      const response = await fetch(`/api/chat?id=${deleteId}`, {
+        method: 'DELETE',
+      });
 
-    toast.promise(deletePromise, {
-      loading: 'Deleting chat...',
-      success: () => {
+      if (!response.ok) {
+        toast.error('Failed to delete chat');
+      } else {
         // Force a complete refresh of the chat history
         mutateChatHistory();
-        return 'Chat deleted successfully';
-      },
-      error: 'Failed to delete chat',
-    });
+        console.log('[Sidebar] Chat deleted successfully');
+      }
+    } catch (error) {
+      console.error('[Sidebar] Error deleting chat:', error);
+      toast.error('Failed to delete chat');
+    }
 
     setShowDeleteDialog(false);
 
@@ -359,19 +362,22 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
   const [showDeleteDocDialog, setShowDeleteDocDialog] = useState(false);
 
   const handleDeleteDocument = async () => {
-    const deletePromise = fetch(`/api/documents/${deleteDocId}`, {
-      method: 'DELETE',
-    });
+    try {
+      const response = await fetch(`/api/documents/${deleteDocId}`, {
+        method: 'DELETE',
+      });
 
-    toast.promise(deletePromise, {
-      loading: 'Deleting document...',
-      success: () => {
+      if (!response.ok) {
+        toast.error('Failed to delete document');
+      } else {
         // Force a complete refresh of the document history
         mutateDocumentHistory();
-        return 'Document deleted successfully';
-      },
-      error: 'Failed to delete document',
-    });
+        console.log('[Sidebar] Document deleted successfully');
+      }
+    } catch (error) {
+      console.error('[Sidebar] Error deleting document:', error);
+      toast.error('Failed to delete document');
+    }
 
     setShowDeleteDocDialog(false);
 
@@ -430,7 +436,7 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
             <SidebarMenu>
               {displayChats.map((chat) => (
                 <ChatItem
-                  key={chat.id}
+                  key={`chat-${chat.id}-${chat.createdAt}`}
                   chat={chat}
                   isActive={chat.id === chatId}
                   onDelete={(chatId) => {
@@ -504,9 +510,9 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
         {isExpanded && (
           <SidebarGroupContent>
             <SidebarMenu>
-              {docsToShow.map((doc) => (
+              {docsToShow.map((doc, index) => (
                 <ChatItem
-                  key={doc.id}
+                  key={`doc-${doc.id}-${doc.createdAt}`}
                   chat={doc as unknown as Chat}
                   isActive={doc.id === currentDocId}
                   onDelete={(docId) => {

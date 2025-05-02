@@ -363,6 +363,7 @@ export async function saveDocument({
   userId: string;
 }) {
   try {
+    console.log(`[DB] Saving document ${id} with kind=${kind}`);
     return await db.insert(document).values({
       id,
       title,
@@ -372,7 +373,7 @@ export async function saveDocument({
       createdAt: new Date(),
     });
   } catch (error) {
-    console.error('Failed to save document in database');
+    console.error('Failed to save document in database', error);
     throw error;
   }
 }

@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { getDocumentById } from '@/lib/db/queries';
 import { DynamicStructuredTool } from '@langchain/core/tools';
 
 const updateDocumentSchema = z.object({
@@ -12,37 +11,18 @@ const updateDocumentSchema = z.object({
 export const updateDocumentTool = new DynamicStructuredTool({
   name: 'updateDocument',
   description:
-    'Update an existing document artifact with the given description of changes.',
+    'Updates the content of the currently active, editable document artifact identified by its ID. Takes the document ID and a description of the requested changes (e.g., "make the first paragraph bold", "summarize the text", "fix typos"). Use this tool for any modifications or content generation related to the document the user is currently editing.',
   schema: updateDocumentSchema,
-  func: async ({ id, description }) => {
+  func: async ({ id, description }: { id: string; description: string }) => {
     console.log(
-      `[updateDocumentTool] Called for ID: ${id} with description: "${description}"`,
+      `[updateDocumentTool] Signalling intent to update ID: ${id} with description: "${description}"`,
     );
-
-    // Get original doc details for context/return value
-    const document = await getDocumentById({ id });
-    if (!document) {
-      console.error(`[updateDocumentTool] Document not found for ID: ${id}`);
-      return `Error: Document with ID ${id} not found.`;
-    }
-
-    // --- TEMPORARY SIMPLIFICATION to fix build error ---
-    console.log(
-      `[updateDocumentTool] Placeholder: Simulating update for document "${document.title}" (ID: ${id})`,
-    );
-    // Bypassing actual document update and streaming for now.
-    // TODO: Re-implement actual document update logic and streaming handling later.
-    // const documentHandler = documentHandlersByArtifactKind.find(/*...*/);
-    // if (!documentHandler) { /* ... */ }
-    // await documentHandler.onUpdateDocument({ document, description, dataStream: /* ??? */, session: /* ??? */ });
-
-    // Return a simple summary string for the agent
-    return {
+    // Return arguments needed by the handler, identifying the tool
+    // Returning JSON makes it easier for the /api/brain route to parse
+    return JSON.stringify({
+      tool_name: 'updateDocument', // Identify the tool called
       id: id,
-      title: document.title,
-      kind: document.kind,
-      content: `Placeholder: Document artifact '${document.title}' (ID: ${id}) would be updated based on description. Full implementation pending.`,
-    };
-    // --- END TEMPORARY SIMPLIFICATION ---
+      description: description,
+    });
   },
 });

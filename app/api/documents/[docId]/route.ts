@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/(auth)/auth';
 import { db } from '@/lib/db';
 import { document } from '@/lib/db/schema';
@@ -16,6 +16,21 @@ export async function GET(
 
     if (!userId) {
       return new NextResponse('Unauthorized', { status: 401 });
+    }
+
+    // Special handling for 'new' document ID - return an empty template document
+    if (docId === 'new') {
+      console.log('Returning template for new document');
+      return NextResponse.json({
+        document: {
+          id: 'new',
+          title: 'Untitled Document',
+          content: '<p>Start typing your document here...</p>',
+          kind: 'text',
+          userId,
+          createdAt: new Date().toISOString(),
+        },
+      });
     }
 
     // Fetch the document using proper Drizzle query syntax
@@ -36,10 +51,14 @@ export async function GET(
       return new NextResponse('Forbidden', { status: 403 });
     }
 
-    return NextResponse.json(doc);
-  } catch (error) {
+    return NextResponse.json({ document: doc });
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
     console.error('Error fetching document:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    return new NextResponse(`Internal Server Error: ${errorMessage}`, {
+      status: 500,
+    });
   }
 }
 
@@ -61,9 +80,13 @@ export async function PUT(
     let body;
     try {
       body = await request.json();
-    } catch (e) {
+    } catch (e: unknown) {
+      const errorMessage =
+        e instanceof Error ? e.message : 'Unknown parsing error';
       console.error('Failed to parse request body:', e);
-      return new NextResponse('Invalid request body', { status: 400 });
+      return new NextResponse(`Invalid request body: ${errorMessage}`, {
+        status: 400,
+      });
     }
 
     const { content, title } = body;
@@ -126,9 +149,13 @@ export async function PUT(
       .returning();
 
     return NextResponse.json(updatedDoc[0]);
-  } catch (error) {
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
     console.error('Error updating document:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    return new NextResponse(`Internal Server Error: ${errorMessage}`, {
+      status: 500,
+    });
   }
 }
 
@@ -167,8 +194,12 @@ export async function DELETE(
     await db.delete(document).where(eq(document.id, docId));
 
     return new NextResponse(null, { status: 204 });
-  } catch (error) {
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
     console.error('Error deleting document:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    return new NextResponse(`Internal Server Error: ${errorMessage}`, {
+      status: 500,
+    });
   }
 }

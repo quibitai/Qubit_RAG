@@ -13,12 +13,12 @@ interface TitleUpdateRequest {
 // PATCH handler to update only the title of a document
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { docId: string } },
+  { params }: { params: Promise<{ docId: string }> },
 ) {
   try {
     const session = await auth();
     const userId = session?.user?.id;
-    const { docId } = params;
+    const { docId } = await params;
 
     if (!userId) {
       return new NextResponse('Unauthorized', { status: 401 });

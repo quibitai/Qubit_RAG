@@ -2,7 +2,7 @@
 
 A modular, enterprise-grade Retrieval-Augmented Generation (RAG) system with native file handling, Google Drive integration, and a modern Vercel-hosted chatbot interface.
 
-![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Version](https://img.shields.io/badge/version-1.6.0-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-15.3.0-black)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-green)
 ![LangChain](https://img.shields.io/badge/LangChain-0.3.24-yellow)
@@ -19,26 +19,28 @@ Quibit RAG is an advanced AI assistant platform that combines modern language mo
 - **Multi-model Support**: Dynamic LLM selection based on use cases
 - **Multi-user Capabilities**: Authentication and permission management
 
-## ✨ Key Features in v1.2.0
+## ✨ Key Features in v1.6.0
 
-### Enhanced File Processing
+### Improved Chat Experience
 
-- **Intelligent File Extraction**: Primary extraction with n8n workflows and fallback to direct LLM processing
-- **Microsoft Office Format Support**: Native handling of DOCX, XLSX, PPTX files using GPT-4's capabilities
-- **Smart File Detection**: Format-specific processing strategies for optimal results
-- **Graceful Fallbacks**: Automatic recovery when primary extraction fails
+- **Global Chat Pane**: Dedicated chat interface that works alongside document editing
+- **New Chat Button**: Quick access to start fresh conversations in the global chat
+- **Enhanced Message Handling**: Fixed duplicate messages and improved sidebar history
+- **Better Error Handling**: Focused error toast notifications for a cleaner UX
 
-### Improved Brain API
+### Enhanced Document System
 
-- **Context-aware Processing**: Better handling of file context in LLM prompts
-- **Dynamic Instruction Generation**: Specialized instructions based on file type
-- **Enhanced Error Handling**: Clear user feedback for processing limitations
+- **Document Editor Improvements**: Stability enhancements and bug fixes
+- **Real-time Collaboration**: Better synchronization between editor instances
+- **Simplified UI**: Reduced notification noise with console-based logging instead of toasts
+- **Comprehensive Debug Tools**: New debugging panel and testing endpoints
 
-### Refined UX
+### UI and Performance Enhancements
 
-- **Clearer Error Messages**: Improved user feedback for file processing issues
-- **Streamlined Interactions**: Fewer unnecessary tool calls for supported formats
-- **Responsive Design**: Optimized mobile and desktop experience
+- **Streamlined Interface**: Cleaner UX with reduced toast notifications
+- **Better Navigation**: Fixed orchestration links and navigation between chat contexts
+- **Performance Optimization**: Improved caching and reduced redundant API calls
+- **Better Mobile Experience**: Enhanced responsive design for all screen sizes
 
 ## 🏗️ Architecture
 
@@ -224,3 +226,26 @@ MIT
 - [Database Schema](./docs/DATABASE.md)
 - [Tool Integration](./docs/TOOLS.md)
 - [Deployment Guide](./docs/DEPLOYMENT.md)
+
+## Document Editor Debugging
+
+We've added several debugging tools to help diagnose and fix issues with the document editor component:
+
+1. **Debug Documentation**:
+   - `docs/document-editor-issues.md` - Overview of issues and solutions
+   - `docs/debugging.md` - Guide to debugging tools and procedures
+
+2. **Test APIs**:
+   - `/api/ping` - Simple endpoint to test API connectivity
+   - `/api/documents/stream-test` - Test endpoint for document streaming
+
+3. **Debug Panel**:
+   - Access via `?debug=true` query parameter on any document page
+   - Automatically enabled in development environment
+   - Provides real-time monitoring of document events and API connectivity testing
+
+4. **Utility Functions**:
+   - `utils/test-document-functionality.ts` - Testing and debugging utilities
+   - `utils/document-sync-validator.ts` - Content validation and sanitization
+
+See the debugging documentation for more details on using these tools.

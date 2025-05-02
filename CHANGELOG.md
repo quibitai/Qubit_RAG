@@ -5,6 +5,31 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2024-07-15
+
+### Added
+- New "+" button in Global Chat Pane for starting fresh conversations
+- Comprehensive debugging tools for document editor component
+- Debug documentation in docs/document-editor-issues.md and docs/debugging.md
+- Test APIs for document streaming and connectivity verification
+- Debug panel accessible via ?debug=true query parameter
+
+### Changed
+- Improved chat experience with fixed sidebar history and duplicate message prevention
+- Reduced toast notifications to focus only on errors for cleaner UX
+- Enhanced document editor with better synchronization and stability
+- Fixed navigation between different chat contexts
+- Optimized cache invalidation in the chat and document systems
+- Better hydration error handling for React components
+
+### Fixed
+- Fixed issue where clicking on orchestrator in main chat did nothing
+- Resolved React hydration errors related to browser extensions
+- Fixed duplicate toast messages when deleting document histories
+- Resolved issue with new chats not being saved to sidebar history
+- Fixed duplicate messages in the global chat pane
+- Enhanced cache invalidation for better state management
+
 ## [1.2.0] - 2024-06-01
 
 ### Added

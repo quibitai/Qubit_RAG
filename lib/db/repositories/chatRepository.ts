@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import { chats, messages } from '@/lib/db/schema';
+import { chat, message } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { retryWithBackoff } from '@/lib/utils';
 
@@ -16,7 +16,13 @@ export class ChatRepository {
    * @returns Object containing success status and chat ID
    */
   async createChat(
-    chatData: { id: string; userId: string; title: string },
+    chatData: {
+      id: string;
+      userId: string;
+      title: string;
+      createdAt: Date;
+      visibility?: 'public' | 'private';
+    },
     messageData: Array<{
       id: string;
       chatId: string;
@@ -24,6 +30,7 @@ export class ChatRepository {
       content: string;
       createdAt: Date;
       parts?: any[];
+      attachments?: any[];
     }>,
   ) {
     try {
@@ -33,12 +40,25 @@ export class ChatRepository {
           `[ChatRepository] Creating chat ${chatData.id} for user ${chatData.userId}`,
         );
 
-        // Insert chat record
-        await tx.insert(chats).values(chatData);
+        // Insert chat record with required fields
+        await tx.insert(chat).values({
+          id: chatData.id,
+          userId: chatData.userId,
+          title: chatData.title,
+          createdAt: chatData.createdAt,
+          visibility: chatData.visibility || 'private',
+        });
 
-        // Insert message records
+        // Insert message records with all required fields
         if (messageData.length > 0) {
-          await tx.insert(messages).values(messageData);
+          // Ensure each message has the required attachments field
+          const messagesWithAttachments = messageData.map((msg) => ({
+            ...msg,
+            parts: msg.parts || [{ type: 'text', text: msg.content }],
+            attachments: msg.attachments || [],
+          }));
+
+          await tx.insert(message).values(messagesWithAttachments);
         }
 
         return { success: true, chatId: chatData.id };
@@ -81,11 +101,13 @@ export class ChatRepository {
     if (withRetry) {
       return await retryWithBackoff(
         () =>
-          db.query.chats.findFirst({
-            where: eq(chats.id, chatId),
+          db.query.chat.findFirst({
+            where: eq(chat.id, chatId),
             with: {
               messages: {
-                orderBy: (messages, { asc }) => [asc(messages.createdAt)],
+                orderBy: (messages: any, { asc }: any) => [
+                  asc(messages.createdAt),
+                ],
               },
             },
           }),
@@ -95,11 +117,11 @@ export class ChatRepository {
       );
     }
 
-    return await db.query.chats.findFirst({
-      where: eq(chats.id, chatId),
+    return await db.query.chat.findFirst({
+      where: eq(chat.id, chatId),
       with: {
         messages: {
-          orderBy: (messages, { asc }) => [asc(messages.createdAt)],
+          orderBy: (messages: any, { asc }: any) => [asc(messages.createdAt)],
         },
       },
     });
@@ -113,7 +135,7 @@ export class ChatRepository {
    */
   async verifyChat(chatId: string): Promise<boolean> {
     const result = await retryWithBackoff(
-      () => db.query.chats.findFirst({ where: eq(chats.id, chatId) }),
+      () => db.query.chat.findFirst({ where: eq(chat.id, chatId) }),
       3,
       300,
       (result) => result !== null,
@@ -138,6 +160,7 @@ export class ChatRepository {
       content: string;
       createdAt: Date;
       parts?: any[];
+      attachments?: any[];
     }>,
   ) {
     try {
@@ -145,7 +168,14 @@ export class ChatRepository {
         return { success: true, chatId };
       }
 
-      await db.insert(messages).values(messageData);
+      // Ensure each message has required fields
+      const messagesWithAllFields = messageData.map((msg) => ({
+        ...msg,
+        parts: msg.parts || [{ type: 'text', text: msg.content }],
+        attachments: msg.attachments || [],
+      }));
+
+      await db.insert(message).values(messagesWithAllFields);
       return { success: true, chatId };
     } catch (error) {
       console.error(

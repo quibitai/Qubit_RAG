@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
+import * as schema from './schema';
 
 // Validate environment variables
 if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
@@ -28,6 +29,11 @@ export const supabase = createClient(
     '',
 );
 
-// Create Postgres client
-const client = postgres(process.env.POSTGRES_URL);
-export const db = drizzle(client);
+// Create Postgres client with connection pooling disabled for edge compatibility
+export const sql = postgres(process.env.POSTGRES_URL, {
+  prepare: false, // Disable prepared statements
+  max: 1, // Set max connections to 1
+});
+
+// Pass the schema to drizzle
+export const db = drizzle(sql, { schema });

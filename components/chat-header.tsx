@@ -32,7 +32,7 @@ function PureChatHeader({
 }) {
   const router = useRouter();
   const { open } = useSidebar();
-  const { setActiveBitId, activeBitId } = useChatPane();
+  const { setActiveBitContextId, activeBitContextId } = useChatPane();
 
   const { width: windowWidth } = useWindowSize();
 
@@ -61,7 +61,7 @@ function PureChatHeader({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="h-8 gap-1">
-              {activeBitId === 'chat-model-reasoning'
+              {activeBitContextId === 'chat-model-reasoning'
                 ? 'Orchestrator'
                 : 'Echo Tango Bit'}
               <ChevronDown className="h-3 w-3" />
@@ -69,7 +69,7 @@ function PureChatHeader({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-[200px]">
             <DropdownMenuItem
-              onClick={() => setActiveBitId('chat-model')}
+              onClick={() => setActiveBitContextId('chat-model')}
               className="flex items-center justify-between"
             >
               <div className="flex flex-col">
@@ -78,12 +78,12 @@ function PureChatHeader({
                   Primary model for all-purpose chat
                 </span>
               </div>
-              {(activeBitId === 'chat-model' || !activeBitId) && (
+              {(activeBitContextId === 'chat-model' || !activeBitContextId) && (
                 <CheckIcon className="h-4 w-4" />
               )}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => setActiveBitId('chat-model-reasoning')}
+              onClick={() => setActiveBitContextId('chat-model-reasoning')}
               className="flex items-center justify-between"
             >
               <div className="flex flex-col">
@@ -92,7 +92,7 @@ function PureChatHeader({
                   Uses advanced reasoning
                 </span>
               </div>
-              {activeBitId === 'chat-model-reasoning' && (
+              {activeBitContextId === 'chat-model-reasoning' && (
                 <CheckIcon className="h-4 w-4" />
               )}
             </DropdownMenuItem>

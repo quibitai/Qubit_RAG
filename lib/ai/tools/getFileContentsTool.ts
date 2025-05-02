@@ -28,15 +28,15 @@ type FileContentsResponse = {
 export const getFileContentsTool = new DynamicStructuredTool({
   name: 'getFileContents',
   description: `
-    Retrieves the full text of a document by its metadata ID.
-    Calls the get_aggregated_document_content RPC, which aggregates all chunks
-    from the documents table where metadata->>'file_id' = the provided ID.
+    Retrieves indexed text content for a document ID from the RAG knowledge base using the get_aggregated_document_content RPC function.
+    This is used for retrieving information from indexed sources and may not reflect the absolute latest, unsaved changes in a live editor.
+    DO NOT use this to get the content of a document currently being actively edited in the Document Editor; use 'updateDocument' for modifications to active documents.
   `,
   schema: z.object({
     document_id: z
       .string()
       .describe(
-        'The metadata ID of the document as returned by listDocuments.',
+        'The metadata ID (file_id) of the document in the RAG knowledge base as returned by listDocuments.',
       ),
   }),
   func: async ({ document_id }): Promise<string> => {

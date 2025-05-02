@@ -124,7 +124,13 @@ const PurePreviewMessage = ({
                             message.role === 'user',
                         })}
                       >
-                        <Markdown>{part.text}</Markdown>
+                        <Markdown>
+                          {typeof part.text === 'string'
+                            ? part.text
+                                .replace(/<think>.*?<\/think>/gs, '')
+                                .trim()
+                            : ''}
+                        </Markdown>
                       </div>
                     </div>
                   );
@@ -207,7 +213,10 @@ const PurePreviewMessage = ({
                           isReadonly={isReadonly}
                         />
                       ) : (
-                        <MessageThinking toolResult={result} toolName={toolName} />
+                        <MessageThinking
+                          toolResult={result}
+                          toolName={toolName}
+                        />
                       )}
                     </div>
                   );
@@ -231,17 +240,21 @@ const PurePreviewMessage = ({
   );
 };
 
-export const PreviewMessage = memo(
-  PurePreviewMessage,
-  (prevProps, nextProps) => {
-    if (prevProps.isLoading !== nextProps.isLoading) return false;
-    if (prevProps.message.id !== nextProps.message.id) return false;
-    if (!equal(prevProps.message.parts, nextProps.message.parts)) return false;
-    if (!equal(prevProps.vote, nextProps.vote)) return false;
+// Temporarily disable memoization to improve streaming performance
+// export const PreviewMessage = memo(
+//   PurePreviewMessage,
+//   (prevProps, nextProps) => {
+//     if (prevProps.isLoading !== nextProps.isLoading) return false;
+//     if (prevProps.message.id !== nextProps.message.id) return false;
+//     if (!equal(prevProps.message.parts, nextProps.message.parts)) return false;
+//     if (!equal(prevProps.vote, nextProps.vote)) return false;
+//
+//     return true;
+//   },
+// );
 
-    return true;
-  },
-);
+// Use non-memoized version for better streaming responsiveness
+export const PreviewMessage = PurePreviewMessage;
 
 export const ThinkingMessage = () => {
   const role = 'assistant';

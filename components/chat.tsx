@@ -102,6 +102,15 @@ export function Chat({
   const chatPersistedRef = useRef<boolean>(initialMessages.length > 0);
   // Add a component-specific reference to track persisted chat IDs
   const persistedChatIdsRef = useRef<Set<string>>(new Set<string>());
+  // Add isMounted ref to prevent state updates after unmount
+  const isMountedRef = useRef<boolean>(true);
+
+  // Set up unmount cleanup
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   console.log(
     '[Chat] chatPersistedRef initialized to:',
@@ -111,12 +120,17 @@ export function Chat({
   // If we have initialMessages, add this chat ID to our persisted set
   useEffect(() => {
     if (initialMessages.length > 0 && id) {
-      persistedChatIdsRef.current.add(id);
-      console.log('[Chat] Added chat ID to persisted set:', id);
-      console.log(
-        '[Chat] Current persisted IDs:',
-        Array.from(persistedChatIdsRef.current),
-      );
+      // Use requestAnimationFrame to defer state updates
+      requestAnimationFrame(() => {
+        if (isMountedRef.current) {
+          persistedChatIdsRef.current.add(id);
+          console.log('[Chat] Added chat ID to persisted set:', id);
+          console.log(
+            '[Chat] Current persisted IDs:',
+            Array.from(persistedChatIdsRef.current),
+          );
+        }
+      });
     }
   }, [id, initialMessages.length]);
 
@@ -150,87 +164,55 @@ export function Chat({
     api: '/api/brain',
     body: { id, selectedChatModel: selectedChatModel },
     initialMessages,
-    experimental_throttle: 100,
+    experimental_throttle: 0,
+    streamProtocol: 'data',
     sendExtraMessageFields: true,
     generateId: generateUUID,
+    onError: (error: any) => {
+      console.error('[Chat] useChat onError callback triggered:', error);
+      // Log more details about the error if available
+      if (error instanceof Error) {
+        console.error('[Chat] Error name:', error.name);
+        console.error('[Chat] Error message:', error.message);
+        console.error('[Chat] Error stack:', error.stack);
+      }
+
+      // Check for response errors
+      if ('response' in error && error.response) {
+        const response = error.response as Response;
+        console.error('[Chat] Response status:', response.status);
+        console.error('[Chat] Response statusText:', response.statusText);
+
+        // Try to get more details from the response
+        response
+          .text()
+          .then((text: string) => {
+            console.error('[Chat] Response body:', text);
+            try {
+              const json = JSON.parse(text);
+              console.error('[Chat] Response JSON:', json);
+            } catch (e) {
+              // Not JSON, which is fine
+            }
+          })
+          .catch((e: Error) => {
+            console.error('[Chat] Could not read response body:', e);
+          });
+      }
+
+      // Don't show error toasts during development to avoid confusion
+      if (process.env.NODE_ENV === 'production') {
+        toast.error('An error occurred. Please try again.');
+      }
+    },
     onResponse: (response) => {
       // Log basic response information
       console.log(
         `[Chat] Received response from API, status: ${response.status}`,
       );
 
-      const originalBody = response.body;
-
-      if (!originalBody) return;
-
-      const { readable, writable } = new TransformStream();
-      const reader = originalBody.getReader();
-      const decoder = new TextDecoder();
-
-      const pump = async () => {
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-
-            if (done) {
-              writable.close();
-              break;
-            }
-
-            const chunk = decoder.decode(value, { stream: true });
-
-            const debugMatches = chunk.match(/data: (.*?)\n\n/g);
-            if (debugMatches?.length) {
-              for (const match of debugMatches) {
-                try {
-                  const jsonStr = match.replace(/^data: /, '').trim();
-                  const debugData = JSON.parse(jsonStr);
-
-                  if (
-                    debugData.type === 'debug' &&
-                    Array.isArray(debugData.toolCalls)
-                  ) {
-                    console.log(
-                      `[Chat] Processing ${debugData.toolCalls.length} tool calls`,
-                    );
-                    console.log(
-                      `[Chat] Tool calls details:`,
-                      debugData.toolCalls,
-                    );
-
-                    const event = new CustomEvent('debug-tool-calls', {
-                      detail: debugData.toolCalls,
-                    });
-                    window.dispatchEvent(event);
-                  }
-                } catch (e) {
-                  console.error('[Chat] Failed to process debug data:', e);
-                  console.error('[Chat] Raw debug chunk:', match);
-                }
-              }
-            }
-
-            const writer = writable.getWriter();
-            writer.write(value);
-            writer.releaseLock();
-          }
-        } catch (e) {
-          console.error('[Chat] Stream processing error:', e);
-          writable.abort(e);
-        }
-      };
-
-      pump();
-
-      const newResponse = new Response(readable, {
-        headers: response.headers,
-        status: response.status,
-        statusText: response.statusText,
-      });
-
-      Object.defineProperty(response, 'body', {
-        value: newResponse.body,
-      });
+      // No need for custom transformation anymore since the server now sends
+      // properly formatted data stream that the AI SDK can understand directly
     },
     onFinish: (message) => {
       // Define custom type that includes finish_reason
@@ -255,6 +237,7 @@ export function Chat({
           console.log(
             '[Chat] WARNING: Assistant message has no content and no finish_reason',
           );
+          return; // Early return for messages without content
         } else if (!extendedMessage.content) {
           console.log(
             '[Chat] Assistant message has no content, finish_reason:',
@@ -268,13 +251,8 @@ export function Chat({
               extendedMessage,
             );
           }
+          return; // Early return for messages without content
         }
-      }
-
-      // Only skip saving messages without content
-      if (!extendedMessage.content) {
-        console.log('[Chat] Skipping saving message with no content');
-        return;
       }
 
       // Get the most recent messages from state to ensure we use current state
@@ -312,21 +290,47 @@ export function Chat({
               id,
             );
 
-            createChatAndSaveFirstMessages({
+            // Construct clear message objects with proper structure
+            const userMessage = {
+              id: lastUserMsgRef.current.id,
               chatId: id,
-              userMessage: lastUserMsgRef.current,
-              assistantMessage: {
-                id: extendedMessage.id,
-                chatId: id,
-                role: extendedMessage.role,
-                parts: Array.isArray(extendedMessage.parts)
-                  ? extendedMessage.parts
-                  : [{ type: 'text', text: extendedMessage.content as string }],
-                attachments:
-                  (extendedMessage as any).experimental_attachments || [],
-                createdAt: new Date(extendedMessage.createdAt || new Date()),
+              role: lastUserMsgRef.current.role,
+              parts: lastUserMsgRef.current.parts,
+              attachments: lastUserMsgRef.current.attachments,
+              createdAt: lastUserMsgRef.current.createdAt,
+            };
+
+            const assistantMessage = {
+              id: extendedMessage.id,
+              chatId: id,
+              role: extendedMessage.role,
+              parts: Array.isArray(extendedMessage.parts)
+                ? extendedMessage.parts
+                : [{ type: 'text', text: extendedMessage.content as string }],
+              attachments:
+                (extendedMessage as any).experimental_attachments || [],
+              createdAt: new Date(extendedMessage.createdAt || new Date()),
+            };
+
+            console.log('[Chat] Saving first messages:', {
+              userMessage,
+              assistantMessage,
+            });
+
+            // Call the API directly to ensure it works
+            fetch('/api/chat-actions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
               },
+              body: JSON.stringify({
+                action: 'createChatAndSaveFirstMessages',
+                chatId: id,
+                userMessage,
+                assistantMessage,
+              }),
             })
+              .then((res) => res.json())
               .then((result) => {
                 console.log(
                   '[Chat] createChatAndSaveFirstMessages result:',
@@ -344,24 +348,34 @@ export function Chat({
                   );
 
                   // Mark all current messages as saved
-                  setMessages((prev) =>
-                    prev.map((m) => ({ ...m, __saved: true })),
-                  );
+                  requestAnimationFrame(() => {
+                    if (isMountedRef.current) {
+                      setMessages((prev) =>
+                        prev.map((m) => ({ ...m, __saved: true })),
+                      );
 
-                  // Invalidate the chats cache to refresh the sidebar using multiple approaches
-                  // 1. Use the SWR key for the paginated chat history
-                  mutate(unstable_serialize(getChatHistoryPaginationKey));
+                      // Invalidate all history-related caches
+                      // 1. Use the SWR key for the paginated chat history
+                      const historyKey = unstable_serialize(
+                        getChatHistoryPaginationKey,
+                      );
+                      console.log(
+                        '[Chat] Invalidating history key:',
+                        historyKey,
+                      );
+                      mutate(historyKey);
 
-                  // 2. Force a complete invalidation of all history-related caches
-                  for (const key of Object.keys(cache.get() || {})) {
-                    if (key.includes('/api/history')) {
-                      console.log('[Chat] Invalidating cache key:', key);
-                      mutate(key);
+                      // 2. Force a complete invalidation of all history-related caches with a broad pattern
+                      mutate(/\/api\/history.*/);
+
+                      // 3. Directly invalidate common history endpoints
+                      mutate('/api/history?limit=20');
+                      mutate('/api/history');
+
+                      // 4. Trigger a router refresh to ensure sidebar updates
+                      router.refresh();
                     }
-                  }
-
-                  // 3. Directly invalidate the first page of history
-                  mutate('/api/history?limit=20');
+                  });
 
                   // Get the chat ID from the result (if available) or use the current ID
                   const navigateToChatId = result?.chatId || id;
@@ -378,93 +392,95 @@ export function Chat({
                   router.push(`/chat/${navigateToChatId}`);
                 } else {
                   console.error(
-                    '[Chat] Failed to save first messages:',
+                    '[Chat] Failed to create chat:',
                     result?.error || 'Unknown error',
                   );
-
-                  // Remove from set on error so we can try again
-                  persistedChatIdsRef.current.delete(id);
-                  console.log(
-                    '[Chat] Removed from persisted IDs due to error:',
-                    id,
-                  );
-
                   toast.error(
                     'Failed to save your conversation. Please try again.',
                   );
                 }
               })
               .catch((err) => {
-                console.error('[Chat] Error saving first messages:', err);
-
-                // Remove from set on error so we can try again
-                persistedChatIdsRef.current.delete(id);
-                console.log(
-                  '[Chat] Removed from persisted IDs due to error:',
-                  id,
-                );
-
+                console.error('[Chat] Error in createChat:', err);
                 toast.error(
                   'Failed to save your conversation. Please try again.',
                 );
               });
-          } else {
-            console.log(
-              '[Chat] Chat already persisted, not saving first messages again',
-            );
           }
         } else if (lastUserMsgRef.current) {
           console.log('[Chat] Subsequent turn detected, saving messages...');
 
-          // Update to use structured params instead of FormData
-          saveSubsequentMessages({
+          // Construct clear message objects with proper structure
+          const userMessage = {
+            id: lastUserMsgRef.current.id,
             chatId: id,
-            userMessage: lastUserMsgRef.current,
-            assistantMessage: {
-              id: extendedMessage.id,
-              chatId: id,
-              role: extendedMessage.role,
-              parts: Array.isArray(extendedMessage.parts)
-                ? extendedMessage.parts
-                : [{ type: 'text', text: extendedMessage.content as string }],
-              attachments:
-                (extendedMessage as any).experimental_attachments || [],
-              createdAt: new Date(extendedMessage.createdAt || new Date()),
+            role: lastUserMsgRef.current.role,
+            parts: lastUserMsgRef.current.parts,
+            attachments: lastUserMsgRef.current.attachments,
+            createdAt: lastUserMsgRef.current.createdAt,
+          };
+
+          const assistantMessage = {
+            id: extendedMessage.id,
+            chatId: id,
+            role: extendedMessage.role,
+            parts: Array.isArray(extendedMessage.parts)
+              ? extendedMessage.parts
+              : [{ type: 'text', text: extendedMessage.content as string }],
+            attachments:
+              (extendedMessage as any).experimental_attachments || [],
+            createdAt: new Date(extendedMessage.createdAt || new Date()),
+          };
+
+          console.log('[Chat] Saving subsequent messages:', {
+            userMessage,
+            assistantMessage,
+          });
+
+          // Call the API directly to ensure it works
+          fetch('/api/chat-actions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
             },
+            body: JSON.stringify({
+              action: 'saveSubsequentMessages',
+              chatId: id,
+              userMessage,
+              assistantMessage,
+            }),
           })
+            .then((res) => res.json())
             .then((result) => {
               console.log('[Chat] saveSubsequentMessages result:', result);
 
-              // Check if the operation succeeded
+              // Add cache invalidation here too
               if (result?.success) {
-                console.log(
-                  '[Chat] Successfully persisted subsequent messages',
-                );
+                console.log('[Chat] Successfully saved subsequent messages');
 
-                // Mark the messages as saved
-                setMessages((prev) => {
-                  return prev.map((m) => {
-                    if (
-                      m.id === lastUserMsgRef.current?.id ||
-                      m.id === extendedMessage.id
-                    ) {
-                      return { ...m, __saved: true };
-                    }
-                    return m;
-                  });
+                // Invalidate all history-related caches to update sidebar
+                // Use requestAnimationFrame to defer state updates
+                requestAnimationFrame(() => {
+                  if (isMountedRef.current) {
+                    // 1. Use the SWR key for the paginated chat history
+                    const historyKey = unstable_serialize(
+                      getChatHistoryPaginationKey,
+                    );
+                    console.log('[Chat] Invalidating history key:', historyKey);
+                    mutate(historyKey);
+
+                    // 2. Force a complete invalidation of all history-related caches
+                    mutate(/\/api\/history.*/);
+
+                    // 3. Directly invalidate common history endpoints
+                    mutate('/api/history?limit=20');
+                    mutate('/api/history');
+                  }
                 });
-              } else {
-                console.error(
-                  '[Chat] Failed to save subsequent messages:',
-                  result?.error || 'Unknown error',
-                );
-                toast.error(
-                  'Failed to save your conversation. Please try again.',
-                );
               }
             })
             .catch((err) => {
-              console.error('[Chat] Error saving subsequent messages:', err);
+              console.error('[Chat] Error saving messages:', err);
               toast.error(
                 'Failed to save your conversation. Please try again.',
               );
@@ -544,11 +560,8 @@ export function Chat({
       // Store the file context for use in AI requests
       setFileContext(fileMeta);
 
-      // Notify user that file context is active
-      toast.success('File context added', {
-        description: `"${fileMeta.filename}" content is now available for the AI to reference.`,
-        duration: 3000,
-      });
+      // Log instead of showing toast
+      console.log(`[Chat] File context added: "${fileMeta.filename}"`);
     },
     [],
   );
@@ -571,10 +584,8 @@ export function Chat({
           className="p-1 hover:bg-gray-200 rounded-full"
           onClick={() => {
             setFileContext(null);
-            toast.success('File context removed', {
-              description: 'The AI will no longer reference this file.',
-              duration: 3000,
-            });
+            // Log instead of showing toast
+            console.log('[Chat] File context removed');
           }}
         >
           <XCircleIcon className="h-4 w-4" />
