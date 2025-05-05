@@ -1,3 +1,8 @@
+/**
+ * Final schema definition with all client_id columns as NOT NULL
+ * To be used after all migrations have been applied
+ */
+
 import type { InferSelectModel } from 'drizzle-orm';
 import {
   pgTable,
@@ -11,7 +16,7 @@ import {
   boolean,
 } from 'drizzle-orm/pg-core';
 
-// New Clients table
+// Clients table
 export const clients = pgTable('Clients', {
   id: text('id').primaryKey().notNull(),
   name: text('name').notNull(),

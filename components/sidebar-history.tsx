@@ -28,6 +28,8 @@ import { ChatItem } from './sidebar-history-item';
 import useSWRInfinite from 'swr/infinite';
 import { ChevronDownIcon, ChevronRightIcon, LoaderIcon } from './icons';
 import { FileEdit, MessageSquare } from 'lucide-react';
+import { deleteChat } from '@/app/(chat)/actions';
+import { useTransition } from 'react';
 
 type GroupedChats = {
   today: Chat[];
@@ -158,6 +160,7 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isPending, startTransition] = useTransition();
 
   // State for expanded day sections and number of chats to show per day
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({
@@ -333,28 +336,38 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
   }, [paginatedDocumentHistories]);
 
   const handleDelete = async () => {
-    try {
-      const response = await fetch(`/api/chat?id=${deleteId}`, {
-        method: 'DELETE',
-      });
+    if (!deleteId) {
+      setShowDeleteDialog(false);
+      return;
+    }
 
-      if (!response.ok) {
+    // Use useTransition to show loading state
+    startTransition(async () => {
+      try {
+        const result = await deleteChat(deleteId);
+
+        if (result.success) {
+          // Force a complete refresh of the chat history
+          mutateChatHistory();
+          console.log('[Sidebar] Chat deleted successfully');
+          toast.success('Chat deleted successfully');
+        } else {
+          console.error('[Sidebar] Error deleting chat:', result.error);
+          toast.error(
+            `Failed to delete chat: ${result.error || 'Unknown error'}`,
+          );
+        }
+      } catch (error) {
+        console.error('[Sidebar] Error deleting chat:', error);
         toast.error('Failed to delete chat');
-      } else {
-        // Force a complete refresh of the chat history
-        mutateChatHistory();
-        console.log('[Sidebar] Chat deleted successfully');
       }
-    } catch (error) {
-      console.error('[Sidebar] Error deleting chat:', error);
-      toast.error('Failed to delete chat');
-    }
 
-    setShowDeleteDialog(false);
+      setShowDeleteDialog(false);
 
-    if (deleteId === chatId) {
-      router.push('/');
-    }
+      if (deleteId === chatId) {
+        router.push('/');
+      }
+    });
   };
 
   // Add a document delete handler
@@ -725,8 +738,14 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+            <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={isPending}
+              className={isPending ? 'opacity-70 cursor-not-allowed' : ''}
+            >
+              {isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

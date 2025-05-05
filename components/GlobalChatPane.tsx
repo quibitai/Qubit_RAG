@@ -223,92 +223,36 @@ export function GlobalChatPane({
       if (chatPersistedRef.current) {
         console.log('[GlobalChatPane] Chat already persisted, adding messages');
 
-        // Save subsequent messages
-        fetch('/api/chat-actions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            action: 'saveSubsequentMessages',
-            chatId: currentChatId,
-            userMessage: lastUserMsgRef.current,
-            assistantMessage: {
-              id: message.id,
-              chatId: currentChatId,
-              role: message.role,
-              parts: Array.isArray(message.parts)
-                ? message.parts
-                : [{ type: 'text', text: message.content }],
-              attachments: message.attachments || [],
-              createdAt: new Date(),
-            },
-          }),
-        })
-          .then((res) => res.json())
-          .then((result) => {
-            console.log(
-              '[GlobalChatPane] saveSubsequentMessages result:',
-              result,
-            );
+        // Note: Removed fetch to /api/chat-actions
+        // Messages are now saved directly by the Brain API
+        console.log(
+          '[GlobalChatPane] Skipping manual message save - handled by Brain API',
+        );
 
-            // Mark this message as saved
-            savedMessageIdsRef.current.add(message.id);
-            processingMessageIdsRef.current.delete(message.id);
-            console.log(
-              `[GlobalChatPane] Marked message ${message.id} as saved`,
-            );
-          })
-          .catch((err) => {
-            console.error('[GlobalChatPane] Error saving messages:', err);
-            processingMessageIdsRef.current.delete(message.id);
-          });
+        // Still mark this message as processed
+        savedMessageIdsRef.current.add(message.id);
+        processingMessageIdsRef.current.delete(message.id);
+        console.log(
+          `[GlobalChatPane] Marked message ${message.id} as processed`,
+        );
       } else {
         console.log('[GlobalChatPane] New chat, creating with messages');
 
-        // Create new chat with first messages
-        fetch('/api/chat-actions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            action: 'createChatAndSaveFirstMessages',
-            chatId: currentChatId,
-            userMessage: lastUserMsgRef.current,
-            assistantMessage: {
-              id: message.id,
-              chatId: currentChatId,
-              role: message.role,
-              parts: Array.isArray(message.parts)
-                ? message.parts
-                : [{ type: 'text', text: message.content }],
-              attachments: message.attachments || [],
-              createdAt: new Date(),
-            },
-          }),
-        })
-          .then((res) => res.json())
-          .then((result) => {
-            console.log(
-              '[GlobalChatPane] createChatAndSaveFirstMessages result:',
-              result,
-            );
-            if (result.success) {
-              // Mark chat as persisted to avoid future creations
-              chatPersistedRef.current = true;
-              // Mark this message as saved
-              savedMessageIdsRef.current.add(message.id);
-              console.log(
-                `[GlobalChatPane] Marked message ${message.id} as saved`,
-              );
-            }
-            processingMessageIdsRef.current.delete(message.id);
-          })
-          .catch((err) => {
-            console.error('[GlobalChatPane] Error creating chat:', err);
-            processingMessageIdsRef.current.delete(message.id);
-          });
+        // Note: Removed fetch to /api/chat-actions
+        // Messages are now saved directly by the Brain API
+        console.log(
+          '[GlobalChatPane] Skipping manual message save - handled by Brain API',
+        );
+
+        // Mark chat as persisted to avoid future creations
+        chatPersistedRef.current = true;
+
+        // Mark this message as processed
+        savedMessageIdsRef.current.add(message.id);
+        processingMessageIdsRef.current.delete(message.id);
+        console.log(
+          `[GlobalChatPane] Marked message ${message.id} as processed`,
+        );
       }
 
       // Reset the user message ref

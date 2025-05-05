@@ -1068,6 +1068,9 @@ async function getAvailableTools() {
  * POST handler for the Brain API
  */
 export async function POST(req: NextRequest) {
+  // Add flag to track assistant message saving status
+  let assistantMessageSaved = false;
+
   try {
     // Parse request body - using let to allow reassignment
     let reqBody: {
@@ -1155,6 +1158,7 @@ export async function POST(req: NextRequest) {
     // Get current user session
     const authSession = await auth();
     const userId = authSession?.user?.id;
+    const clientId = authSession?.user?.clientId;
 
     if (!userId) {
       console.error('[Brain API] User ID not found in session!');
@@ -1170,8 +1174,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (!clientId) {
+      console.error('[Brain API] Client ID not found in session!');
+      // Log warning but continue with default client ID if testing enabled
+      if (BYPASS_AUTH_FOR_TESTING) {
+        console.log('[Brain API] Auth bypass enabled, using default client ID');
+      } else {
+        console.warn('[Brain API] Missing clientId - will use default');
+      }
+    }
+
     // Use the actual user ID from session or the test ID if bypassing auth
     const effectiveUserId = userId || 'test-user-id';
+    const effectiveClientId = clientId || 'default';
+
+    console.log(
+      `[Brain API] Using User ID: ${effectiveUserId}, Client ID: ${effectiveClientId}`,
+    );
 
     // Validate and normalize UUID format
     let normalizedChatId = chatId;
@@ -1227,13 +1246,15 @@ export async function POST(req: NextRequest) {
             "userId", 
             title, 
             "createdAt", 
-            visibility
+            visibility,
+            client_id
           ) VALUES (
             ${normalizedChatId}, 
             ${effectiveUserId}, 
             ${initialTitle}, 
             ${new Date().toISOString()}, 
-            'private'
+            'private',
+            ${effectiveClientId}
           )
           ON CONFLICT (id) DO NOTHING
         `;
@@ -1296,14 +1317,16 @@ export async function POST(req: NextRequest) {
           role, 
           parts, 
           attachments, 
-          "createdAt"
+          "createdAt",
+          client_id
         ) VALUES (
           ${userMessageToSave.id}, 
           ${userMessageToSave.chatId}, 
           ${userMessageToSave.role}, 
           ${JSON.stringify(userMessageToSave.parts)}, 
           ${JSON.stringify(userMessageToSave.attachments)}, 
-          ${userMessageToSave.createdAt.toISOString()}
+          ${userMessageToSave.createdAt.toISOString()},
+          ${effectiveClientId}
         )
       `;
 
@@ -1554,6 +1577,29 @@ ${extractedText}
     // Set up LangChainStream with onCompletion handler for message saving
     const { handlers } = createLangChainStreamHandler({
       onCompletion: async (fullResponse: string) => {
+        // Add detailed logging to help debug duplicate saves
+        console.log(`[Brain API] >> onCompletion Handler Triggered <<`);
+        console.log(
+          `[Brain API]    Flag 'assistantMessageSaved': ${assistantMessageSaved}`,
+        );
+        console.log(
+          `[Brain API]    Response Length: ${fullResponse?.length || 0}`,
+        );
+        console.log(
+          `[Brain API]    Response Snippet: ${(fullResponse || '').substring(0, 100)}...`,
+        );
+
+        // Check if message is already saved
+        if (assistantMessageSaved) {
+          console.log(
+            '[Brain API] onCompletion: Assistant message already saved, skipping duplicate save.',
+          );
+          return;
+        }
+
+        // Set flag to prevent duplicate saves
+        assistantMessageSaved = true;
+
         // This code runs AFTER the entire response has been streamed
         console.log(
           '[Brain API] Stream completed. Saving final assistant message.',
@@ -1583,14 +1629,16 @@ ${extractedText}
               role, 
               parts, 
               attachments, 
-              "createdAt"
+              "createdAt",
+              client_id
             ) VALUES (
               ${assistantMessageToSave.id}, 
               ${assistantMessageToSave.chatId}, 
               ${assistantMessageToSave.role}, 
               ${JSON.stringify(assistantMessageToSave.parts)}, 
               ${JSON.stringify(assistantMessageToSave.attachments)}, 
-              ${assistantMessageToSave.createdAt.toISOString()}
+              ${assistantMessageToSave.createdAt.toISOString()},
+              ${effectiveClientId}
             )
           `;
 
@@ -1608,6 +1656,7 @@ ${extractedText}
             stack: dbError?.stack?.split('\n').slice(0, 3),
           });
           // Log error, but don't block response as stream already finished
+          // Do not reset assistantMessageSaved flag here to prevent duplicate save attempts
         }
       },
     });

@@ -16,6 +16,8 @@ import {
   saveChat,
   saveMessages,
   ensureChatExists,
+  deleteChatById,
+  getChatById,
 } from '@/lib/db/queries';
 import type { VisibilityType } from '@/components/visibility-selector';
 import { myProvider } from '@/lib/ai/providers';
@@ -165,13 +167,24 @@ export async function saveSubsequentMessages(params: {
   try {
     const session = await auth();
     const userId = session?.user?.id;
-    console.log(`${logContext} Auth check complete. User ID: ${userId}`);
+    const clientId = session?.user?.clientId;
+
+    console.log(
+      `${logContext} Auth check complete. User ID: ${userId}, Client ID: ${clientId}`,
+    );
 
     if (!userId) {
       console.error(
         `${logContext} CRITICAL: User not authenticated. Aborting.`,
       );
       return { success: false, error: 'User not authenticated.' };
+    }
+
+    if (!clientId) {
+      console.error(
+        `${logContext} CRITICAL: Client ID missing from user session. Aborting.`,
+      );
+      return { success: false, error: 'User session invalid.' };
     }
 
     // First, verify the chat exists and belongs to the user
@@ -198,6 +211,40 @@ export async function saveSubsequentMessages(params: {
       `${logContext} Verified chat ${chatId} belongs to user ${userId}`,
     );
 
+    // Add clientId to message objects
+    const userMessageWithClientId = {
+      ...userMessage,
+      clientId,
+    };
+
+    const assistantMessageWithClientId = {
+      ...assistantMessage,
+      clientId,
+    };
+
+    console.log(`${logContext} Added clientId ${clientId} to message objects`);
+
+    // Ensure dates are proper Date objects
+    const userMessageWithDate = {
+      ...userMessageWithClientId,
+      createdAt:
+        userMessageWithClientId.createdAt instanceof Date
+          ? userMessageWithClientId.createdAt
+          : new Date(userMessageWithClientId.createdAt),
+    };
+
+    const assistantMessageWithDate = {
+      ...assistantMessageWithClientId,
+      createdAt:
+        assistantMessageWithClientId.createdAt instanceof Date
+          ? assistantMessageWithClientId.createdAt
+          : new Date(assistantMessageWithClientId.createdAt),
+    };
+
+    console.log(
+      `${logContext} Converted dates to Date objects for message insertion`,
+    );
+
     // Use a retry mechanism for message insertion
     let attempts = 0;
     const maxAttempts = 3;
@@ -212,18 +259,21 @@ export async function saveSubsequentMessages(params: {
       try {
         // Wrap in transaction to ensure both messages are saved or none
         await db.transaction(async (tx) => {
-          console.log(`${logContext} Inserting user message ${userMessage.id}`);
-          await tx.insert(messageTable).values(userMessage);
+          console.log(
+            `${logContext} Inserting user message ${userMessageWithDate.id}`,
+          );
+          await tx.insert(messageTable).values(userMessageWithDate);
 
           console.log(
-            `${logContext} Inserting assistant message ${assistantMessage.id}`,
+            `${logContext} Inserting assistant message ${assistantMessageWithDate.id}`,
           );
-          await tx.insert(messageTable).values(assistantMessage);
+          await tx.insert(messageTable).values(assistantMessageWithDate);
         });
 
         console.log(
           `${logContext} Both messages saved successfully for chat ${chatId}`,
         );
+
         // Success - break out of retry loop
         break;
       } catch (error: any) {
@@ -244,7 +294,7 @@ export async function saveSubsequentMessages(params: {
             // Try inserting with conflict handling
             await db
               .insert(messageTable)
-              .values([userMessage, assistantMessage])
+              .values([userMessageWithDate, assistantMessageWithDate])
               .onConflictDoNothing({ target: messageTable.id });
 
             console.log(
@@ -275,14 +325,14 @@ export async function saveSubsequentMessages(params: {
 
         // Add a short delay before retrying to reduce race conditions
         if (attempts < maxAttempts) {
-          const delay = 100 * attempts; // Increasing delay with each attempt
+          const delay = Math.min(100 * Math.pow(2, attempts), 2000); // Exponential backoff up to 2s
           console.log(`${logContext} Waiting ${delay}ms before retry...`);
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
     }
 
-    // Check if we succeeded after retries
+    // Check if all attempts failed
     if (lastError) {
       console.error(
         `${logContext} All ${maxAttempts} attempts failed:`,
@@ -295,24 +345,9 @@ export async function saveSubsequentMessages(params: {
       };
     }
 
-    // Revalidate paths to update UI
-    revalidatePath('/api/history');
-    console.log(`${logContext} Revalidated path /api/history`);
-
-    revalidatePath(`/chat/${chatId}`);
-    console.log(`${logContext} Revalidated path /chat/${chatId}`);
-
-    return { success: true, chatId };
+    return { success: true };
   } catch (error: any) {
     console.error(`${logContext} Unexpected error:`, error);
-
-    if (error.code) {
-      console.error(`${logContext} Error Code: ${error.code}`);
-    }
-    if (error.message) {
-      console.error(`${logContext} Error Message: ${error.message}`);
-    }
-
     return {
       success: false,
       error: `Failed to save messages: ${error.message || 'Unknown error'}`,
@@ -426,13 +461,24 @@ export async function createChatAndSaveFirstMessages(params: {
   try {
     const session = await auth();
     const userId = session?.user?.id;
-    console.log(`${logContext} Auth check complete. User ID: ${userId}`);
+    const clientId = session?.user?.clientId as string;
+
+    console.log(
+      `${logContext} Auth check complete. User ID: ${userId}, Client ID: ${clientId}`,
+    );
 
     if (!userId) {
       console.error(
         `${logContext} CRITICAL: User not authenticated or userId missing. Aborting.`,
       );
       return { success: false, error: 'User not authenticated.' };
+    }
+
+    if (!clientId) {
+      console.error(
+        `${logContext} CRITICAL: Client ID missing from user session. Aborting.`,
+      );
+      return { success: false, error: 'User session invalid.' };
     }
 
     // Generate a meaningful title based on the first user message
@@ -486,34 +532,11 @@ export async function createChatAndSaveFirstMessages(params: {
       console.log(
         `${logContext} Chat ${chatId} already exists, handling gracefully`,
       );
-      // Chat exists but messages might not, so we'll try to insert just the messages
-      try {
-        // Insert messages directly outside transaction since chat exists
-        await db
-          .insert(messageTable)
-          .values([userMessage, assistantMessage])
-          .onConflictDoNothing({ target: messageTable.id });
-
-        console.log(
-          `${logContext} Successfully inserted messages for existing chat ${chatId}`,
-        );
-        return { success: true, chatId };
-      } catch (messageError: any) {
-        console.error(
-          `${logContext} Failed to insert messages for existing chat:`,
-          messageError,
-        );
-        // Return success anyway since chat exists, client can retry message insertion separately
-        return {
-          success: true,
-          chatId,
-          warning:
-            'Chat exists but failed to save messages. UI may need refresh.',
-        };
-      }
+      // Chat exists, don't need to create it again
+      return { success: true, chatId };
     }
 
-    // Create new chat and messages in a transaction with retry logic
+    // Create new chat in a transaction with retry logic
     let attempts = 0;
     const maxAttempts = 3;
     let lastError = null;
@@ -525,9 +548,9 @@ export async function createChatAndSaveFirstMessages(params: {
       );
 
       try {
-        // Wrap both inserts in one transaction
+        // Create just the chat record, not the messages
         await db.transaction(async (tx) => {
-          // 1) Create the Chat row with better error handling
+          // Create the Chat row with better error handling
           console.log(
             `${logContext} Attempting to insert chat row for ${chatId}`,
           );
@@ -535,6 +558,7 @@ export async function createChatAndSaveFirstMessages(params: {
           await tx.insert(chat).values({
             id: chatId,
             userId: userId,
+            clientId: clientId,
             title: title,
             createdAt: new Date(),
             visibility: 'private',
@@ -542,17 +566,6 @@ export async function createChatAndSaveFirstMessages(params: {
 
           console.log(
             `${logContext} Successfully inserted chat row for ${chatId}`,
-          );
-
-          // 2) Insert both messages with better error handling
-          console.log(
-            `${logContext} Inserting message rows for ${chatId}. UserMsg ID: ${userMessage.id}, AssistantMsg ID: ${assistantMessage.id}`,
-          );
-
-          await tx.insert(messageTable).values([userMessage, assistantMessage]);
-
-          console.log(
-            `${logContext} Successfully inserted message rows for ${chatId}`,
           );
         });
 
@@ -567,33 +580,13 @@ export async function createChatAndSaveFirstMessages(params: {
 
         // Handle different error types
         if (error.code === '23505') {
-          // Unique constraint violation
+          // Unique constraint violation - chat already exists
           console.warn(
-            `${logContext} Chat ${chatId} already exists (race condition). Attempting to handle.`,
+            `${logContext} Chat ${chatId} already exists (race condition).`,
           );
-
-          try {
-            // Try to just insert the messages since chat exists
-            await db
-              .insert(messageTable)
-              .values([userMessage, assistantMessage])
-              .onConflictDoNothing({ target: messageTable.id });
-
-            console.log(
-              `${logContext} Successfully inserted messages for existing chat ${chatId}`,
-            );
-
-            // Set lastError to null to indicate success
-            lastError = null;
-            break;
-          } catch (messageError: any) {
-            console.error(
-              `${logContext} Failed to insert messages for existing chat:`,
-              messageError,
-            );
-            lastError = messageError;
-            // Continue to next retry
-          }
+          // Set lastError to null to indicate success
+          lastError = null;
+          break;
         } else {
           console.error(
             `${logContext} Transaction failed (attempt ${attempts}/${maxAttempts}):`,
@@ -618,7 +611,7 @@ export async function createChatAndSaveFirstMessages(params: {
       );
       return {
         success: false,
-        error: `Failed to save chat and messages after ${maxAttempts} attempts: ${lastError.message}`,
+        error: `Failed to create chat after ${maxAttempts} attempts: ${lastError.message}`,
         code: lastError.code,
       };
     }
@@ -643,8 +636,68 @@ export async function createChatAndSaveFirstMessages(params: {
 
     return {
       success: false,
-      error: `Failed to save chat and messages: ${error.message || 'Unknown error'}`,
+      error: `Failed to create chat: ${error.message || 'Unknown error'}`,
       code: error.code,
+    };
+  }
+}
+
+/**
+ * Deletes a chat and its related messages and votes by ID
+ */
+export async function deleteChat(
+  chatId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const logContext = '[Server Action - deleteChat]';
+  console.log(`${logContext} Attempting to delete chat ID: ${chatId}`);
+
+  if (!chatId) {
+    console.error(`${logContext} No chatId provided.`);
+    return { success: false, error: 'Chat ID is required.' };
+  }
+
+  try {
+    const session = await auth();
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      console.error(`${logContext} User not authenticated.`);
+      return { success: false, error: 'User not authenticated.' };
+    }
+
+    // Optional but recommended: Verify user owns the chat before deleting
+    const chatToDelete = await getChatById({ id: chatId });
+    if (!chatToDelete) {
+      console.warn(`${logContext} Chat ${chatId} not found.`);
+      // Return success=true because the chat is already gone
+      return { success: true };
+    }
+    if (chatToDelete.userId !== userId) {
+      console.error(
+        `${logContext} User ${userId} does not own chat ${chatId}.`,
+      );
+      return { success: false, error: 'Permission denied.' };
+    }
+
+    console.log(
+      `${logContext} Deleting votes, messages, and chat for ID: ${chatId}`,
+    );
+    // This function already handles deleting related messages and votes
+    await deleteChatById({ id: chatId });
+
+    console.log(`${logContext} Successfully deleted chat ID: ${chatId}`);
+
+    // Revalidate paths that show chat history
+    revalidatePath('/');
+    revalidatePath('/chat'); // Revalidate the base chat path
+    revalidatePath('/api/history');
+
+    return { success: true };
+  } catch (error: any) {
+    console.error(`${logContext} FAILED to delete chat ${chatId}:`, error);
+    return {
+      success: false,
+      error: `Failed to delete chat: ${error.message || 'Unknown error'}`,
     };
   }
 }

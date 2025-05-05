@@ -43,8 +43,13 @@ console.log(
 );
 // --- END ADDED DEBUG LOG ---
 
+// Extended User interface to include clientId
+interface ExtendedUser extends User {
+  clientId?: string;
+}
+
 interface ExtendedSession extends Session {
-  user: User;
+  user: ExtendedUser;
 }
 
 // --- ADD LOGGING ABOUT CALLBACK MERGING ---
@@ -81,6 +86,27 @@ export const {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        // Add clientId to the token if available
+        if ('clientId' in user) {
+          console.log(
+            `[Auth Module] Adding clientId to JWT token: ${user.clientId}`,
+          );
+          token.clientId = user.clientId;
+        } else {
+          console.log('[Auth Module] User object does not contain clientId');
+          // You might want to fetch the clientId from the database here if not included in the user object
+          const users = await getUser(user.email as string);
+          if (users.length > 0 && 'clientId' in users[0]) {
+            console.log(
+              `[Auth Module] Retrieved clientId from database: ${users[0].clientId}`,
+            );
+            token.clientId = users[0].clientId;
+          } else {
+            console.warn(
+              '[Auth Module] No clientId found for user in database',
+            );
+          }
+        }
       }
 
       return token;
@@ -94,6 +120,13 @@ export const {
     }) {
       if (session.user) {
         session.user.id = token.id as string;
+        // Add clientId to the session.user object if available in token
+        if (token.clientId) {
+          console.log(
+            `[Auth Module] Adding clientId to session: ${token.clientId}`,
+          );
+          session.user.clientId = token.clientId as string;
+        }
       }
 
       return session;

@@ -37,6 +37,34 @@ const runMigrate = async () => {
     // Continue execution even if this fails
   }
 
+  // Run custom migration to enforce client_id NOT NULL constraints
+  try {
+    console.log(
+      '⏳ Running custom migration to enforce client_id NOT NULL constraints...',
+    );
+    const clientIdMigrationPath = path.join(
+      process.cwd(),
+      'lib/db/migrations/0007_enforce_not_null.sql',
+    );
+
+    if (fs.existsSync(clientIdMigrationPath)) {
+      const clientIdMigrationSQL = fs.readFileSync(
+        clientIdMigrationPath,
+        'utf8',
+      );
+      await connection.unsafe(clientIdMigrationSQL);
+      console.log('✅ client_id NOT NULL constraints applied successfully');
+    } else {
+      console.warn(
+        '⚠️ client_id migration file not found at:',
+        clientIdMigrationPath,
+      );
+    }
+  } catch (err) {
+    console.error('⚠️ Error enforcing client_id NOT NULL constraints:', err);
+    // Continue execution even if this fails
+  }
+
   const end = Date.now();
 
   console.log('✅ Migrations completed in', end - start, 'ms');

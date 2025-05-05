@@ -290,211 +290,27 @@ export function Chat({
               id,
             );
 
-            // Construct clear message objects with proper structure
-            const userMessage = {
-              id: lastUserMsgRef.current.id,
-              chatId: id,
-              role: lastUserMsgRef.current.role,
-              parts: lastUserMsgRef.current.parts,
-              attachments: lastUserMsgRef.current.attachments,
-              createdAt: lastUserMsgRef.current.createdAt,
-            };
-
-            const assistantMessage = {
-              id: extendedMessage.id,
-              chatId: id,
-              role: extendedMessage.role,
-              parts: Array.isArray(extendedMessage.parts)
-                ? extendedMessage.parts
-                : [{ type: 'text', text: extendedMessage.content as string }],
-              attachments:
-                (extendedMessage as any).experimental_attachments || [],
-              createdAt: new Date(extendedMessage.createdAt || new Date()),
-            };
-
-            console.log('[Chat] Saving first messages:', {
-              userMessage,
-              assistantMessage,
-            });
-
-            // Call the API directly to ensure it works
-            fetch('/api/chat-actions', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                action: 'createChatAndSaveFirstMessages',
-                chatId: id,
-                userMessage,
-                assistantMessage,
-              }),
-            })
-              .then((res) => res.json())
-              .then((result) => {
-                console.log(
-                  '[Chat] createChatAndSaveFirstMessages result:',
-                  result,
-                );
-                console.log('[Chat] Result chatId:', result?.chatId);
-                console.log('[Chat] Current chatId:', id);
-
-                chatPersistedRef.current = true;
-
-                // Check if the operation succeeded
-                if (result?.success) {
-                  console.log(
-                    '[Chat] Successfully persisted first chat messages',
-                  );
-
-                  // Mark all current messages as saved
-                  requestAnimationFrame(() => {
-                    if (isMountedRef.current) {
-                      setMessages((prev) =>
-                        prev.map((m) => ({ ...m, __saved: true })),
-                      );
-
-                      // Invalidate all history-related caches
-                      // 1. Use the SWR key for the paginated chat history
-                      const historyKey = unstable_serialize(
-                        getChatHistoryPaginationKey,
-                      );
-                      console.log(
-                        '[Chat] Invalidating history key:',
-                        historyKey,
-                      );
-                      mutate(historyKey);
-
-                      // 2. Force a complete invalidation of all history-related caches with a broad pattern
-                      mutate(/\/api\/history.*/);
-
-                      // 3. Directly invalidate common history endpoints
-                      mutate('/api/history?limit=20');
-                      mutate('/api/history');
-
-                      // 4. Trigger a router refresh to ensure sidebar updates
-                      router.refresh();
-                    }
-                  });
-
-                  // Get the chat ID from the result (if available) or use the current ID
-                  const navigateToChatId = result?.chatId || id;
-
-                  // Log before navigation
-                  console.log(
-                    `[Chat] Navigation: Preparing to navigate to chat/${navigateToChatId}`,
-                  );
-                  console.log(
-                    `[Chat] Full URL to navigate to: /chat/${navigateToChatId}`,
-                  );
-
-                  // Navigate to the chat page for this ID
-                  router.push(`/chat/${navigateToChatId}`);
-                } else {
-                  console.error(
-                    '[Chat] Failed to create chat:',
-                    result?.error || 'Unknown error',
-                  );
-                  toast.error(
-                    'Failed to save your conversation. Please try again.',
-                  );
-                }
-              })
-              .catch((err) => {
-                console.error('[Chat] Error in createChat:', err);
-                toast.error(
-                  'Failed to save your conversation. Please try again.',
-                );
-              });
+            // Note: Removed fetch to /api/chat-actions
+            // Messages are now saved directly by the Brain API
+            console.log(
+              '[Chat] Skipping manual message save - handled by Brain API',
+            );
+            chatPersistedRef.current = true;
           }
         } else if (lastUserMsgRef.current) {
-          console.log('[Chat] Subsequent turn detected, saving messages...');
-
-          // Construct clear message objects with proper structure
-          const userMessage = {
-            id: lastUserMsgRef.current.id,
-            chatId: id,
-            role: lastUserMsgRef.current.role,
-            parts: lastUserMsgRef.current.parts,
-            attachments: lastUserMsgRef.current.attachments,
-            createdAt: lastUserMsgRef.current.createdAt,
-          };
-
-          const assistantMessage = {
-            id: extendedMessage.id,
-            chatId: id,
-            role: extendedMessage.role,
-            parts: Array.isArray(extendedMessage.parts)
-              ? extendedMessage.parts
-              : [{ type: 'text', text: extendedMessage.content as string }],
-            attachments:
-              (extendedMessage as any).experimental_attachments || [],
-            createdAt: new Date(extendedMessage.createdAt || new Date()),
-          };
-
-          console.log('[Chat] Saving subsequent messages:', {
-            userMessage,
-            assistantMessage,
-          });
-
-          // Call the API directly to ensure it works
-          fetch('/api/chat-actions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              action: 'saveSubsequentMessages',
-              chatId: id,
-              userMessage,
-              assistantMessage,
-            }),
-          })
-            .then((res) => res.json())
-            .then((result) => {
-              console.log('[Chat] saveSubsequentMessages result:', result);
-
-              // Add cache invalidation here too
-              if (result?.success) {
-                console.log('[Chat] Successfully saved subsequent messages');
-
-                // Invalidate all history-related caches to update sidebar
-                // Use requestAnimationFrame to defer state updates
-                requestAnimationFrame(() => {
-                  if (isMountedRef.current) {
-                    // 1. Use the SWR key for the paginated chat history
-                    const historyKey = unstable_serialize(
-                      getChatHistoryPaginationKey,
-                    );
-                    console.log('[Chat] Invalidating history key:', historyKey);
-                    mutate(historyKey);
-
-                    // 2. Force a complete invalidation of all history-related caches
-                    mutate(/\/api\/history.*/);
-
-                    // 3. Directly invalidate common history endpoints
-                    mutate('/api/history?limit=20');
-                    mutate('/api/history');
-                  }
-                });
-              }
-            })
-            .catch((err) => {
-              console.error('[Chat] Error saving messages:', err);
-              toast.error(
-                'Failed to save your conversation. Please try again.',
-              );
-            });
+          console.log(
+            '[Chat] Subsequent turn detected, skipping manual message save...',
+          );
+          // Note: Removed fetch to /api/chat-actions
+          // Messages are now saved directly by the Brain API
+          console.log(
+            '[Chat] Skipping manual message save - handled by Brain API',
+          );
         } else {
           console.warn('[Chat] No user message reference available for saving');
         }
       } catch (error) {
-        console.error('[Chat] Error in onFinish saving logic:', error);
-        toast.error('An error occurred while saving your conversation.');
-      } finally {
-        // Reset the last user message reference
-        console.log('[Chat] Clearing lastUserMsgRef');
-        lastUserMsgRef.current = null;
+        console.error('[Chat] Error in handleOnFinish:', error);
       }
     },
     // Add a fetch function wrapper to monitor requests
