@@ -62,9 +62,10 @@ Okay, here is a detailed checklist based on the revised roadmap. You can use thi
 *Goal: Make AI client-aware, implement stable custom streaming.*
 
 * **Step 2.1: Standardize Orchestrator Identity & Model**
-    * `[ ]` **Model Mapping:** Update IDs in `lib/ai/models.ts` (`modelMapping`) for clarity (e.g., `'global-orchestrator'`).
-    * `[ ]` **Dashboard Models:** Ensure the orchestrator model ID is *not* in the `chatModels` array in `lib/ai/models.ts`.
-    * `[ ]` **LLM Initialization:** Review `initializeLLM` in `app/api/brain/route.ts`.
+    * `[x]` **Model Mapping:** Update IDs in `lib/ai/models.ts` (`modelMapping`) for clarity (e.g., `'global-orchestrator'`).
+    * `[x]` **Dashboard Models:** Ensure the orchestrator model ID is *not* in the `chatModels` array in `lib/ai/models.ts`.
+    * `[x]` **LLM Initialization:** Review `initializeLLM` in `app/api/brain/route.ts`.
+    * `[x]` **Ensure the orchestrator is not user-selectable in dropdown menus:**
 
 * **Step 2.2: Make Brain API Client-Aware**
     * `[ ]` **Fetch Client ID:** In `app/api/brain/route.ts`, get `clientId` from the session/JWT.
@@ -182,6 +183,15 @@ Okay, here is a detailed checklist based on the revised roadmap. You can use thi
   - ✅ Update chat actions to include clientId
   - ✅ Apply migration to database
   - ✅ Implement deleteChat server action to fix 404 error when deleting chats
+
+### Phase 2: Refactor AI Core & Implement Robust Streaming
+
+- ✅ Step 2.1: Standardize Orchestrator Identity & Model
+  - ✅ Update modelMapping in lib/ai/models.ts to use 'global-orchestrator' instead of 'chat-model-reasoning'
+  - ✅ Update languageModels in lib/ai/providers.ts to use the new ID
+  - ✅ Update systemPrompt function in lib/ai/prompts.ts to check for 'global-orchestrator'
+  - ✅ Update components referencing the old ID (GlobalChatPane, chat-header, etc.)
+  - ✅ Ensure the orchestrator is not user-selectable in dropdown menus
 
 ### Features
 

@@ -233,7 +233,7 @@ export const systemPrompt = ({
   );
 
   // Use the orchestrator prompt for the reasoning model
-  if (selectedChatModel === 'chat-model-reasoning') {
+  if (selectedChatModel === 'global-orchestrator') {
     return `${orchestratorPromptWithTime}\n\n${artifactsPrompt}`;
   } else {
     // Apply the standard Echo Tango prompt for the regular chat model

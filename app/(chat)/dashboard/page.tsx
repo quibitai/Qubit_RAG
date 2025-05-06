@@ -42,7 +42,7 @@ export default function DashboardPage() {
   // Function to get an icon based on the model ID
   const getModelIcon = (modelId: string) => {
     switch (modelId) {
-      case 'chat-model-reasoning':
+      case 'global-orchestrator':
         return <Brain className="h-8 w-8 text-primary" />;
       case 'document-editor':
         return <FileEdit className="h-8 w-8 text-primary" />;

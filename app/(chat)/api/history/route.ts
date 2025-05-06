@@ -1,51 +1,43 @@
 import { auth } from '@/app/(auth)/auth';
-import type { NextRequest } from 'next/server';
 import { getChatsByUserId } from '@/lib/db/queries';
+import { NextResponse } from 'next/server';
+import type { Chat } from '@/lib/db/schema';
 
-export async function GET(request: NextRequest) {
-  console.log('[History API] Starting request handling');
-  const { searchParams } = request.nextUrl;
-
-  const limit = Number.parseInt(searchParams.get('limit') || '10');
-  const startingAfter = searchParams.get('starting_after');
-  const endingBefore = searchParams.get('ending_before');
-
-  if (startingAfter && endingBefore) {
-    console.log(
-      '[History API] Error: Both starting_after and ending_before provided',
-    );
-    return Response.json(
-      'Only one of starting_after or ending_before can be provided!',
-      { status: 400 },
-    );
-  }
-
-  console.log('[History API] Fetching auth session...');
+export async function GET() {
   const session = await auth();
-  console.log('[History API] Session received:', session);
-  console.log('[History API] User ID from session:', session?.user?.id);
+  const userId = session?.user?.id;
 
-  if (!session?.user?.id) {
-    console.log('[History API] Unauthorized: No user ID in session');
-    return Response.json('Unauthorized!', { status: 401 });
+  if (!userId) {
+    return NextResponse.json(
+      { error: 'Must be logged in to fetch chat history' },
+      { status: 401 },
+    );
   }
 
   try {
-    console.log('[History API] Fetching chats for user ID:', session.user.id);
-    const chatsData = await getChatsByUserId({
-      id: session.user.id,
-      limit,
-      startingAfter,
-      endingBefore,
+    const { chats, hasMore } = await getChatsByUserId({
+      id: userId,
+      limit: 10,
+      startingAfter: null,
+      endingBefore: null,
     });
-    console.log(
-      '[History API] Successfully fetched chats, count:',
-      chatsData.chats.length,
-    );
 
-    return Response.json(chatsData);
+    const formattedChats = chats.map((chat: Chat) => ({
+      id: chat.id,
+      title: chat.title,
+      createdAt: chat.createdAt,
+      // updatedAt doesn't exist in our Chat type
+      // model doesn't exist in our Chat type
+      // Just return what we have in the schema
+      visibility: chat.visibility,
+    }));
+
+    return NextResponse.json({ chats: formattedChats, hasMore });
   } catch (error) {
-    console.error('[History API] Error fetching chats:', error);
-    return Response.json('Failed to fetch chats!', { status: 500 });
+    console.error('[/api/history] Unexpected error:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch chat history' },
+      { status: 500 },
+    );
   }
 }

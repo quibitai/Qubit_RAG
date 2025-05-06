@@ -1356,8 +1356,8 @@ export async function POST(req: NextRequest) {
       JSON.stringify(history, null, 2),
     );
 
-    // TASK 0.4: Always use 'chat-model-reasoning' ID instead of selectedChatModel
-    const quibitModelId = 'chat-model-reasoning';
+    // Always use 'global-orchestrator' ID regardless of the selected model
+    const quibitModelId = 'global-orchestrator';
     console.log(
       `[Brain API] Using Quibit orchestrator (${quibitModelId}) regardless of selected model`,
     );

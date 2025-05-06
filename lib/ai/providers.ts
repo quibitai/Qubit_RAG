@@ -16,7 +16,7 @@ export const myProvider = isTestEnvironment
   ? customProvider({
       languageModels: {
         'chat-model': chatModel,
-        'chat-model-reasoning': reasoningModel,
+        'global-orchestrator': reasoningModel,
         'title-model': titleModel,
         'artifact-model': artifactModel,
       },
@@ -24,10 +24,11 @@ export const myProvider = isTestEnvironment
   : customProvider({
       languageModels: {
         'chat-model': openai('gpt-4.1-mini'),
-        'chat-model-reasoning': wrapLanguageModel({
+        'global-orchestrator': wrapLanguageModel({
           model: openai('gpt-4.1'),
           middleware: extractReasoningMiddleware({ tagName: 'think' }),
         }),
+        'echo-tango-specialist': openai('gpt-4.1-mini'),
         'title-model': openai('gpt-4.1-mini'),
         'artifact-model': openai('gpt-4.1-mini'),
       },

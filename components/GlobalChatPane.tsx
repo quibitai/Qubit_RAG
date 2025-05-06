@@ -407,9 +407,7 @@ export function GlobalChatPane({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="h-8 gap-1">
-              {activeBitContextId === 'chat-model-reasoning'
-                ? 'Orchestrator'
-                : 'Echo Tango Bit'}
+              Echo Tango Bit
               <ChevronDown className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
@@ -425,20 +423,6 @@ export function GlobalChatPane({
                 </span>
               </div>
               {activeBitContextId === 'chat-model' && (
-                <CheckIcon className="h-4 w-4" />
-              )}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setActiveBitContextId('chat-model-reasoning')}
-              className="flex items-center justify-between"
-            >
-              <div className="flex flex-col">
-                <span>Orchestrator</span>
-                <span className="text-xs text-muted-foreground">
-                  Uses advanced reasoning
-                </span>
-              </div>
-              {activeBitContextId === 'chat-model-reasoning' && (
                 <CheckIcon className="h-4 w-4" />
               )}
             </DropdownMenuItem>

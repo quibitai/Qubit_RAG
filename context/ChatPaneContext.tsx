@@ -142,7 +142,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     api: '/api/brain',
     body: {
       // Always identify as Quibit orchestrator
-      selectedChatModel: 'chat-model-reasoning',
+      selectedChatModel: 'global-orchestrator',
       // Include the active context information
       activeBitContextId,
       activeDocId,
@@ -190,7 +190,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       // Prepare the body with context information
       const bodyPayload = {
         // Always identify as Quibit to the backend
-        selectedChatModel: 'chat-model-reasoning',
+        selectedChatModel: 'global-orchestrator',
         // Include the active context information
         activeBitContextId,
         activeDocId,

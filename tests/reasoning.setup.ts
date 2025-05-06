@@ -11,7 +11,7 @@ setup('switch to reasoning model', async ({ page }) => {
   const chatPage = new ChatPage(page);
   await chatPage.createNewChat();
 
-  await chatPage.chooseModelFromSelector('chat-model-reasoning');
+  await chatPage.chooseModelFromSelector('global-orchestrator');
 
   await expect(chatPage.getSelectedModel()).resolves.toEqual('Orchestrator');
 
