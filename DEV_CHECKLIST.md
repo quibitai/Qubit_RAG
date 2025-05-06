@@ -56,7 +56,12 @@
     * **Action:** Confirm DB queries in `lib/db/queries.ts`, `lib/db/repositories/chatRepository.ts`, and AI tools (`lib/ai/tools/*`) rely on RLS for client data filtering and do not contain redundant `WHERE client_id` clauses for RLS-protected operations.
     * **Verification:** Rigorous manual/SQL testing for data isolation with different client users.
 
-* **Step 2.4: Complete Multi-Tenant RAG Ingestion & Schema**
+* **Step 2.4: Implement Bi-Directional Context Awareness (✅ COMPLETED)**
+    * `[x]` **Fix Brain API:** Add global.CURRENT_REQUEST_BODY setup to restore context awareness between UIs.
+    * `[x]` **Action:** Update getMessagesFromOtherChatTool to handle referencedGlobalPaneChatId.
+    * `[x]` **Verification:** Test Global Orchestrator and Echo Tango Bit conversations to confirm shared context.
+
+* **Step 2.5: Complete Multi-Tenant RAG Ingestion & Schema**
     * **Action (Schema):** If RAG tables (`document_metadata`, `documents`, `document_rows`) are Drizzle-managed, define them in `lib/db/schema.ts` with `client_id` columns. Generate/apply migrations.
     * **Action (Ingestion):** Update RAG ingestion scripts to tag all ingested data with the correct `client_id`.
     * **Verification:** Ingest data for different clients. Verify `client_id` in RAG tables. Test RAG queries (e.g., `searchInternalKnowledgeBase` tool) as different clients to confirm data isolation.
