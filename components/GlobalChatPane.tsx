@@ -405,7 +405,7 @@ export function GlobalChatPane({
         </div>
 
         {/* Simple text label showing the current bit, replacing the dropdown */}
-        <div className="text-sm text-muted-foreground">Echo Tango Bit</div>
+        <div className="text-sm text-muted-foreground">Quibit Orchestrator</div>
       </header>
 
       {/* Messages container */}
