@@ -320,8 +320,13 @@ export function GlobalChatPane({
     e.preventDefault();
     if (!input.trim()) return;
 
-    // Create and store the user message before submitting
-    const currentChatId = chatState.id || generateUUID();
+    // Get the current chat ID from the context instead of generating a new one
+    // This ensures we're using the same chat ID as the main UI
+    const { currentChatId, ensureValidChatId } = useChatPane();
+
+    // Always ensure we have a valid UUID-formatted chat ID
+    const validChatId = ensureValidChatId();
+    console.log('[GlobalChatPane] Using shared chat ID:', validChatId);
 
     // Ensure a proper UUID is generated for the user message
     const userMsgId = generateUUID();
@@ -340,7 +345,7 @@ export function GlobalChatPane({
 
     const userMsg = {
       id: userMsgId,
-      chatId: currentChatId,
+      chatId: validChatId, // Use the shared, valid chat ID
       role: 'user',
       parts: [{ type: 'text', text: input }],
       attachments: [],
@@ -356,7 +361,7 @@ export function GlobalChatPane({
         '[GlobalChatPane] Chat persistence state:',
         chatPersistedRef.current ? 'persisted' : 'not persisted',
       );
-      console.log('[GlobalChatPane] Using chat ID:', currentChatId);
+      console.log('[GlobalChatPane] Using chat ID:', validChatId);
     });
 
     // Send the message to the AI with model selection
@@ -365,7 +370,9 @@ export function GlobalChatPane({
       data: {
         selectedChatModel: 'global-orchestrator', // Always use orchestrator
         activeBitContextId: currentActiveSpecialistId, // Use shared context
-        chatId: currentChatId,
+        currentActiveSpecialistId: currentActiveSpecialistId, // Include both for compatibility
+        chatId: validChatId, // Include the valid chatId in the request
+        id: validChatId, // Also include as id for compatibility
       },
     });
 

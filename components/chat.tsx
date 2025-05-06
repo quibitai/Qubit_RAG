@@ -29,6 +29,7 @@ import { PromptList } from '@/components/prompt-list';
 import { FileIcon } from '@/components/icons/FileIcon';
 import { Button } from '@/components/ui/button';
 import { XIcon } from 'lucide-react';
+import { useChatPane } from '@/context/ChatPaneContext';
 
 console.log('[Chat] actions:', {
   createChatAndSaveFirstMessages,
@@ -94,6 +95,20 @@ export function Chat({
     initialMessages.length,
   );
   console.log('[Chat] Chat ID:', id);
+
+  // Access the ChatPaneContext to update and use the shared currentChatId
+  const { setCurrentChatId } = useChatPane();
+
+  // When a chat with a specific ID is loaded, update the shared context
+  useEffect(() => {
+    if (
+      id &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+    ) {
+      console.log(`[Chat] Updating shared currentChatId to: ${id}`);
+      setCurrentChatId(id);
+    }
+  }, [id, setCurrentChatId]);
 
   const { mutate, cache } = useSWRConfig();
   const [attachments, setAttachments] = useState<Array<Attachment>>([]);
@@ -481,6 +496,8 @@ export function Chat({
           body: {
             ...chatRequestOptions?.body,
             fileContext: fileContext || null, // Include fileContext in the request payload
+            id: id,
+            chatId: id,
           },
         });
 
