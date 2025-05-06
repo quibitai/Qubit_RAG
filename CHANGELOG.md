@@ -5,6 +5,16 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.3] - 2024-07-21
+
+### Fixed
+- Resolved issue with user messages not being saved in the database
+- Fixed UUID handling to ensure valid format for PostgreSQL
+- Enhanced validation for message IDs in GlobalChatPane and main chat
+- Added robust UUID generation and validation in the brain API
+- Improved error handling for invalid UUIDs with fallback generation
+- Ensured proper clientId inclusion for all messages
+
 ## [1.6.0] - 2024-07-15
 
 ### Added

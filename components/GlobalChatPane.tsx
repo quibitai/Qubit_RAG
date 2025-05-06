@@ -332,8 +332,23 @@ export function GlobalChatPane({
     // Create and store the user message before submitting
     const currentChatId = chatState.id || generateUUID();
 
+    // Ensure a proper UUID is generated for the user message
+    const userMsgId = generateUUID();
+    console.log('[GlobalChatPane] Generated UUID for user message:', userMsgId);
+
+    // Verify that the generated UUID matches the required pattern for PostgreSQL
+    const isValidUUID =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        userMsgId,
+      );
+    if (!isValidUUID) {
+      console.error(
+        '[GlobalChatPane] Generated UUID does not match required pattern!',
+      );
+    }
+
     const userMsg = {
-      id: generateUUID(),
+      id: userMsgId,
       chatId: currentChatId,
       role: 'user',
       parts: [{ type: 'text', text: input }],

@@ -426,9 +426,26 @@ export function Chat({
         // Log the user message before sending
         console.log('[Chat] New user message:', input);
 
+        // Generate a proper UUID for the user message
+        const messageUuid = generateUUID();
+
+        // Verify that the generated UUID matches the required pattern for PostgreSQL
+        const isValidUUID =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            messageUuid,
+          );
+        if (!isValidUUID) {
+          console.error(
+            '[Chat] Generated UUID does not match required pattern:',
+            messageUuid,
+          );
+        } else {
+          console.log('[Chat] Valid UUID generated for message:', messageUuid);
+        }
+
         // Prepare the message structure to monitor
         const userMsg = {
-          id: generateUUID(),
+          id: messageUuid,
           role: 'user',
           content: input,
           createdAt: new Date().toISOString(),
@@ -436,7 +453,7 @@ export function Chat({
 
         // Store this message in the ref for later persistence
         lastUserMsgRef.current = {
-          id: userMsg.id,
+          id: messageUuid,
           chatId: id,
           role: userMsg.role,
           parts: [{ type: 'text', text: userMsg.content }],

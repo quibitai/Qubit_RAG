@@ -1089,6 +1089,7 @@ export async function POST(req: NextRequest) {
       };
       // Add the new context variables from Task 0.3
       activeBitContextId?: string | null;
+      activeBitPersona?: string | null;
       activeDocId?: string | null;
       [key: string]: any;
     };
@@ -1111,6 +1112,7 @@ export async function POST(req: NextRequest) {
       fileContext,
       // Extract the context variables from request (Task 0.4)
       activeBitContextId = null,
+      activeBitPersona = null,
       activeDocId = null,
     } = reqBody;
 
@@ -1133,7 +1135,7 @@ export async function POST(req: NextRequest) {
       JSON.stringify(messages, null, 2),
     );
     console.log(
-      `[Brain API] Chat ID: ${chatId}, Selected Model: ${selectedChatModel}, Active Bit: ${activeBitContextId}, Active Doc: ${activeDocId}`,
+      `[Brain API] Chat ID: ${chatId}, Selected Model: ${selectedChatModel}, Active Bit: ${activeBitContextId}, Active Persona: ${activeBitPersona}, Active Doc: ${activeDocId}`,
     );
 
     // Add this line to process tool messages right after parsing
@@ -1162,7 +1164,9 @@ export async function POST(req: NextRequest) {
     // Get current user session
     const authSession = await auth();
     const userId = authSession?.user?.id;
-    const clientId = authSession?.user?.clientId;
+    // Use optional chaining and provide fallback for clientId
+    // Handle the type assertion to address the linter error
+    const clientId = (authSession?.user as any)?.clientId;
 
     if (!userId) {
       console.error('[Brain API] User ID not found in session!');
@@ -1314,8 +1318,38 @@ export async function POST(req: NextRequest) {
 
     // --- BEGIN USER MESSAGE SAVE ---
     // Format the user message for the database
+    let userMessageId: string;
+
+    // Check if the message has an ID and it's a proper UUID format
+    if (
+      lastMessage.id &&
+      typeof lastMessage.id === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        lastMessage.id,
+      )
+    ) {
+      // Use the existing ID since it's a valid UUID
+      userMessageId = lastMessage.id;
+    } else {
+      // Generate a new UUID if missing or invalid format
+      userMessageId = randomUUID();
+      console.log(
+        `[Brain API] Generated new UUID for user message: ${userMessageId}`,
+      );
+    }
+
+    console.log(`[Brain API] User message ID check:`, {
+      originalId: lastMessage.id,
+      idType: typeof lastMessage.id,
+      finalId: userMessageId,
+      isValidUUID:
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          userMessageId,
+        ),
+    });
+
     const userMessageToSave: DBMessage = {
-      id: lastMessage.id || randomUUID(),
+      id: userMessageId,
       chatId: normalizedChatId,
       role: 'user',
       // Ensure 'parts' structure matches your schema
@@ -1324,14 +1358,17 @@ export async function POST(req: NextRequest) {
       createdAt: lastMessage.createdAt
         ? new Date(lastMessage.createdAt)
         : new Date(),
+      clientId: effectiveClientId, // Add clientId field to match the schema requirements
     };
 
     try {
       console.log(
         `[Brain API] Saving user message ${userMessageToSave.id} for chat ${normalizedChatId}`,
       );
+      console.log(
+        `[Brain API] User message UUID validation: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userMessageToSave.id)}`,
+      );
 
-      // Use direct SQL to insert the message instead of chatRepository
       await sql`
         INSERT INTO "Message_v2" (
           id, 
@@ -1393,26 +1430,46 @@ export async function POST(req: NextRequest) {
     // Construct the final system prompt based on base prompt, specialist context, and client configuration
     let finalSystemPrompt = orchestratorSystemPrompt; // Start with the base
 
-    // Add specialist prompt if context demands it
-    const specialistPrompt = getSpecialistPrompt(activeBitContextId);
-    if (specialistPrompt) {
-      finalSystemPrompt += `\n\n${specialistPrompt}`;
+    // First check for client-specific specialist prompts in configJson
+    const specialistPromptKey = activeBitPersona || activeBitContextId;
+    let specialistPromptText: string | null | undefined = null;
+
+    if (specialistPromptKey && clientConfig?.configJson?.specialistPrompts) {
+      specialistPromptText =
+        clientConfig.configJson.specialistPrompts[specialistPromptKey];
       console.log(
-        `[Brain API] Added specialist prompt for ${activeBitContextId}`,
+        `[Brain API] Found client-specific specialist prompt for ${specialistPromptKey} in configJson`,
       );
     }
 
-    // Add client-specific instructions if available
+    // Fallback to generic specialist prompt if not found in client config
+    if (!specialistPromptText && specialistPromptKey) {
+      specialistPromptText = getSpecialistPrompt(specialistPromptKey);
+      console.log(
+        `[Brain API] Using generic specialist prompt for ${specialistPromptKey}`,
+      );
+    }
+
+    // If we have a specialist prompt, add it to the system prompt
+    if (specialistPromptText) {
+      finalSystemPrompt = `${finalSystemPrompt}\n\n${specialistPromptText}`;
+      console.log(
+        `[Brain API] Added specialist instructions for ${specialistPromptKey}`,
+      );
+    }
+
+    // Add any client-specific custom instructions
     if (clientConfig?.customInstructions) {
-      finalSystemPrompt += `\n\n# Client Instructions (${clientConfig.name})\n${clientConfig.customInstructions}`;
-      console.log(
-        `[Brain API] Added custom instructions for client: ${clientConfig.name}`,
-      );
+      finalSystemPrompt = `${finalSystemPrompt}\n\n${clientConfig.customInstructions}`;
+      console.log('[Brain API] Added client-specific custom instructions');
     }
 
-    console.log(
-      `[Brain API] Constructed final system prompt with length: ${finalSystemPrompt.length}`,
-    );
+    // For debugging, show a truncated version of the final prompt
+    const truncatedPrompt =
+      finalSystemPrompt.length > 150
+        ? `${finalSystemPrompt.substring(0, 150)}... [${finalSystemPrompt.length} chars total]`
+        : finalSystemPrompt;
+    console.log(`[Brain API] Final system prompt: ${truncatedPrompt}`);
 
     const prompt = ChatPromptTemplate.fromMessages([
       ['system', finalSystemPrompt], // Use the combined prompt
@@ -1653,15 +1710,52 @@ ${extractedText}
 
         try {
           // Format the assistant message for the database
+          const assistantId = randomUUID(); // Generate a new unique ID for the assistant message
+          console.log(
+            `[Brain API] Generated assistant message UUID: ${assistantId}`,
+          );
+
+          console.log(
+            `[Brain API] Assistant UUID validation: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assistantId)}`,
+          );
+
           const assistantMessageToSave = {
-            id: randomUUID(), // Generate a new unique ID for the assistant message
+            id: assistantId,
             chatId: normalizedChatId,
             role: 'assistant',
             content: fullResponse, // Required by ChatRepository
             createdAt: new Date(),
             parts: [{ type: 'text', text: fullResponse }], // Required by DBMessage
             attachments: [], // Required by DBMessage
+            clientId: effectiveClientId, // Make sure clientId is included
           };
+
+          // Additional validation to ensure the UUID is valid
+          if (
+            !assistantId ||
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+              assistantId,
+            )
+          ) {
+            console.error(
+              `[Brain API] Invalid UUID generated for assistant message, attempting to regenerate`,
+            );
+            // If by some chance the UUID is invalid, generate a new one
+            const regeneratedId = randomUUID();
+            if (
+              !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                regeneratedId,
+              )
+            ) {
+              throw new Error(
+                'Failed to generate a valid UUID for assistant message',
+              );
+            }
+            console.log(
+              `[Brain API] Successfully regenerated UUID: ${regeneratedId}`,
+            );
+            assistantMessageToSave.id = regeneratedId;
+          }
 
           console.log(
             `[Brain API] Saving assistant message ${assistantMessageToSave.id} for chat ${normalizedChatId}`,
