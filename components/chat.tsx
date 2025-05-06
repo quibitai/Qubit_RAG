@@ -96,19 +96,18 @@ export function Chat({
   );
   console.log('[Chat] Chat ID:', id);
 
-  // Access the ChatPaneContext to update and use the shared currentChatId
-  const { setCurrentChatId } = useChatPane();
+  // Access the ChatPaneContext to update and use the shared mainUiChatId
+  const { setMainUiChatId, ensureValidChatId } = useChatPane();
 
   // When a chat with a specific ID is loaded, update the shared context
   useEffect(() => {
-    if (
-      id &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
-    ) {
-      console.log(`[Chat] Updating shared currentChatId to: ${id}`);
-      setCurrentChatId(id);
+    if (id) {
+      // Ensure the ID is a valid UUID before setting it
+      const validChatId = ensureValidChatId(id);
+      console.log(`[Chat] Updating shared mainUiChatId to: ${validChatId}`);
+      setMainUiChatId(validChatId);
     }
-  }, [id, setCurrentChatId]);
+  }, [id, setMainUiChatId, ensureValidChatId]);
 
   const { mutate, cache } = useSWRConfig();
   const [attachments, setAttachments] = useState<Array<Attachment>>([]);
@@ -175,9 +174,14 @@ export function Chat({
     stop,
     reload,
   } = useChat({
-    id,
+    id, // Use the specific chat ID passed to this component
     api: '/api/brain',
-    body: { id, selectedChatModel: selectedChatModel },
+    body: {
+      id,
+      selectedChatModel: selectedChatModel,
+      // Flag this as coming from the main UI (not the global pane)
+      isFromGlobalPane: false,
+    },
     initialMessages,
     experimental_throttle: 0,
     streamProtocol: 'data',
@@ -498,6 +502,8 @@ export function Chat({
             fileContext: fileContext || null, // Include fileContext in the request payload
             id: id,
             chatId: id,
+            // Indicate this is from the main UI, not the global pane
+            isFromGlobalPane: false,
           },
         });
 

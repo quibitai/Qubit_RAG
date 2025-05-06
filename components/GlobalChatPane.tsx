@@ -29,6 +29,7 @@ import { chatModels } from '@/lib/ai/models';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { createChatAndSaveFirstMessages } from '../app/(chat)/actions';
 import { toast } from 'sonner';
+import { useChat } from 'ai/react';
 
 // Add utility function for fallback API calls
 const callServerActionWithFallback = async (
@@ -99,16 +100,47 @@ export function GlobalChatPane({
     }
   }, []);
 
-  const { chatState, currentActiveSpecialistId, isPaneOpen } = useChatPane();
+  // Get shared context values, including the global pane's own chat ID
+  const {
+    currentActiveSpecialistId,
+    isPaneOpen,
+    globalPaneChatId,
+    setGlobalPaneChatId,
+    ensureValidChatId,
+    mainUiChatId,
+  } = useChatPane();
+
+  // Create a separate useChat instance specific for the global chat pane
   const {
     messages,
     input,
     handleInputChange,
-    handleSubmit,
+    handleSubmit: originalHandleSubmit,
+    isLoading,
+    error,
     setInput,
+    setMessages,
     status,
     stop,
-  } = chatState;
+    reload,
+  } = useChat({
+    id: globalPaneChatId, // Use the global pane's own chat ID
+    api: '/api/brain',
+    body: {
+      id: globalPaneChatId,
+      selectedChatModel: 'global-orchestrator',
+      // Include the shared context from the main UI
+      activeBitContextId: currentActiveSpecialistId,
+      currentActiveSpecialistId: currentActiveSpecialistId,
+      // Flag this as coming from the global pane
+      isFromGlobalPane: true,
+      // Include a reference to the main UI's chat ID
+      referencedChatId: mainUiChatId,
+    },
+    experimental_throttle: 100,
+    sendExtraMessageFields: true,
+    generateId: generateUUID, // Ensure message IDs are valid UUIDs
+  });
 
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
@@ -132,7 +164,7 @@ export function GlobalChatPane({
 
   // Get votes for the messages if available
   const { data: votes } = useSWR<Array<Vote>>(
-    messages.length >= 2 ? `/api/vote?chatId=${chatState.id}` : null,
+    messages.length >= 2 ? `/api/vote?chatId=${globalPaneChatId}` : null,
     fetcher,
   );
 
@@ -158,7 +190,7 @@ export function GlobalChatPane({
 
   // Reset chatPersistedRef when a new chat is created
   React.useEffect(() => {
-    if (chatState.messages.length === 0) {
+    if (messages.length === 0) {
       requestAnimationFrame(() => {
         console.log(
           '[GlobalChatPane] New chat detected, resetting persistence state',
@@ -169,7 +201,7 @@ export function GlobalChatPane({
         processingMessageIdsRef.current.clear();
       });
     }
-  }, [chatState.messages.length]);
+  }, [messages.length]);
 
   // Ref to track chat persistence
   const chatPersistedRef = React.useRef<boolean>(false);
@@ -208,7 +240,7 @@ export function GlobalChatPane({
         return;
       }
 
-      const currentChatId = chatState.id;
+      const currentChatId = globalPaneChatId;
 
       // Skip if chat is already persisted
       if (chatPersistedRef.current) {
@@ -265,14 +297,14 @@ export function GlobalChatPane({
 
     // Dispatch an event whenever new messages appear
     const messagesObserver = new MutationObserver(() => {
-      const assistantMessages = chatState.messages.filter(
-        (m) => m.role === 'assistant',
+      const assistantMessages = messages.filter(
+        (m: any) => m.role === 'assistant',
       );
       if (assistantMessages.length > 0) {
         const lastAssistantMessage =
           assistantMessages[assistantMessages.length - 1];
         // Ensure we only fire for completed messages that have content
-        if (lastAssistantMessage.content && !chatState.isLoading) {
+        if (lastAssistantMessage.content && !isLoading) {
           // Skip if we've already processed this message
           if (
             savedMessageIdsRef.current.has(lastAssistantMessage.id) ||
@@ -314,19 +346,21 @@ export function GlobalChatPane({
       );
       messagesObserver.disconnect();
     };
-  }, [chatState]);
+  }, [messages, isLoading]);
 
   const submitMessage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!input.trim()) return;
 
-    // Get the current chat ID from the context instead of generating a new one
-    // This ensures we're using the same chat ID as the main UI
-    const { currentChatId, ensureValidChatId } = useChatPane();
+    // Ensure we're using a valid UUID for the global pane's chat ID
+    const validChatId = ensureValidChatId(globalPaneChatId);
 
-    // Always ensure we have a valid UUID-formatted chat ID
-    const validChatId = ensureValidChatId();
-    console.log('[GlobalChatPane] Using shared chat ID:', validChatId);
+    // If the current ID is invalid, update it in the context
+    if (validChatId !== globalPaneChatId) {
+      setGlobalPaneChatId(validChatId);
+    }
+
+    console.log('[GlobalChatPane] Using global pane chat ID:', validChatId);
 
     // Ensure a proper UUID is generated for the user message
     const userMsgId = generateUUID();
@@ -345,7 +379,7 @@ export function GlobalChatPane({
 
     const userMsg = {
       id: userMsgId,
-      chatId: validChatId, // Use the shared, valid chat ID
+      chatId: validChatId, // Use the valid global pane chat ID
       role: 'user',
       parts: [{ type: 'text', text: input }],
       attachments: [],
@@ -366,13 +400,15 @@ export function GlobalChatPane({
 
     // Send the message to the AI with model selection
     // Always use the shared currentActiveSpecialistId from context
-    await handleSubmit({
-      data: {
+    await originalHandleSubmit(e, {
+      body: {
         selectedChatModel: 'global-orchestrator', // Always use orchestrator
         activeBitContextId: currentActiveSpecialistId, // Use shared context
         currentActiveSpecialistId: currentActiveSpecialistId, // Include both for compatibility
         chatId: validChatId, // Include the valid chatId in the request
         id: validChatId, // Also include as id for compatibility
+        isFromGlobalPane: true, // Flag this request as coming from the global pane
+        referencedChatId: mainUiChatId, // Include reference to the main UI chat ID
       },
     });
 
@@ -383,6 +419,22 @@ export function GlobalChatPane({
         textareaRef.current.style.height = 'auto';
       }
     });
+  };
+
+  // Function to start a new chat in the global pane
+  const startNewChat = () => {
+    // Generate a new chat ID for the global pane
+    const newChatId = generateUUID();
+    setGlobalPaneChatId(newChatId);
+    console.log('[GlobalChatPane] Started new chat with ID:', newChatId);
+
+    // Clear the chat state
+    setMessages([]);
+    setInput('');
+    chatPersistedRef.current = false;
+    savedMessageIdsRef.current.clear();
+    processingMessageIdsRef.current.clear();
+    lastUserMsgRef.current = null;
   };
 
   if (!isPaneOpen) {
@@ -399,15 +451,7 @@ export function GlobalChatPane({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 rounded-full hover:bg-muted"
-                onClick={() => {
-                  // Clear the chat state to start a new conversation
-                  chatState.setMessages([]);
-                  setInput('');
-                  chatPersistedRef.current = false;
-                  savedMessageIdsRef.current.clear();
-                  processingMessageIdsRef.current.clear();
-                  lastUserMsgRef.current = null;
-                }}
+                onClick={startNewChat}
                 aria-label="New Chat"
                 title="New Chat"
               >
@@ -434,14 +478,14 @@ export function GlobalChatPane({
           messages.map((message, index) => (
             <PreviewMessage
               key={message.id}
-              chatId={chatState.id || ''}
+              chatId={globalPaneChatId}
               message={message}
               isLoading={
                 status === 'streaming' && index === messages.length - 1
               }
               vote={votes?.find((vote) => vote.messageId === message.id)}
-              setMessages={chatState.setMessages}
-              reload={chatState.reload}
+              setMessages={setMessages}
+              reload={reload}
               isReadonly={false}
             />
           ))

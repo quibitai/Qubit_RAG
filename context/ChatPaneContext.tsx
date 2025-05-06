@@ -52,9 +52,11 @@ export interface ChatPaneContextType {
   }) => Promise<void | string | null | undefined>;
   streamedContentMap: Record<string, string>;
   lastStreamUpdateTs: number;
-  currentChatId: string;
-  setCurrentChatId: (id: string) => void;
-  ensureValidChatId: () => string;
+  mainUiChatId: string;
+  setMainUiChatId: (id: string) => void;
+  globalPaneChatId: string;
+  setGlobalPaneChatId: (id: string) => void;
+  ensureValidChatId: (chatId: string) => string;
 }
 
 export const ChatPaneContext = createContext<ChatPaneContextType | undefined>(
@@ -101,35 +103,38 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
   >({});
   const [lastStreamUpdateTs, setLastStreamUpdateTs] = useState<number>(0);
 
-  // Add state for tracking the current chat ID (ensuring it's a valid UUID)
-  const [currentChatId, setCurrentChatId] = useState<string>(() => {
+  // Replace currentChatId with separate IDs for main UI and global pane
+  const [mainUiChatId, setMainUiChatId] = useState<string>(() => {
     // Generate a valid UUID initially
+    return generateUUID();
+  });
+
+  // Add a separate ID for the global chat pane
+  const [globalPaneChatId, setGlobalPaneChatId] = useState<string>(() => {
+    // Generate a different valid UUID initially
     return generateUUID();
   });
 
   const router = useRouter();
 
-  // Function to ensure we always have a valid UUID for the chat ID
-  const ensureValidChatId = useCallback(() => {
-    // Use the current chatId if it already exists and is a valid UUID
+  // Function to ensure we always have a valid UUID for any chat ID
+  const ensureValidChatId = useCallback((chatId: string) => {
+    // Use the provided chatId if it's already a valid UUID
     const validUuidPattern =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-    if (validUuidPattern.test(currentChatId)) {
-      console.log(
-        `[ChatPaneContext] Using existing valid chat ID: ${currentChatId}`,
-      );
-      return currentChatId;
+    if (validUuidPattern.test(chatId)) {
+      return chatId;
     }
 
-    // Generate a new UUID if the current one is not valid
+    // Generate a new UUID if the provided one is not valid
     const newChatId = generateUUID();
-    console.log(`[ChatPaneContext] Generated new chat ID: ${newChatId}`);
+    console.log(
+      `[ChatPaneContext] Generated new chat ID: ${newChatId} (replacing invalid ${chatId})`,
+    );
 
-    // Update the state
-    setCurrentChatId(newChatId);
     return newChatId;
-  }, [currentChatId]);
+  }, []);
 
   // Track if the current chat has been persisted to avoid duplicate saves
   const chatPersistedRef = useRef<boolean>(false);
@@ -170,18 +175,33 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
           setActiveDocId(storedDocId);
         }
 
-        // Load saved chat ID from localStorage if available
-        const storedChatId = localStorage.getItem('current-chat-id');
+        // Load saved chat IDs from localStorage if available
+        const storedMainUiChatId = localStorage.getItem('main-ui-chat-id');
         if (
-          storedChatId &&
+          storedMainUiChatId &&
           /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-            storedChatId,
+            storedMainUiChatId,
           )
         ) {
           console.log(
-            `[ChatPaneContext] Restored chat ID from localStorage: ${storedChatId}`,
+            `[ChatPaneContext] Restored main UI chat ID from localStorage: ${storedMainUiChatId}`,
           );
-          setCurrentChatId(storedChatId);
+          setMainUiChatId(storedMainUiChatId);
+        }
+
+        const storedGlobalPaneChatId = localStorage.getItem(
+          'global-pane-chat-id',
+        );
+        if (
+          storedGlobalPaneChatId &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            storedGlobalPaneChatId,
+          )
+        ) {
+          console.log(
+            `[ChatPaneContext] Restored global pane chat ID from localStorage: ${storedGlobalPaneChatId}`,
+          );
+          setGlobalPaneChatId(storedGlobalPaneChatId);
         }
       });
     } catch (error) {
@@ -207,26 +227,39 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [currentActiveSpecialistId]);
 
-  // Save currentChatId to localStorage when it changes
+  // Save mainUiChatId to localStorage when it changes
   useEffect(() => {
     try {
-      localStorage.setItem('current-chat-id', currentChatId);
+      localStorage.setItem('main-ui-chat-id', mainUiChatId);
       console.log(
-        `[ChatPaneContext] Saved currentChatId to localStorage: ${currentChatId}`,
+        `[ChatPaneContext] Saved mainUiChatId to localStorage: ${mainUiChatId}`,
       );
     } catch (error) {
-      console.error('Error saving currentChatId to localStorage:', error);
+      console.error('Error saving mainUiChatId to localStorage:', error);
     }
-  }, [currentChatId]);
+  }, [mainUiChatId]);
+
+  // Save globalPaneChatId to localStorage when it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('global-pane-chat-id', globalPaneChatId);
+      console.log(
+        `[ChatPaneContext] Saved globalPaneChatId to localStorage: ${globalPaneChatId}`,
+      );
+    } catch (error) {
+      console.error('Error saving globalPaneChatId to localStorage:', error);
+    }
+  }, [globalPaneChatId]);
 
   const baseState = useChat({
-    id: currentChatId, // Use the shared chatId for consistency across components
+    id: mainUiChatId, // Use the main UI chat ID for the primary useChat instance
     api: '/api/brain',
     body: {
       // Always identify as Quibit orchestrator
       selectedChatModel: 'global-orchestrator',
       // Include only the active specialist ID and active doc ID
       activeBitContextId: currentActiveSpecialistId,
+      currentActiveSpecialistId: currentActiveSpecialistId, // Include both for compatibility
       activeDocId,
     },
     experimental_throttle: 100,
@@ -265,13 +298,17 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       message?: any;
       data?: Record<string, any>;
     }) => {
-      // Ensure we're using a valid UUID for the chat ID
-      const validChatId = ensureValidChatId();
+      // Use data from options to determine if this is for main UI or global pane
+      const isFromGlobalPane = options?.data?.isFromGlobalPane === true;
+
+      // Use the appropriate chat ID based on source
+      const chatId = isFromGlobalPane ? globalPaneChatId : mainUiChatId;
 
       console.log('[ChatPaneContext] Submitting message with context:', {
         currentActiveSpecialistId,
         activeDocId,
-        chatId: validChatId,
+        chatId,
+        isFromGlobalPane,
       });
 
       // Prepare the body with context information
@@ -283,7 +320,9 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
         currentActiveSpecialistId: currentActiveSpecialistId, // Include both for compatibility
         activeDocId,
         // Ensure a valid chatId is always sent
-        id: validChatId,
+        id: chatId,
+        // For global pane messages, also include the main UI chat ID as reference
+        ...(isFromGlobalPane && { referencedChatId: mainUiChatId }),
         // Include any other data from options?.data
         ...(options?.data || {}),
       };
@@ -299,7 +338,8 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       baseState.handleSubmit,
       currentActiveSpecialistId,
       activeDocId,
-      ensureValidChatId,
+      mainUiChatId,
+      globalPaneChatId,
     ],
   );
 
@@ -332,8 +372,10 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       submitMessage,
       streamedContentMap,
       lastStreamUpdateTs,
-      currentChatId,
-      setCurrentChatId,
+      mainUiChatId,
+      setMainUiChatId,
+      globalPaneChatId,
+      setGlobalPaneChatId,
       ensureValidChatId,
     }),
     [
@@ -345,8 +387,10 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       submitMessage,
       streamedContentMap,
       lastStreamUpdateTs,
-      currentChatId,
-      setCurrentChatId,
+      mainUiChatId,
+      setMainUiChatId,
+      globalPaneChatId,
+      setGlobalPaneChatId,
       ensureValidChatId,
     ],
   );
@@ -417,21 +461,6 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       });
     }
   }, [activeDocId, streamedContentMap]);
-
-  // When loading an existing chat from history, update the currentChatId
-  const updateChatIdFromHistory = useCallback((chatId: string) => {
-    if (
-      chatId &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        chatId,
-      )
-    ) {
-      console.log(
-        `[ChatPaneContext] Setting current chat ID from history: ${chatId}`,
-      );
-      setCurrentChatId(chatId);
-    }
-  }, []);
 
   return (
     <ChatPaneContext.Provider value={contextValue}>

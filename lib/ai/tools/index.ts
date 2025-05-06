@@ -12,6 +12,7 @@ import { createDocumentTool } from './create-document';
 import { requestSuggestionsTool } from './request-suggestions';
 import { updateDocumentTool } from './update-document';
 import { tavilySearchTool } from './tavily-search';
+import { getMessagesFromOtherChatTool } from './getMessagesFromOtherChatTool';
 
 // Export all available tools
 export const availableTools = [
@@ -23,6 +24,7 @@ export const availableTools = [
   requestSuggestionsTool,
   updateDocumentTool,
   tavilySearchTool,
+  getMessagesFromOtherChatTool,
 ];
 
 export {
@@ -34,4 +36,5 @@ export {
   requestSuggestionsTool,
   updateDocumentTool,
   tavilySearchTool,
+  getMessagesFromOtherChatTool,
 };
