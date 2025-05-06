@@ -403,9 +403,6 @@ export function GlobalChatPane({
           </Tooltip>
           <h2 className="font-semibold">{title}</h2>
         </div>
-
-        {/* Simple text label showing the current bit, replacing the dropdown */}
-        <div className="text-sm text-muted-foreground">Quibit Orchestrator</div>
       </header>
 
       {/* Messages container */}
