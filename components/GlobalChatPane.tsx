@@ -82,7 +82,7 @@ export function GlobalChatPane({
   title = 'Chat Assistant',
 }: GlobalChatPaneProps) {
   // Debug: Check if server action is correctly identified
-  // Only log once during development to reduce console spam
+  // Only log once during development
   const hasLoggedServerActionCheck = React.useRef(false);
 
   React.useEffect(() => {
@@ -134,15 +134,6 @@ export function GlobalChatPane({
   const { data: votes } = useSWR<Array<Vote>>(
     messages.length >= 2 ? `/api/vote?chatId=${chatState.id}` : null,
     fetcher,
-  );
-
-  // Find the selected model details
-  const selectedChatModel = React.useMemo(
-    () =>
-      chatModels.find(
-        (chatModel) => chatModel.id === currentActiveSpecialistId,
-      ) || chatModels[0],
-    [currentActiveSpecialistId],
   );
 
   // Adjust textarea height as user types
@@ -329,7 +320,7 @@ export function GlobalChatPane({
     e.preventDefault();
     if (!input.trim()) return;
 
-    // Use the existing chat ID from chatState or generate a new UUID if not available
+    // Create and store the user message before submitting
     const currentChatId = chatState.id || generateUUID();
 
     // Ensure a proper UUID is generated for the user message
@@ -368,18 +359,13 @@ export function GlobalChatPane({
       console.log('[GlobalChatPane] Using chat ID:', currentChatId);
     });
 
-    // Log which specialist is currently active
-    console.log(
-      '[GlobalChatPane] Using currentActiveSpecialistId:',
-      currentActiveSpecialistId,
-    );
-
     // Send the message to the AI with model selection
+    // Always use the shared currentActiveSpecialistId from context
     await handleSubmit({
       data: {
-        selectedChatModel: 'global-orchestrator', // Always use the global orchestrator
-        activeBitContextId: currentActiveSpecialistId, // Pass the shared specialist ID
-        id: currentChatId, // Ensure the chat ID is passed consistently
+        selectedChatModel: 'global-orchestrator', // Always use orchestrator
+        activeBitContextId: currentActiveSpecialistId, // Use shared context
+        chatId: currentChatId,
       },
     });
 

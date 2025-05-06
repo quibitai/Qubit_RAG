@@ -17,12 +17,17 @@ import { toast } from 'sonner';
 import { unstable_serialize } from 'swr/infinite';
 import { getChatHistoryPaginationKey } from './sidebar-history';
 import { ChatPaneToggle } from './ChatPaneToggle';
-import { useChatPane } from '@/context/ChatPaneContext';
 import {
   saveSubsequentMessages,
   createChatAndSaveFirstMessages,
 } from '@/app/(chat)/actions';
 import { cn } from '@/lib/utils';
+import { ChatScrollAnchor } from '@/components/chat-scroll-anchor';
+import { ChatForm } from '@/components/chat-form';
+import { Layout } from '@/components/layout';
+import { PromptList } from '@/components/prompt-list';
+import { FileIcon } from '@/components/icons/FileIcon';
+import { Button } from '@/components/ui/button';
 import { XIcon } from 'lucide-react';
 
 console.log('[Chat] actions:', {
@@ -99,9 +104,6 @@ export function Chat({
   const persistedChatIdsRef = useRef<Set<string>>(new Set<string>());
   // Add isMounted ref to prevent state updates after unmount
   const isMountedRef = useRef<boolean>(true);
-
-  // Get currentActiveSpecialistId from ChatPaneContext
-  const { currentActiveSpecialistId } = useChatPane();
 
   // Set up unmount cleanup
   useEffect(() => {
@@ -420,10 +422,6 @@ export function Chat({
 
       try {
         console.log('[Chat] Including fileContext in request:', fileContext);
-        console.log(
-          '[Chat] Using currentActiveSpecialistId:',
-          currentActiveSpecialistId,
-        );
 
         // Log the user message before sending
         console.log('[Chat] New user message:', input);
@@ -483,8 +481,6 @@ export function Chat({
           body: {
             ...chatRequestOptions?.body,
             fileContext: fileContext || null, // Include fileContext in the request payload
-            activeBitContextId: currentActiveSpecialistId, // Include the shared specialist ID in the request
-            id: id, // Ensure the chat ID is consistently passed
           },
         });
 
@@ -494,16 +490,7 @@ export function Chat({
         toast.error('Failed to process your message. Please try again.');
       }
     },
-    [
-      input,
-      originalHandleSubmit,
-      setInput,
-      fileContext,
-      toast,
-      id,
-      messages,
-      currentActiveSpecialistId,
-    ], // Add all dependencies
+    [input, originalHandleSubmit, setInput, fileContext, toast, id, messages], // Add all dependencies
   );
 
   return (

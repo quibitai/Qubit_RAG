@@ -32,13 +32,13 @@ function PureChatHeader({
 }) {
   const router = useRouter();
   const { open } = useSidebar();
-  const { setCurrentActiveSpecialistId, currentActiveSpecialistId } =
+  const { currentActiveSpecialistId, setCurrentActiveSpecialistId } =
     useChatPane();
 
   const { width: windowWidth } = useWindowSize();
 
-  // Define the available specialists for the Chat Bit
-  const specialists = [
+  // Define the available specialists
+  const availableSpecialists = [
     {
       id: 'echo-tango-specialist',
       name: 'Echo Tango Bit',
@@ -47,7 +47,7 @@ function PureChatHeader({
     {
       id: null,
       name: 'General Chat',
-      description: 'No specific specialist active',
+      description: 'Standard chat without specialist persona',
     },
     // Add more specialists here as they become available
   ];
@@ -73,28 +73,23 @@ function PureChatHeader({
         <TooltipContent>New Chat</TooltipContent>
       </Tooltip>
 
-      {!isReadonly && (
+      {!isReadonly && selectedModelId === 'chat-model' && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="h-8 gap-1">
               {currentActiveSpecialistId
-                ? specialists.find((s) => s.id === currentActiveSpecialistId)
-                    ?.name || 'Select Specialist'
+                ? availableSpecialists.find(
+                    (s) => s.id === currentActiveSpecialistId,
+                  )?.name || 'Select Specialist'
                 : 'General Chat'}
               <ChevronDown className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-[200px]">
-            {specialists.map((specialist) => (
+            {availableSpecialists.map((specialist) => (
               <DropdownMenuItem
                 key={specialist.id || 'general'}
-                onClick={() => {
-                  console.log(
-                    '[ChatHeader] Switching to specialist:',
-                    specialist.id,
-                  );
-                  setCurrentActiveSpecialistId(specialist.id);
-                }}
+                onClick={() => setCurrentActiveSpecialistId(specialist.id)}
                 className="flex items-center justify-between"
               >
                 <div className="flex flex-col">
@@ -103,9 +98,7 @@ function PureChatHeader({
                     {specialist.description}
                   </span>
                 </div>
-                {(currentActiveSpecialistId === specialist.id ||
-                  (currentActiveSpecialistId === null &&
-                    specialist.id === null)) && (
+                {currentActiveSpecialistId === specialist.id && (
                   <CheckIcon className="h-4 w-4" />
                 )}
               </DropdownMenuItem>

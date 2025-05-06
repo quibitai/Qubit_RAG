@@ -2,25 +2,27 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { nanoid } from 'nanoid';
 import { useChatPane } from '@/context/ChatPaneContext';
+import { Button } from '@/components/ui/button';
 
-export default function EditorIndexPage() {
+export default function EditorPage() {
   const router = useRouter();
   const { setCurrentActiveSpecialistId } = useChatPane();
 
+  // Redirect to a new document by default
   useEffect(() => {
-    // Set the document editor bit context
+    // Set context first
     setCurrentActiveSpecialistId('document-editor');
 
-    // Generate a new document ID and redirect to it
-    const newDocId = nanoid();
-    router.replace(`/editor/${newDocId}`);
+    // Then redirect
+    router.push('/editor/new');
   }, [router, setCurrentActiveSpecialistId]);
 
   return (
-    <div className="flex items-center justify-center h-full">
-      <p className="text-muted-foreground">Redirecting to new document...</p>
+    <div className="flex h-screen items-center justify-center">
+      <Button variant="outline" className="animate-pulse">
+        Redirecting...
+      </Button>
     </div>
   );
 }

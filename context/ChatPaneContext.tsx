@@ -38,7 +38,7 @@ export interface ChatPaneContextType {
     handleSubmit: (options?: {
       message?: any;
       data?: Record<string, any>;
-    }) => Promise<any>;
+    }) => Promise<void | string | null | undefined>;
   };
   isPaneOpen: boolean;
   setIsPaneOpen: (isOpen: boolean) => void;
@@ -49,7 +49,7 @@ export interface ChatPaneContextType {
   submitMessage: (options?: {
     message?: any;
     data?: Record<string, any>;
-  }) => Promise<any>;
+  }) => Promise<void | string | null | undefined>;
   streamedContentMap: Record<string, string>;
   lastStreamUpdateTs: number;
 }
@@ -88,6 +88,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   // Initialize with static value - no toggle functionality
   const [isPaneOpen, setIsPaneOpen] = useState<boolean>(true);
+  // Replace both activeBitContextId and activeBitPersona with a single currentActiveSpecialistId
   const [currentActiveSpecialistId, setCurrentActiveSpecialistId] = useState<
     string | null
   >(null);
@@ -124,8 +125,9 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
           setIsPaneOpen(storedPaneState === 'true');
         }
 
+        // Load the specialist ID from localStorage
         const storedSpecialistId = localStorage.getItem(
-          'chat-active-specialist',
+          'current-active-specialist',
         );
         if (storedSpecialistId) {
           setCurrentActiveSpecialistId(storedSpecialistId);
@@ -145,8 +147,11 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
   useEffect(() => {
     try {
       localStorage.setItem(
-        'chat-active-specialist',
+        'current-active-specialist',
         currentActiveSpecialistId || '',
+      );
+      console.log(
+        `[ChatPaneContext] Saved currentActiveSpecialistId to localStorage: ${currentActiveSpecialistId}`,
       );
     } catch (error) {
       console.error(
@@ -161,7 +166,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     body: {
       // Always identify as Quibit orchestrator
       selectedChatModel: 'global-orchestrator',
-      // Include the active context information
+      // Include only the active specialist ID and active doc ID
       activeBitContextId: currentActiveSpecialistId,
       activeDocId,
     },
@@ -209,7 +214,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       const bodyPayload = {
         // Always identify as Quibit to the backend
         selectedChatModel: 'global-orchestrator',
-        // Include the active context information
+        // Include only currentActiveSpecialistId and activeDocId
         activeBitContextId: currentActiveSpecialistId,
         activeDocId,
         // Include any other data from options?.data

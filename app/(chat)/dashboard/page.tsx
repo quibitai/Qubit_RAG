@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useChatPane } from '@/context/ChatPaneContext';
 import {
@@ -14,13 +14,31 @@ import {
 import { Bot, ArrowRight, Brain, FileEdit } from 'lucide-react';
 import { ChatPaneToggle } from '@/components/ChatPaneToggle';
 import { useSidebar } from '@/components/ui/sidebar';
+import { DEFAULT_CHAT_MODEL } from '@/lib/ai/models';
 
+/**
+ * Dashboard page component.
+ *
+ * This page displays the main dashboard for the application.
+ * It also ensures the proper bit context is set when accessed.
+ */
 export default function DashboardPage() {
   const router = useRouter();
   const { chatState, setCurrentActiveSpecialistId, setActiveDocId } =
     useChatPane();
   const { setMessages } = chatState;
   const { state: sidebarState } = useSidebar();
+  const modelId = DEFAULT_CHAT_MODEL;
+
+  // When this component mounts, set the appropriate context
+  useEffect(() => {
+    // Set the bit context to the default model
+    console.log(`[Dashboard] Setting currentActiveSpecialistId to ${modelId}`);
+    setCurrentActiveSpecialistId(modelId);
+
+    // Clear any active document ID
+    setActiveDocId(null);
+  }, [modelId, setCurrentActiveSpecialistId, setActiveDocId]);
 
   const handleBitSelection = (modelId: string) => {
     // Update the active bit context in the global context
