@@ -1302,6 +1302,11 @@ export async function POST(req: NextRequest) {
       currentActiveSpecialistId?: string | null;
       activeBitPersona?: string | null;
       activeDocId?: string | null;
+      // Extract reference chat IDs for cross-UI context sharing
+      isFromGlobalPane?: boolean;
+      referencedChatId?: string | null;
+      mainUiChatId?: string | null;
+      referencedGlobalPaneChatId?: string | null;
       [key: string]: any;
     };
 
@@ -1326,10 +1331,39 @@ export async function POST(req: NextRequest) {
       activeBitContextId = null,
       activeBitPersona = null,
       activeDocId = null,
+      // Extract reference chat IDs for cross-UI context sharing
+      isFromGlobalPane = false,
+      referencedChatId = null,
+      mainUiChatId = null,
+      referencedGlobalPaneChatId = null,
     } = reqBody;
 
     // Use currentActiveSpecialistId if provided, otherwise fall back to activeBitContextId
     const effectiveContextId = currentActiveSpecialistId || activeBitContextId;
+
+    // Set up the global CURRENT_REQUEST_BODY for cross-UI context sharing
+    // This is used by tools like getMessagesFromOtherChatTool to maintain context between UIs
+    global.CURRENT_REQUEST_BODY = {
+      // When request is from Global Pane, it provides referencedChatId (pointing to main UI)
+      // When request is from main UI, it provides referencedGlobalPaneChatId
+      referencedChatId: isFromGlobalPane
+        ? referencedChatId || mainUiChatId
+        : chatId,
+      referencedGlobalPaneChatId: isFromGlobalPane
+        ? chatId
+        : referencedGlobalPaneChatId,
+      currentActiveSpecialistId: effectiveContextId,
+      isFromGlobalPane,
+    };
+
+    console.log('[Brain API] Set up request context:', {
+      referencedChatId: global.CURRENT_REQUEST_BODY.referencedChatId,
+      referencedGlobalPaneChatId:
+        global.CURRENT_REQUEST_BODY.referencedGlobalPaneChatId,
+      currentActiveSpecialistId:
+        global.CURRENT_REQUEST_BODY.currentActiveSpecialistId,
+      isFromGlobalPane,
+    });
 
     // Validate chatId
     if (!chatId) {

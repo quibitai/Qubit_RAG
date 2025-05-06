@@ -13,8 +13,10 @@ type MessageResult = {
 // Make TypeScript aware of our custom global property
 declare global {
   var CURRENT_REQUEST_BODY: {
-    referencedChatId?: string;
+    referencedChatId?: string | null;
+    referencedGlobalPaneChatId?: string | null;
     currentActiveSpecialistId?: string | null;
+    isFromGlobalPane?: boolean;
   } | null;
 }
 
@@ -56,20 +58,32 @@ export const getMessagesFromOtherChatTool = new DynamicStructuredTool({
 
       // Access the request context if available (to get referencedChatId from global pane requests)
       let referencedChatId: string | null = null;
+      let referencedGlobalPaneChatId: string | null = null;
       let currentActiveSpecialistId: string | null = null;
+      let isFromGlobalPane: boolean = false;
 
-      // Try to extract referencedChatId from the request body if available
+      // Try to extract reference information from the request body if available
       if (
         global.CURRENT_REQUEST_BODY &&
         typeof global.CURRENT_REQUEST_BODY === 'object'
       ) {
         referencedChatId = global.CURRENT_REQUEST_BODY.referencedChatId || null;
+        referencedGlobalPaneChatId =
+          global.CURRENT_REQUEST_BODY.referencedGlobalPaneChatId || null;
         currentActiveSpecialistId =
           global.CURRENT_REQUEST_BODY.currentActiveSpecialistId || null;
+        isFromGlobalPane =
+          global.CURRENT_REQUEST_BODY.isFromGlobalPane || false;
 
         if (referencedChatId) {
           console.log(
             `[getMessagesFromOtherChatTool] Found referencedChatId in global context: ${referencedChatId}`,
+          );
+        }
+
+        if (referencedGlobalPaneChatId) {
+          console.log(
+            `[getMessagesFromOtherChatTool] Found referencedGlobalPaneChatId in global context: ${referencedGlobalPaneChatId}`,
           );
         }
 
@@ -78,6 +92,10 @@ export const getMessagesFromOtherChatTool = new DynamicStructuredTool({
             `[getMessagesFromOtherChatTool] Found currentActiveSpecialistId in global context: ${currentActiveSpecialistId}`,
           );
         }
+
+        console.log(
+          `[getMessagesFromOtherChatTool] Request is from ${isFromGlobalPane ? 'Global Pane' : 'Main UI'}`,
+        );
       }
 
       // Handle special case for 'main' to use referencedChatId directly
@@ -85,6 +103,19 @@ export const getMessagesFromOtherChatTool = new DynamicStructuredTool({
         targetChatId = referencedChatId;
         console.log(
           `[getMessagesFromOtherChatTool] Using referencedChatId: ${targetChatId}`,
+        );
+      }
+
+      // Handle special case for 'global' or 'global-pane' to use referencedGlobalPaneChatId
+      if (
+        (targetChatId === 'global' ||
+          targetChatId === 'global-pane' ||
+          targetChatId === 'orchestrator') &&
+        referencedGlobalPaneChatId
+      ) {
+        targetChatId = referencedGlobalPaneChatId;
+        console.log(
+          `[getMessagesFromOtherChatTool] Using referencedGlobalPaneChatId: ${targetChatId}`,
         );
       }
 
