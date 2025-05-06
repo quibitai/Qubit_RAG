@@ -74,6 +74,7 @@ Okay, here is a detailed checklist based on the revised roadmap. You can use thi
     * `[x]` **Call DB Function:** In `app/api/brain/route.ts`, call `getClientConfig`.
     * `[x]` **Prompt Construction:** Update prompt logic in `/api/brain` to combine base orchestrator prompt, specialist prompt (from `activeBitContextId`), and client-specific instructions (from `clientConfig`).
     * `[x]` **Verification:** Add temporary logging in `/api/brain` to output the final combined system prompt. Send requests with different `activeBitContextId` values and for different (test) clients. Confirm the prompt includes the correct base, specialist (if applicable), and client instructions.
+    * `[x]` **Enhanced Client Configuration:** Add `config_json` column to Clients table to support structured configuration data including client-specific specialist prompts.
 
 * **Step 2.3: Implement Server-Side Langchain Streaming**
     * `[ ]` **Refine Handler:** Review/complete the custom streaming handler in `app/api/brain/route.ts` (`ReadableStream`, Langchain callbacks). Ensure robustness.

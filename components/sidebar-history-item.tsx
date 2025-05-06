@@ -26,6 +26,7 @@ import {
 import { memo } from 'react';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
 import { FileEdit, MessageSquare } from 'lucide-react';
+import { useChatPane } from '@/context/ChatPaneContext';
 
 const PureChatItem = ({
   chat,
@@ -45,15 +46,29 @@ const PureChatItem = ({
     initialVisibility: chat.visibility,
   });
 
+  // Get the setCurrentActiveSpecialistId function from ChatPaneContext
+  const { setCurrentActiveSpecialistId } = useChatPane();
+
   // Determine which icon to show based on the type
   const ItemIcon = itemType === 'document' ? FileEdit : MessageSquare;
   const itemPath =
     itemType === 'document' ? `/editor/${chat.id}` : `/chat/${chat.id}`;
 
+  // Handle navigation with context setting
+  const handleNavigation = () => {
+    // Set the appropriate bit context ID based on item type
+    const contextId =
+      itemType === 'document' ? 'document-editor' : 'chat-model';
+    setCurrentActiveSpecialistId(contextId);
+
+    // Close mobile sidebar
+    setOpenMobile(false);
+  };
+
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={isActive}>
-        <Link href={itemPath} onClick={() => setOpenMobile(false)}>
+        <Link href={itemPath} onClick={handleNavigation}>
           <div className="flex items-center gap-2 w-full overflow-hidden">
             <ItemIcon size={14} className="flex-shrink-0" />
             <span className="truncate overflow-hidden text-ellipsis whitespace-nowrap">

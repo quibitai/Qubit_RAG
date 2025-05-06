@@ -11,7 +11,6 @@ import {
   inArray,
   lt,
   type SQL,
-  count,
 } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
@@ -48,6 +47,11 @@ export type ClientConfig = {
   name: string;
   customInstructions?: string | null;
   enabledBits?: string[] | null;
+  configJson?: {
+    enabledBits?: string[];
+    specialistPrompts?: Record<string, string>;
+    // Add any other expected top-level keys from your config_json
+  } | null;
 };
 
 /**
@@ -68,6 +72,7 @@ export async function getClientConfig(
         name: clients.name,
         customInstructions: clients.customInstructions,
         enabledBits: clients.enabledBits,
+        configJsonRaw: clients.config_json, // Fetch the JSONB column
       })
       .from(clients)
       .where(eq(clients.id, clientId))
@@ -80,17 +85,48 @@ export async function getClientConfig(
       return null;
     }
 
+    const dbClient = result[0];
+    let parsedConfigJson: ClientConfig['configJson'] = null;
+
+    if (dbClient.configJsonRaw) {
+      // Drizzle might already parse JSONB, but if it's a string, explicitly parse.
+      if (typeof dbClient.configJsonRaw === 'string') {
+        try {
+          parsedConfigJson = JSON.parse(dbClient.configJsonRaw);
+        } catch (e) {
+          console.error(
+            `[DB:getClientConfig] Failed to parse config_json string for client ${clientId}:`,
+            e,
+          );
+          // Set to null or an empty object depending on desired error handling
+          parsedConfigJson = null;
+        }
+      } else {
+        // If Drizzle already parsed it (common for JSONB)
+        parsedConfigJson = dbClient.configJsonRaw as ClientConfig['configJson'];
+      }
+    }
+
+    console.log(
+      `[DB:getClientConfig] Raw customInstructions:`,
+      dbClient.customInstructions,
+    );
+    console.log(`[DB:getClientConfig] Parsed configJson:`, parsedConfigJson);
+
+    const clientConfigData: ClientConfig = {
+      id: dbClient.id,
+      name: dbClient.name,
+      customInstructions: dbClient.customInstructions,
+      enabledBits: dbClient.enabledBits as string[] | null,
+      configJson: parsedConfigJson,
+    };
+
     console.log(
       `[DB:getClientConfig] Found config for ${clientId}:`,
-      result[0],
+      clientConfigData,
     );
 
-    return {
-      id: result[0].id,
-      name: result[0].name,
-      customInstructions: result[0].customInstructions,
-      enabledBits: result[0].enabledBits as string[] | null,
-    };
+    return clientConfigData;
   } catch (error) {
     console.error(
       `[DB:getClientConfig] Error fetching config for clientId ${clientId}:`,
@@ -114,7 +150,11 @@ export async function createUser(email: string, password: string) {
   const hash = hashSync(password, salt);
 
   try {
-    return await db.insert(user).values({ email, password: hash });
+    return await db.insert(user).values({
+      email,
+      password: hash,
+      clientId: 'default',
+    });
   } catch (error) {
     console.error('Failed to create user in database');
     throw error;
@@ -137,6 +177,7 @@ export async function saveChat({
       createdAt: new Date(),
       userId,
       title,
+      clientId: 'default',
     });
     console.log('[DB] Successfully saved chat:', { id, result });
     return result;
@@ -326,6 +367,12 @@ export async function saveMessages({
       if (!msg.createdAt) {
         console.log('[DB] No createdAt provided, will use database default');
       }
+
+      // Ensure clientId is provided
+      if (!msg.clientId) {
+        console.log('[DB] No clientId provided, using default');
+        msg.clientId = 'default';
+      }
     }
 
     console.log('[saveMessages] Preparing to execute db.insert(message)...');
@@ -395,6 +442,7 @@ export async function voteMessage({
       chatId,
       messageId,
       isUpvoted: type === 'up',
+      clientId: 'default',
     });
   } catch (error) {
     console.error('Failed to upvote message in database', error);
@@ -433,6 +481,7 @@ export async function saveDocument({
       content,
       userId,
       createdAt: new Date(),
+      clientId: 'default',
     });
   } catch (error) {
     console.error('Failed to save document in database', error);
@@ -504,7 +553,13 @@ export async function saveSuggestions({
   suggestions: Array<Suggestion>;
 }) {
   try {
-    return await db.insert(suggestion).values(suggestions);
+    // Ensure all suggestions have a clientId
+    const suggestionsWithClientId = suggestions.map((suggestion) => ({
+      ...suggestion,
+      clientId: suggestion.clientId || 'default',
+    }));
+
+    return await db.insert(suggestion).values(suggestionsWithClientId);
   } catch (error) {
     console.error('Failed to save suggestions in database');
     throw error;
@@ -625,6 +680,7 @@ export async function ensureChatExists({
           createdAt: new Date(),
           userId: userId,
           title: 'New Chat', // Default title, can be updated later
+          clientId: 'default',
         });
         console.log('[DB DEBUG] INSERT query result:', insertResult);
         console.log('[DB DEBUG] Successfully created chat');

@@ -4,6 +4,7 @@ import { Chat } from '@/components/chat';
 import { DEFAULT_CHAT_MODEL } from '@/lib/ai/models';
 import { generateUUID } from '@/lib/utils';
 import { DataStreamHandler } from '@/components/data-stream-handler';
+import { ChatPageWrapper } from '@/components/chat-page-wrapper';
 
 export default async function Page() {
   const id = generateUUID();
@@ -30,7 +31,7 @@ export default async function Page() {
 
   if (!modelIdFromCookie) {
     return (
-      <>
+      <ChatPageWrapper>
         <Chat
           key={id}
           id={id}
@@ -40,12 +41,12 @@ export default async function Page() {
           isReadonly={false}
         />
         <DataStreamHandler id={id} />
-      </>
+      </ChatPageWrapper>
     );
   }
 
   return (
-    <>
+    <ChatPageWrapper>
       <Chat
         key={id}
         id={id}
@@ -55,6 +56,6 @@ export default async function Page() {
         isReadonly={false}
       />
       <DataStreamHandler id={id} />
-    </>
+    </ChatPageWrapper>
   );
 }

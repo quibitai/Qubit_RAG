@@ -329,7 +329,7 @@ export function GlobalChatPane({
     e.preventDefault();
     if (!input.trim()) return;
 
-    // Create and store the user message before submitting
+    // Use the existing chat ID from chatState or generate a new UUID if not available
     const currentChatId = chatState.id || generateUUID();
 
     // Ensure a proper UUID is generated for the user message
@@ -379,7 +379,7 @@ export function GlobalChatPane({
       data: {
         selectedChatModel: 'global-orchestrator', // Always use the global orchestrator
         activeBitContextId: currentActiveSpecialistId, // Pass the shared specialist ID
-        chatId: currentChatId,
+        id: currentChatId, // Ensure the chat ID is passed consistently
       },
     });
 

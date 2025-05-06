@@ -20,6 +20,7 @@ export const clients = pgTable('Clients', {
     .notNull(),
   customInstructions: text('customInstructions'),
   enabledBits: json('enabledBits'), // Stored as JSON array of bit IDs
+  config_json: json('config_json'), // Structured configuration including specialistPrompts
 });
 
 export type Client = InferSelectModel<typeof clients>;

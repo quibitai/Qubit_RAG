@@ -88,7 +88,13 @@ function PureChatHeader({
             {specialists.map((specialist) => (
               <DropdownMenuItem
                 key={specialist.id || 'general'}
-                onClick={() => setCurrentActiveSpecialistId(specialist.id)}
+                onClick={() => {
+                  console.log(
+                    '[ChatHeader] Switching to specialist:',
+                    specialist.id,
+                  );
+                  setCurrentActiveSpecialistId(specialist.id);
+                }}
                 className="flex items-center justify-between"
               >
                 <div className="flex flex-col">

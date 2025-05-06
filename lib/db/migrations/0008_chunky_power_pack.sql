@@ -1,0 +1,1 @@
+ALTER TABLE "Clients" ADD COLUMN "config_json" json;

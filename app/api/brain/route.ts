@@ -1138,6 +1138,15 @@ export async function POST(req: NextRequest) {
       `[Brain API] Chat ID: ${chatId}, Selected Model: ${selectedChatModel}, Active Bit: ${activeBitContextId}, Active Persona: ${activeBitPersona}, Active Doc: ${activeDocId}`,
     );
 
+    // Log full context details (placed after normalizedChatId is defined)
+    console.log(
+      `[Brain API] Context details: {
+        normalizedChatId: ${chatId || 'undefined'},
+        currentActiveSpecialistId: ${activeBitContextId || 'null'},
+        activeDocId: ${activeDocId || 'null'}
+      }`,
+    );
+
     // Add this line to process tool messages right after parsing
     const safeMessages = Array.isArray(messages)
       ? messages.map(ensureToolMessageContentIsString)
@@ -1159,6 +1168,33 @@ export async function POST(req: NextRequest) {
 
     const lastMessage = safeMessages[safeMessages.length - 1];
     const userMessageContent = lastMessage.content;
+
+    // Validate user message IDs
+    if (lastMessage.role === 'user') {
+      const originalUserMsgId = lastMessage.id;
+      let finalUserMsgId = originalUserMsgId;
+
+      // Check if the user message ID is valid
+      const uuidPattern =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const isValidUUID =
+        originalUserMsgId && uuidPattern.test(originalUserMsgId);
+
+      if (!isValidUUID) {
+        // Generate a proper UUID for the message
+        finalUserMsgId = randomUUID();
+        console.log(
+          `[Brain API] User message ID check: { originalId: '${originalUserMsgId}', isValid: false, finalId: '${finalUserMsgId}' }`,
+        );
+
+        // Update the message ID in the array
+        lastMessage.id = finalUserMsgId;
+      } else {
+        console.log(
+          `[Brain API] User message ID check: { originalId: '${originalUserMsgId}', isValid: true }`,
+        );
+      }
+    }
 
     // --- BEGIN CHAT CHECK/CREATION ---
     // Get current user session
@@ -1223,22 +1259,13 @@ export async function POST(req: NextRequest) {
     // Check if the chatId is in UUID format (8-4-4-4-12)
     const uuidPattern =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidPattern.test(chatId)) {
-      console.log(
-        `[Brain API Debug] The provided chatId '${chatId}' is not in standard UUID format`,
-      );
 
-      // If it doesn't match UUID pattern but looks like it could be a shortened/encoded UUID,
-      // generate a proper UUID based on this string to use consistently
-      try {
-        // Generate a deterministic UUID v5 using the non-standard ID as a namespace
-        normalizedChatId = randomUUID();
-        console.log(
-          `[Brain API Debug] Generated normalized UUID ${normalizedChatId} for non-standard ID ${chatId}`,
-        );
-      } catch (error) {
-        console.error(`[Brain API Debug] Error normalizing chatId:`, error);
-      }
+    if (!normalizedChatId || !uuidPattern.test(normalizedChatId)) {
+      const originalChatIdForLog = normalizedChatId || 'undefined';
+      normalizedChatId = randomUUID();
+      console.log(`[Brain API Debug] Incoming chatId '${originalChatIdForLog}' was invalid/missing. Generated new normalized UUID ${normalizedChatId} for this new chat.`);
+    } else {
+      console.log(`[Brain API Debug] Using valid UUID chatId from request: ${normalizedChatId}`);
     }
 
     // Skip Drizzle and use direct SQL to check if chat exists
@@ -1315,96 +1342,15 @@ export async function POST(req: NextRequest) {
       );
     }
     // --- END CHAT CHECK/CREATION ---
-
-    // --- BEGIN USER MESSAGE SAVE ---
-    // Format the user message for the database
-    let userMessageId: string;
-
-    // Check if the message has an ID and it's a proper UUID format
-    if (
-      lastMessage.id &&
-      typeof lastMessage.id === 'string' &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        lastMessage.id,
-      )
-    ) {
-      // Use the existing ID since it's a valid UUID
-      userMessageId = lastMessage.id;
-    } else {
-      // Generate a new UUID if missing or invalid format
-      userMessageId = randomUUID();
-      console.log(
-        `[Brain API] Generated new UUID for user message: ${userMessageId}`,
-      );
-    }
-
-    console.log(`[Brain API] User message ID check:`, {
-      originalId: lastMessage.id,
-      idType: typeof lastMessage.id,
-      finalId: userMessageId,
-      isValidUUID:
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          userMessageId,
-        ),
-    });
-
-    const userMessageToSave: DBMessage = {
-      id: userMessageId,
-      chatId: normalizedChatId,
-      role: 'user',
-      // Ensure 'parts' structure matches your schema
-      parts: lastMessage.parts || [{ type: 'text', text: userMessageContent }],
-      attachments: lastMessage.attachments || [],
-      createdAt: lastMessage.createdAt
-        ? new Date(lastMessage.createdAt)
-        : new Date(),
-      clientId: effectiveClientId, // Add clientId field to match the schema requirements
-    };
-
-    try {
-      console.log(
-        `[Brain API] Saving user message ${userMessageToSave.id} for chat ${normalizedChatId}`,
-      );
-      console.log(
-        `[Brain API] User message UUID validation: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userMessageToSave.id)}`,
-      );
-
-      await sql`
-        INSERT INTO "Message_v2" (
-          id, 
-          "chatId", 
-          role, 
-          parts, 
-          attachments, 
-          "createdAt",
-          client_id
-        ) VALUES (
-          ${userMessageToSave.id}, 
-          ${userMessageToSave.chatId}, 
-          ${userMessageToSave.role}, 
-          ${JSON.stringify(userMessageToSave.parts)}, 
-          ${JSON.stringify(userMessageToSave.attachments)}, 
-          ${userMessageToSave.createdAt.toISOString()},
-          ${effectiveClientId}
-        )
-      `;
-
-      console.log(
-        `[Brain API] Successfully saved user message ${userMessageToSave.id}`,
-      );
-    } catch (dbError: any) {
-      console.error(
-        `[Brain API] FAILED to save user message ${userMessageToSave.id}:`,
-        dbError,
-      );
-      console.error(`[Brain API] Message save error details:`, {
-        message: dbError?.message,
-        name: dbError?.name,
-        stack: dbError?.stack?.split('\n').slice(0, 3),
-      });
-      // Continue processing even if DB save fails - don't halt the request
-    }
-    // --- END USER MESSAGE SAVE ---
+    
+    // Log full context details (placed after normalizedChatId is defined)
+    console.log(
+      `[Brain API] Context details: {
+        normalizedChatId: ${normalizedChatId || 'undefined'},
+        currentActiveSpecialistId: ${activeBitContextId || 'null'},
+        activeDocId: ${activeDocId || 'null'}
+      }`
+    );
 
     // Use all previous messages as history
     const history = safeMessages.slice(0, -1);
@@ -1712,202 +1658,4 @@ ${extractedText}
           // Format the assistant message for the database
           const assistantId = randomUUID(); // Generate a new unique ID for the assistant message
           console.log(
-            `[Brain API] Generated assistant message UUID: ${assistantId}`,
-          );
-
-          console.log(
-            `[Brain API] Assistant UUID validation: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assistantId)}`,
-          );
-
-          const assistantMessageToSave = {
-            id: assistantId,
-            chatId: normalizedChatId,
-            role: 'assistant',
-            content: fullResponse, // Required by ChatRepository
-            createdAt: new Date(),
-            parts: [{ type: 'text', text: fullResponse }], // Required by DBMessage
-            attachments: [], // Required by DBMessage
-            clientId: effectiveClientId, // Make sure clientId is included
-          };
-
-          // Additional validation to ensure the UUID is valid
-          if (
-            !assistantId ||
-            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-              assistantId,
-            )
-          ) {
-            console.error(
-              `[Brain API] Invalid UUID generated for assistant message, attempting to regenerate`,
-            );
-            // If by some chance the UUID is invalid, generate a new one
-            const regeneratedId = randomUUID();
-            if (
-              !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-                regeneratedId,
-              )
-            ) {
-              throw new Error(
-                'Failed to generate a valid UUID for assistant message',
-              );
-            }
-            console.log(
-              `[Brain API] Successfully regenerated UUID: ${regeneratedId}`,
-            );
-            assistantMessageToSave.id = regeneratedId;
-          }
-
-          console.log(
-            `[Brain API] Saving assistant message ${assistantMessageToSave.id} for chat ${normalizedChatId}`,
-          );
-
-          // Use direct SQL instead of chatRepository
-          await sql`
-            INSERT INTO "Message_v2" (
-              id, 
-              "chatId", 
-              role, 
-              parts, 
-              attachments, 
-              "createdAt",
-              client_id
-            ) VALUES (
-              ${assistantMessageToSave.id}, 
-              ${assistantMessageToSave.chatId}, 
-              ${assistantMessageToSave.role}, 
-              ${JSON.stringify(assistantMessageToSave.parts)}, 
-              ${JSON.stringify(assistantMessageToSave.attachments)}, 
-              ${assistantMessageToSave.createdAt.toISOString()},
-              ${effectiveClientId}
-            )
-          `;
-
-          console.log(
-            `[Brain API] Successfully saved assistant message ${assistantMessageToSave.id}`,
-          );
-        } catch (dbError: any) {
-          console.error(
-            `[Brain API] FAILED to save assistant message:`,
-            dbError,
-          );
-          console.error(`[Brain API] Assistant message save error details:`, {
-            message: dbError?.message,
-            name: dbError?.name,
-            stack: dbError?.stack?.split('\n').slice(0, 3),
-          });
-          // Log error, but don't block response as stream already finished
-          // Do not reset assistantMessageSaved flag here to prevent duplicate save attempts
-        }
-      },
-    });
-
-    // Start the agent streaming execution
-    agentExecutor
-      .stream(
-        {
-          input: combinedMessage,
-          chat_history: directInstances,
-          activeBitContextId: activeBitContextId || null,
-        },
-        { callbacks: handlers },
-      )
-      .catch((error) => {
-        console.error('[Brain API] Error in agent execution:', error);
-      });
-
-    // Implement custom streaming with a ReadableStream for character-by-character display
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      async start(controller) {
-        try {
-          // Execute the agent and get the streaming result
-          const streamResult = await agentExecutor.stream(
-            {
-              input: combinedMessage,
-              chat_history: directInstances,
-              activeBitContextId: activeBitContextId || null,
-            },
-            { callbacks: handlers },
-          );
-
-          // Process each chunk from the stream
-          for await (const chunk of streamResult) {
-            if (chunk.output && typeof chunk.output === 'string') {
-              // Split long chunks into smaller pieces for more granular streaming
-              const text = chunk.output;
-              const chunkSize = 1; // Stream character by character for best effect
-
-              // Process the text in smaller chunks to improve streaming responsiveness
-              for (let i = 0; i < text.length; i += chunkSize) {
-                const subChunk = text.slice(i, i + chunkSize);
-                // Format using the AI SDK data stream format for text chunks
-                const encoded = encoder.encode(
-                  `0:${JSON.stringify(subChunk)}\n`,
-                );
-                controller.enqueue(encoded);
-
-                // Reduced delay for faster streaming but still smooth
-                await new Promise((resolve) => setTimeout(resolve, 2));
-              }
-            } else if (
-              chunk.toolCalls &&
-              Array.isArray(chunk.toolCalls) &&
-              chunk.toolCalls.length > 0
-            ) {
-              // Debug information about tool calls - use type 2 for data
-              const encoded = encoder.encode(
-                `2:${JSON.stringify(chunk.toolCalls)}\n`,
-              );
-              controller.enqueue(encoded);
-            }
-
-            // Process intermediateSteps if they exist
-            if (chunk.intermediateSteps && chunk.intermediateSteps.length > 0) {
-              console.log(
-                '[Brain API] Processing agent steps:',
-                chunk.intermediateSteps.length,
-              );
-            }
-          }
-
-          // Send a finish message part at the end
-          const finishMessage = encoder.encode(
-            `d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n`,
-          );
-          controller.enqueue(finishMessage);
-
-          // Close the stream when done
-          controller.close();
-        } catch (error) {
-          console.error('[Brain API] Error streaming agent result:', error);
-          controller.error(error);
-        }
-      },
-    });
-
-    // Return the streaming response with the correct content type for SSE
-    // and additional headers to prevent buffering
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
-        'X-Accel-Buffering': 'no',
-        Connection: 'keep-alive',
-        'x-vercel-ai-data-stream': 'v1', // Add this header to indicate it's a data stream
-      },
-    });
-  } catch (error: any) {
-    console.error('[Brain API Error]', error);
-
-    return NextResponse.json(
-      { error: `An internal error occurred: ${error.message}` },
-      { status: 500 },
-    );
-  }
-}
-
-/**
- * This /api/brain route is designed to eventually supersede existing chat routes
- * like /app/api/chat/route.ts. No deletion of old routes is needed in this phase.
- * We will fully test and migrate functionality before removing older routes.
- */
+            `

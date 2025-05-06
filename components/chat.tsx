@@ -483,7 +483,8 @@ export function Chat({
           body: {
             ...chatRequestOptions?.body,
             fileContext: fileContext || null, // Include fileContext in the request payload
-            activeBitContextId: currentActiveSpecialistId, // Include the shared specialist ID
+            activeBitContextId: currentActiveSpecialistId, // Include the shared specialist ID in the request
+            id: id, // Ensure the chat ID is consistently passed
           },
         });
 
