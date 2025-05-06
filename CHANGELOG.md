@@ -161,4 +161,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 - Basic chat functionality
-- Simple UI 
+- Simple UI
+
+## [1.7.4] - 2024-07-21
+
+### Added
+- Enhanced global chat context tracking for specialist Bits (e.g., Echo Tango)
+- Improved message deduplication, cleaning, and formatting for specialist responses
+- Chronological sorting and clear identification of the most recent message
+- Updated orchestrator prompts and tool usage for better specialist context handling
+
+### Fixed
+- Resolved issues with garbled or repeated content in specialist messages
+- Fixed retrieval of the correct "most recent" message in global chat queries 
