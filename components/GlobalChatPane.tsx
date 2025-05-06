@@ -99,8 +99,7 @@ export function GlobalChatPane({
     }
   }, []);
 
-  const { chatState, activeBitContextId, isPaneOpen, setActiveBitContextId } =
-    useChatPane();
+  const { chatState, currentActiveSpecialistId, isPaneOpen } = useChatPane();
   const {
     messages,
     input,
@@ -140,9 +139,10 @@ export function GlobalChatPane({
   // Find the selected model details
   const selectedChatModel = React.useMemo(
     () =>
-      chatModels.find((chatModel) => chatModel.id === activeBitContextId) ||
-      chatModels[0],
-    [activeBitContextId],
+      chatModels.find(
+        (chatModel) => chatModel.id === currentActiveSpecialistId,
+      ) || chatModels[0],
+    [currentActiveSpecialistId],
   );
 
   // Adjust textarea height as user types
@@ -368,10 +368,17 @@ export function GlobalChatPane({
       console.log('[GlobalChatPane] Using chat ID:', currentChatId);
     });
 
+    // Log which specialist is currently active
+    console.log(
+      '[GlobalChatPane] Using currentActiveSpecialistId:',
+      currentActiveSpecialistId,
+    );
+
     // Send the message to the AI with model selection
     await handleSubmit({
       data: {
-        selectedChatModel: activeBitContextId,
+        selectedChatModel: 'global-orchestrator', // Always use the global orchestrator
+        activeBitContextId: currentActiveSpecialistId, // Pass the shared specialist ID
         chatId: currentChatId,
       },
     });

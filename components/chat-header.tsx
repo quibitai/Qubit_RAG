@@ -32,9 +32,25 @@ function PureChatHeader({
 }) {
   const router = useRouter();
   const { open } = useSidebar();
-  const { setActiveBitContextId, activeBitContextId } = useChatPane();
+  const { setCurrentActiveSpecialistId, currentActiveSpecialistId } =
+    useChatPane();
 
   const { width: windowWidth } = useWindowSize();
+
+  // Define the available specialists for the Chat Bit
+  const specialists = [
+    {
+      id: 'echo-tango-specialist',
+      name: 'Echo Tango Bit',
+      description: 'Primary model for all-purpose chat',
+    },
+    {
+      id: null,
+      name: 'General Chat',
+      description: 'No specific specialist active',
+    },
+    // Add more specialists here as they become available
+  ];
 
   return (
     <header className="flex sticky top-0 bg-background py-1.5 items-center px-2 md:px-2 gap-2">
@@ -61,25 +77,33 @@ function PureChatHeader({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="h-8 gap-1">
-              Echo Tango Bit
+              {currentActiveSpecialistId
+                ? specialists.find((s) => s.id === currentActiveSpecialistId)
+                    ?.name || 'Select Specialist'
+                : 'General Chat'}
               <ChevronDown className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-[200px]">
-            <DropdownMenuItem
-              onClick={() => setActiveBitContextId('chat-model')}
-              className="flex items-center justify-between"
-            >
-              <div className="flex flex-col">
-                <span>Echo Tango Bit</span>
-                <span className="text-xs text-muted-foreground">
-                  Primary model for all-purpose chat
-                </span>
-              </div>
-              {(activeBitContextId === 'chat-model' || !activeBitContextId) && (
-                <CheckIcon className="h-4 w-4" />
-              )}
-            </DropdownMenuItem>
+            {specialists.map((specialist) => (
+              <DropdownMenuItem
+                key={specialist.id || 'general'}
+                onClick={() => setCurrentActiveSpecialistId(specialist.id)}
+                className="flex items-center justify-between"
+              >
+                <div className="flex flex-col">
+                  <span>{specialist.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {specialist.description}
+                  </span>
+                </div>
+                {(currentActiveSpecialistId === specialist.id ||
+                  (currentActiveSpecialistId === null &&
+                    specialist.id === null)) && (
+                  <CheckIcon className="h-4 w-4" />
+                )}
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
       )}

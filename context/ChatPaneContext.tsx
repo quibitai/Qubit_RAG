@@ -15,6 +15,7 @@ import { useRouter } from 'next/navigation';
 import { useChat, type UseChatHelpers } from '@ai-sdk/react';
 import { DEFAULT_CHAT_MODEL } from '@/lib/ai/models';
 import type { Attachment, Message } from 'ai';
+import { generateUUID } from '@/lib/utils';
 import {
   saveSubsequentMessages,
   createChatAndSaveFirstMessages,
@@ -37,18 +38,18 @@ export interface ChatPaneContextType {
     handleSubmit: (options?: {
       message?: any;
       data?: Record<string, any>;
-    }) => Promise<void | string | null | undefined>;
+    }) => Promise<any>;
   };
   isPaneOpen: boolean;
   setIsPaneOpen: (isOpen: boolean) => void;
-  activeBitContextId: string | null;
-  setActiveBitContextId: (id: string | null) => void;
+  currentActiveSpecialistId: string | null;
+  setCurrentActiveSpecialistId: (id: string | null) => void;
   activeDocId: string | null;
   setActiveDocId: (id: string | null) => void;
   submitMessage: (options?: {
     message?: any;
     data?: Record<string, any>;
-  }) => Promise<void | string | null | undefined>;
+  }) => Promise<any>;
   streamedContentMap: Record<string, string>;
   lastStreamUpdateTs: number;
 }
@@ -87,9 +88,9 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   // Initialize with static value - no toggle functionality
   const [isPaneOpen, setIsPaneOpen] = useState<boolean>(true);
-  const [activeBitContextId, setActiveBitContextId] = useState<string | null>(
-    null,
-  );
+  const [currentActiveSpecialistId, setCurrentActiveSpecialistId] = useState<
+    string | null
+  >(null);
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
   const [streamedContentMap, setStreamedContentMap] = useState<
     Record<string, string>
@@ -123,9 +124,11 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
           setIsPaneOpen(storedPaneState === 'true');
         }
 
-        const storedBitId = localStorage.getItem('chat-active-bit');
-        if (storedBitId) {
-          setActiveBitContextId(storedBitId);
+        const storedSpecialistId = localStorage.getItem(
+          'chat-active-specialist',
+        );
+        if (storedSpecialistId) {
+          setCurrentActiveSpecialistId(storedSpecialistId);
         }
 
         const storedDocId = localStorage.getItem('chat-active-doc');
@@ -138,13 +141,28 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, []);
 
+  // Save currentActiveSpecialistId to localStorage when it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'chat-active-specialist',
+        currentActiveSpecialistId || '',
+      );
+    } catch (error) {
+      console.error(
+        'Error saving currentActiveSpecialistId to localStorage:',
+        error,
+      );
+    }
+  }, [currentActiveSpecialistId]);
+
   const baseState = useChat({
     api: '/api/brain',
     body: {
       // Always identify as Quibit orchestrator
       selectedChatModel: 'global-orchestrator',
       // Include the active context information
-      activeBitContextId,
+      activeBitContextId: currentActiveSpecialistId,
       activeDocId,
     },
     experimental_throttle: 100,
@@ -183,7 +201,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       data?: Record<string, any>;
     }) => {
       console.log('[ChatPaneContext] Submitting message with context:', {
-        activeBitContextId,
+        currentActiveSpecialistId,
         activeDocId,
       });
 
@@ -192,7 +210,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
         // Always identify as Quibit to the backend
         selectedChatModel: 'global-orchestrator',
         // Include the active context information
-        activeBitContextId,
+        activeBitContextId: currentActiveSpecialistId,
         activeDocId,
         // Include any other data from options?.data
         ...(options?.data || {}),
@@ -205,7 +223,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
         body: bodyPayload,
       });
     },
-    [baseState.handleSubmit, activeBitContextId, activeDocId],
+    [baseState.handleSubmit, currentActiveSpecialistId, activeDocId],
   );
 
   // Reset the chatPersistedRef when starting a new chat
@@ -230,8 +248,8 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       chatState,
       isPaneOpen,
       setIsPaneOpen,
-      activeBitContextId,
-      setActiveBitContextId,
+      currentActiveSpecialistId,
+      setCurrentActiveSpecialistId,
       activeDocId,
       setActiveDocId,
       submitMessage,
@@ -242,7 +260,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       chatState,
       isPaneOpen,
       setIsPaneOpen,
-      activeBitContextId,
+      currentActiveSpecialistId,
       activeDocId,
       submitMessage,
       streamedContentMap,

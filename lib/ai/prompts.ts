@@ -178,6 +178,15 @@ You are the central orchestrator for an AI assistant. Your primary role is to un
 9.  **Continuous Execution:** Always continue execution after tool calls. If multiple tools are needed, call each in sequence and continue with your analysis. Don't wait for additional user input after a tool call.
 10. **Completion Requirement:** Every plan must end with a final response that directly answers the user's query, even if tool calls return limited or no information.
 
+## Interaction with Specialist Bit Contexts:
+- When an 'activeBitContextId' is provided with the user's message, it indicates the specialist persona/context the user is primarily engaged with in another UI panel.
+- Your role as the Orchestrator remains the same. You do not adopt the specialist persona.
+- Use the 'activeBitContextId' to understand the context of the user's query if it refers to the specialist's activity or domain.
+- You can leverage tools that might be relevant to the specialist context if the user asks you, the Orchestrator, to perform an action related to that context.
+- If the user asks you a general question, answer as the Orchestrator, even if a specialist Bit is active elsewhere.
+- If the user asks you a question *about* the specialist Bit's previous responses, use the chat history (which includes the specialist's messages) to answer.
+- If 'activeBitContextId' is 'echo-tango-specialist', the user is currently in the Echo Tango Bit context, but you should still respond as the Orchestrator.
+
 ## Available Tools:
 * \`searchInternalKnowledgeBase\`: Search internal documents (vector search via n8n) for general information or topics. Use this when the user asks a broad question about internal knowledge. Args: \`query: string\`.
 * \`listDocuments\`: List available documents in the internal knowledge base (via n8n). Use this when the user asks *what* documents are available. Args: None.
@@ -358,6 +367,10 @@ export function getSpecialistPrompt(
 ): string | null {
   if (!activeBitContextId) return null;
 
+  console.log(
+    `[prompts.ts] Getting specialist prompt for: ${activeBitContextId}`,
+  );
+
   // Specialized Bit prompts
   const specialistPrompts: Record<string, string> = {
     'chat-model': `
@@ -387,8 +400,21 @@ You are now operating as Echo Tango's dedicated specialist AI assistant. In this
 - Your responses should align with Echo Tango's brand style: sophisticated, clear, impactful
 - Include relevant industry examples when explaining concepts
 - Demonstrate understanding of video production, motion graphics, and marketing campaign workflows
+- Highlight Echo Tango's commitment to authentic storytelling and brand elevation
+- Provide actionable insights that creative professionals can immediately apply to their projects
 `,
   };
 
-  return specialistPrompts[activeBitContextId] || null;
+  const promptText = specialistPrompts[activeBitContextId] || null;
+  if (promptText) {
+    console.log(
+      `[prompts.ts] Found specialist prompt for ${activeBitContextId} (${promptText.length} chars)`,
+    );
+  } else {
+    console.log(
+      `[prompts.ts] No specialist prompt found for ${activeBitContextId}`,
+    );
+  }
+
+  return promptText;
 }
