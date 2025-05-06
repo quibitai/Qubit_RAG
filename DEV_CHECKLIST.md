@@ -32,19 +32,34 @@
 
 ---
 
-**Phase 2: Solidify Multi-Tenancy (RLS & RAG)**
+**Phase 2: Implement Multi-Tenant Echo Tango**
+*Goal: Secure proper data segregation, ensure Brain API client-awareness, implement stable stream handling.*
 
-* **Goal:** Ensure comprehensive data isolation via RLS and make the RAG system fully multi-tenant aware.
+* **Commit Point 1: ✅ Schema & Base Auth Updates**
 
-    * **[ ] Step 2.1: Verify & Finalize Row-Level Security (RLS)**
-        * **Action:** Ensure RLS policies (checking `client_id`) are active and correctly implemented in Supabase for ALL client-data tables, including RAG tables (`document_metadata`, `documents`, `document_rows`).
-        * **Action:** Confirm DB queries in `lib/db/queries.ts`, `lib/db/repositories/chatRepository.ts`, and AI tools (`lib/ai/tools/*`) rely on RLS for client data filtering and do not contain redundant `WHERE client_id` clauses for RLS-protected operations.
-        * **Verification:** Rigorous manual/SQL testing for data isolation with different client users.
+* **Step 2.1: Build Client-Aware Streaming Pipeline (✅ COMPLETED)**
+    * `[x]` **Action:** Ensure all database interactions use clientId from session.
+    * `[x]` **Action:** Update Brain API route to save assistant messages with client_id.
+    * `[x]` **Action:** Implement authentication with client-awareness in `auth.ts`.
+    * `[x]` **Action:** Ensure Brain context API uses client_id filter for specialistPrompts from Clients table.
+    * `[x]` **Verification:** Manual tests to confirm Brain API includes client_id in all requests.
 
-    * **[ ] Step 2.2: Complete Multi-Tenant RAG Ingestion & Schema**
-        * **Action (Schema):** If RAG tables (`document_metadata`, `documents`, `document_rows`) are Drizzle-managed, define them in `lib/db/schema.ts` with `client_id` columns. Generate/apply migrations.
-        * **Action (Ingestion):** Update RAG ingestion scripts to tag all ingested data with the correct `client_id`.
-        * **Verification:** Ingest data for different clients. Verify `client_id` in RAG tables. Test RAG queries (e.g., `searchInternalKnowledgeBase` tool) as different clients to confirm data isolation.
+* **Step 2.2: Fix Streaming and Message Persistence (✅ COMPLETED)**
+    * `[x]` **Fix Brain API:** Eliminate double `agentExecutor.stream` call in `app/api/brain/route.ts`.
+    * `[x]` **Remove Legacy Save Pathways:** Delete redundant API routes in `app/api/chat-actions/route.ts`.
+    * `[x]` **Action:** Remove `saveSubsequentMessages` function from `app/(chat)/actions.ts`.
+    * `[x]` **Update Components:** Remove references from `GlobalChatPane.tsx`, `Chat.tsx`, and `ChatPaneContext.tsx`.
+    * `[x]` **Verification:** Confirm messages are saved once by checking console logs: "[Brain API] SINGLE AGENT EXECUTION STARTING" appears once per request; "[Brain API] ON_COMPLETION_HANDLER TRIGGERED" appears once per completion.
+
+* **Step 2.3: Verify & Finalize Row-Level Security (RLS)**
+    * **Action:** Ensure RLS policies (checking `client_id`) are active and correctly implemented in Supabase for ALL client-data tables, including RAG tables (`document_metadata`, `documents`, `document_rows`).
+    * **Action:** Confirm DB queries in `lib/db/queries.ts`, `lib/db/repositories/chatRepository.ts`, and AI tools (`lib/ai/tools/*`) rely on RLS for client data filtering and do not contain redundant `WHERE client_id` clauses for RLS-protected operations.
+    * **Verification:** Rigorous manual/SQL testing for data isolation with different client users.
+
+* **Step 2.4: Complete Multi-Tenant RAG Ingestion & Schema**
+    * **Action (Schema):** If RAG tables (`document_metadata`, `documents`, `document_rows`) are Drizzle-managed, define them in `lib/db/schema.ts` with `client_id` columns. Generate/apply migrations.
+    * **Action (Ingestion):** Update RAG ingestion scripts to tag all ingested data with the correct `client_id`.
+    * **Verification:** Ingest data for different clients. Verify `client_id` in RAG tables. Test RAG queries (e.g., `searchInternalKnowledgeBase` tool) as different clients to confirm data isolation.
 
     * **[ ] Commit Point 2 (Multi-Tenancy Complete):** RLS active and verified for all client-specific data. RAG ingestion is multi-tenant. Queries correctly leverage RLS.
 
