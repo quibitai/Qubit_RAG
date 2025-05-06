@@ -93,7 +93,8 @@
     * **[ ] Step 3.4: Deprecate/Cleanup Old Logic (Final Pass)**
         * **Action (Vercel AI SDK for Brain):** Remove `useChat`, `streamText`, `streamObject` if no longer used for `/api/brain` interactions. (Note: May still be used for artifact streaming).
         * **Action (Document SSE Listener):** Evaluate if `/api/documents/[docId]/listen/route.ts` is redundant if `/api/brain` now handles `doc_update_delta` events for direct editor updates.
-        * **Action (Redundant Message Saving):** Confirm fixes from Phase 1 (Step 1.1.3) are complete.
+        * `[x]` **Action (Remove Debugging UI):** Remove "Clean Up" button and cleanupEmptyMessages function used during development.
+        * `[x]` **Action (Redundant Message Saving):** Confirm fixes from Phase 1 (Step 1.1.3) are complete.
 
     * **[ ] Commit Point 3 (Streaming Refactor Complete):** AI Core fully client/context-aware. Custom SSE streaming for Brain API is standard. Old/redundant logic verifiably decommissioned or correctly isolated.
 

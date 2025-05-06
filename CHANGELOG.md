@@ -5,6 +5,29 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.5] - 2024-07-22
+
+### Removed
+- Removed "Clean Up" debugging button from the chat header
+- Eliminated unused cleanupEmptyMessages function from actions.ts
+
+### Fixed
+- Improved context-awareness between Global Orchestrator and Echo Tango Bit conversations
+- Fixed message reference handling between different chat contexts
+- Eliminated duplicate message persistence in database
+
+## [1.7.4] - 2024-07-21
+
+### Added
+- Enhanced global chat context tracking for specialist Bits (e.g., Echo Tango)
+- Improved message deduplication, cleaning, and formatting for specialist responses
+- Chronological sorting and clear identification of the most recent message
+- Updated orchestrator prompts and tool usage for better specialist context handling
+
+### Fixed
+- Resolved issues with garbled or repeated content in specialist messages
+- Fixed retrieval of the correct "most recent" message in global chat queries
+
 ## [1.7.3] - 2024-07-21
 
 ### Fixed
