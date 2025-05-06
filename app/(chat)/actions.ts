@@ -22,6 +22,8 @@ import {
 import type { VisibilityType } from '@/components/visibility-selector';
 import { myProvider } from '@/lib/ai/providers';
 import { eq, and } from 'drizzle-orm';
+import { unstable_serialize } from 'next/navigation';
+import { mutate } from 'react-query';
 
 export async function saveChatModelAsCookie(model: string) {
   const cookieStore = await cookies();
@@ -139,301 +141,9 @@ export async function createNewChatAndSaveFirstMessage(formData: FormData) {
 }
 
 /**
- * Saves subsequent messages (user + assistant pairs) to the database
+ * Creates a new chat and saves the initial messages to the database
+ * (Modified to only save the chat metadata and not the messages, as they are now handled by the Brain API)
  */
-export async function saveSubsequentMessages(params: {
-  chatId: string;
-  userMessage: {
-    id: string;
-    chatId: string;
-    role: string;
-    parts: unknown[];
-    attachments: unknown[];
-    createdAt: Date;
-  };
-  assistantMessage: {
-    id: string;
-    chatId: string;
-    role: string;
-    parts: unknown[];
-    attachments: unknown[];
-    createdAt: Date;
-  };
-}) {
-  const logContext = '[Server Action - saveSubsequentMessages]';
-  const { chatId, userMessage, assistantMessage } = params;
-  console.log(`${logContext} Starting for chat ID: ${chatId}`);
-
-  try {
-    const session = await auth();
-    const userId = session?.user?.id;
-    const clientId = session?.user?.clientId;
-
-    console.log(
-      `${logContext} Auth check complete. User ID: ${userId}, Client ID: ${clientId}`,
-    );
-
-    if (!userId) {
-      console.error(
-        `${logContext} CRITICAL: User not authenticated. Aborting.`,
-      );
-      return { success: false, error: 'User not authenticated.' };
-    }
-
-    if (!clientId) {
-      console.error(
-        `${logContext} CRITICAL: Client ID missing from user session. Aborting.`,
-      );
-      return { success: false, error: 'User session invalid.' };
-    }
-
-    // First, verify the chat exists and belongs to the user
-    const chatResult = await db
-      .select({
-        id: chat.id,
-        userId: chat.userId,
-      })
-      .from(chat)
-      .where(and(eq(chat.id, chatId), eq(chat.userId, userId)))
-      .limit(1);
-
-    if (chatResult.length === 0) {
-      console.error(
-        `${logContext} Chat ${chatId} not found or doesn't belong to user ${userId}`,
-      );
-      return {
-        success: false,
-        error: 'Chat not found or you do not have permission to modify it.',
-      };
-    }
-
-    console.log(
-      `${logContext} Verified chat ${chatId} belongs to user ${userId}`,
-    );
-
-    // Add clientId to message objects
-    const userMessageWithClientId = {
-      ...userMessage,
-      clientId,
-    };
-
-    const assistantMessageWithClientId = {
-      ...assistantMessage,
-      clientId,
-    };
-
-    console.log(`${logContext} Added clientId ${clientId} to message objects`);
-
-    // Ensure dates are proper Date objects
-    const userMessageWithDate = {
-      ...userMessageWithClientId,
-      createdAt:
-        userMessageWithClientId.createdAt instanceof Date
-          ? userMessageWithClientId.createdAt
-          : new Date(userMessageWithClientId.createdAt),
-    };
-
-    const assistantMessageWithDate = {
-      ...assistantMessageWithClientId,
-      createdAt:
-        assistantMessageWithClientId.createdAt instanceof Date
-          ? assistantMessageWithClientId.createdAt
-          : new Date(assistantMessageWithClientId.createdAt),
-    };
-
-    console.log(
-      `${logContext} Converted dates to Date objects for message insertion`,
-    );
-
-    // Use a retry mechanism for message insertion
-    let attempts = 0;
-    const maxAttempts = 3;
-    let lastError = null;
-
-    while (attempts < maxAttempts) {
-      attempts++;
-      console.log(
-        `${logContext} Message insertion attempt ${attempts}/${maxAttempts} for chat ${chatId}`,
-      );
-
-      try {
-        // Wrap in transaction to ensure both messages are saved or none
-        await db.transaction(async (tx) => {
-          console.log(
-            `${logContext} Inserting user message ${userMessageWithDate.id}`,
-          );
-          await tx.insert(messageTable).values(userMessageWithDate);
-
-          console.log(
-            `${logContext} Inserting assistant message ${assistantMessageWithDate.id}`,
-          );
-          await tx.insert(messageTable).values(assistantMessageWithDate);
-        });
-
-        console.log(
-          `${logContext} Both messages saved successfully for chat ${chatId}`,
-        );
-
-        // Success - break out of retry loop
-        break;
-      } catch (error: any) {
-        lastError = error;
-        console.error(
-          `${logContext} Message insertion failed (attempt ${attempts}/${maxAttempts}):`,
-          error,
-        );
-
-        // Handle different error types
-        if (error.code === '23505') {
-          // Unique constraint violation
-          console.warn(
-            `${logContext} Message ID conflict, likely duplicate. Attempting to handle.`,
-          );
-
-          try {
-            // Try inserting with conflict handling
-            await db
-              .insert(messageTable)
-              .values([userMessageWithDate, assistantMessageWithDate])
-              .onConflictDoNothing({ target: messageTable.id });
-
-            console.log(
-              `${logContext} Inserted messages with conflict handling for chat ${chatId}`,
-            );
-
-            // Set lastError to null to indicate success
-            lastError = null;
-            break;
-          } catch (conflictError: any) {
-            console.error(
-              `${logContext} Failed to handle message conflict:`,
-              conflictError,
-            );
-            lastError = conflictError;
-          }
-        } else if (error.code === '23503') {
-          // Foreign key constraint violation
-          console.error(
-            `${logContext} Foreign key violation. Chat ${chatId} may not exist.`,
-          );
-          return {
-            success: false,
-            error: 'Chat not found in database. Messages cannot be saved.',
-            code: error.code,
-          };
-        }
-
-        // Add a short delay before retrying to reduce race conditions
-        if (attempts < maxAttempts) {
-          const delay = Math.min(100 * Math.pow(2, attempts), 2000); // Exponential backoff up to 2s
-          console.log(`${logContext} Waiting ${delay}ms before retry...`);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-        }
-      }
-    }
-
-    // Check if all attempts failed
-    if (lastError) {
-      console.error(
-        `${logContext} All ${maxAttempts} attempts failed:`,
-        lastError,
-      );
-      return {
-        success: false,
-        error: `Failed to save messages after ${maxAttempts} attempts: ${lastError.message || 'Unknown error'}`,
-        code: lastError.code,
-      };
-    }
-
-    return { success: true };
-  } catch (error: any) {
-    console.error(`${logContext} Unexpected error:`, error);
-    return {
-      success: false,
-      error: `Failed to save messages: ${error.message || 'Unknown error'}`,
-      code: error.code,
-    };
-  }
-}
-
-export async function createChat(
-  chatId: string,
-  firstUserMessageContent: string,
-): Promise<{ success: boolean; error?: string; title?: string }> {
-  const logContext = '[Server Action - createChat SIMPLIFIED]';
-  console.log(`${logContext} Attempting to create chat ${chatId}`);
-  const session = await auth();
-  const userId = session?.user?.id;
-
-  if (!userId) {
-    console.error(`${logContext} User not authenticated.`);
-    return { success: false, error: 'User not authenticated.' };
-  }
-
-  if (!chatId) {
-    console.error(`${logContext} Missing chatId.`);
-    return { success: false, error: 'Missing chatId for chat creation.' };
-  }
-
-  // --- Use a placeholder title for now ---
-  const placeholderTitle = `Chat ${chatId.substring(0, 8)}`;
-  console.log(`${logContext} Using placeholder title: "${placeholderTitle}"`);
-
-  try {
-    // --- Perform the insert ---
-    console.log(`${logContext} Executing db.insert for chat ${chatId}...`);
-    await db.insert(chat).values({
-      id: chatId,
-      userId: userId,
-      title: placeholderTitle,
-      createdAt: new Date(),
-      visibility: 'private',
-    });
-
-    // --- Log IMMEDIATELY after await ---
-    console.log(
-      `${logContext} *** db.insert for ${chatId} supposedly COMPLETE ***`,
-    );
-    return { success: true, title: placeholderTitle };
-  } catch (error: any) {
-    if (error.code === '23505') {
-      // Unique constraint violation
-      console.warn(
-        `${logContext} Chat ${chatId} already exists (race condition). Returning success.`,
-      );
-      // In a race condition, the chat exists, so treat as success. Fetch title if needed.
-      try {
-        const existingChat = await db
-          .select({ title: chat.title })
-          .from(chat)
-          .where(eq(chat.id, chatId))
-          .limit(1);
-        return {
-          success: true,
-          title: existingChat[0]?.title || placeholderTitle,
-        };
-      } catch (fetchError) {
-        console.error(
-          `${logContext} Failed to fetch existing title after unique constraint error:`,
-          fetchError,
-        );
-        return { success: true, title: placeholderTitle };
-      }
-    } else {
-      // Handle other database errors
-      console.error(
-        `${logContext} FAILED to create chat ${chatId} during insert:`,
-        error,
-      );
-      return {
-        success: false,
-        error: `Failed to create chat: ${error.message}`,
-      };
-    }
-  }
-}
-
-// New function to create chat and save first messages in a single transaction
 export async function createChatAndSaveFirstMessages(params: {
   chatId: string;
   userMessage: {
@@ -567,6 +277,9 @@ export async function createChatAndSaveFirstMessages(params: {
           console.log(
             `${logContext} Successfully inserted chat row for ${chatId}`,
           );
+
+          // REMOVED: No longer insert user message, as it's handled by the Brain API
+          // This prevents duplicate user message entries
         });
 
         console.log(
@@ -698,6 +411,136 @@ export async function deleteChat(
     return {
       success: false,
       error: `Failed to delete chat: ${error.message || 'Unknown error'}`,
+    };
+  }
+}
+
+/**
+ * Server action to clean up empty duplicate messages for a given chat ID
+ * This will find and remove assistant messages that have empty content
+ * while preserving any messages that have content
+ */
+export async function cleanupEmptyMessages({
+  chatId,
+}: {
+  chatId: string;
+}): Promise<{ success: boolean; cleanedCount: number; error?: string }> {
+  const logContext = '[Server Action - cleanupEmptyMessages]';
+  console.log(`${logContext} Starting cleanup for chat ID: ${chatId}`);
+
+  if (!chatId) {
+    console.error(`${logContext} Missing chatId.`);
+    return { success: false, cleanedCount: 0, error: 'Missing chatId.' };
+  }
+
+  try {
+    const session = await auth();
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      console.error(`${logContext} User not authenticated.`);
+      return {
+        success: false,
+        cleanedCount: 0,
+        error: 'User not authenticated.',
+      };
+    }
+
+    // First, check if the chat exists and belongs to the user
+    const chatExists = await db
+      .select({ id: chat.id })
+      .from(chat)
+      .where(and(eq(chat.id, chatId), eq(chat.userId, userId)))
+      .limit(1);
+
+    if (chatExists.length === 0) {
+      console.error(
+        `${logContext} Chat ${chatId} not found or doesn't belong to user ${userId}`,
+      );
+      return {
+        success: false,
+        cleanedCount: 0,
+        error: 'Chat not found or you do not have permission to modify it.',
+      };
+    }
+
+    // Find all empty assistant messages for this chat
+    const emptyMessages = await db
+      .select()
+      .from(messageTable)
+      .where(
+        and(
+          eq(messageTable.chatId, chatId),
+          eq(messageTable.role, 'assistant'),
+          db.sql`(${messageTable.parts})::text IN ('[]', '[{"type":"text","text":""}]') OR ${messageTable.parts} IS NULL`,
+        ),
+      );
+
+    console.log(
+      `${logContext} Found ${emptyMessages.length} empty assistant messages`,
+    );
+
+    if (emptyMessages.length === 0) {
+      return { success: true, cleanedCount: 0 };
+    }
+
+    // Get IDs of empty messages
+    const emptyMessageIds = emptyMessages.map((msg) => msg.id);
+
+    // Find messages with the same IDs that have content (to avoid deleting those)
+    const nonEmptyMessages = await db
+      .select()
+      .from(messageTable)
+      .where(
+        and(
+          eq(messageTable.chatId, chatId),
+          eq(messageTable.role, 'assistant'),
+          db.sql`(${messageTable.parts})::jsonb->0->>'text' != ''`,
+        ),
+      );
+
+    console.log(
+      `${logContext} Found ${nonEmptyMessages.length} non-empty assistant messages`,
+    );
+
+    // Create a set of IDs that have non-empty content (these should be preserved)
+    const messageIdsWithContent = new Set(
+      nonEmptyMessages.map((msg) => msg.id),
+    );
+
+    // Filter out any empty message IDs that also have a non-empty version
+    const idsToDelete = emptyMessageIds.filter(
+      (id) => !messageIdsWithContent.has(id),
+    );
+
+    console.log(
+      `${logContext} Will delete ${idsToDelete.length} purely empty messages`,
+    );
+
+    if (idsToDelete.length === 0) {
+      return { success: true, cleanedCount: 0 };
+    }
+
+    // Delete the empty messages that don't have a corresponding content-filled version
+    const result = await db
+      .delete(messageTable)
+      .where(
+        and(
+          eq(messageTable.chatId, chatId),
+          db.sql`${messageTable.id} IN (${idsToDelete.join(',')})`,
+        ),
+      );
+
+    console.log(
+      `${logContext} Successfully deleted ${idsToDelete.length} empty messages`,
+    );
+    return { success: true, cleanedCount: idsToDelete.length };
+  } catch (error: any) {
+    console.error(`${logContext} Error cleaning up empty messages:`, error);
+    return {
+      success: false,
+      cleanedCount: 0,
+      error: `Failed to clean up empty messages: ${error.message || 'Unknown error'}`,
     };
   }
 }

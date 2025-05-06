@@ -18,6 +18,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useChatPane } from '@/context/ChatPaneContext';
+import { cleanupEmptyMessages } from '@/app/(chat)/actions';
+import { toast } from 'sonner';
 
 function PureChatHeader({
   chatId,
@@ -72,6 +74,40 @@ function PureChatHeader({
         </TooltipTrigger>
         <TooltipContent>New Chat</TooltipContent>
       </Tooltip>
+
+      {!isReadonly && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={async () => {
+                try {
+                  const result = await cleanupEmptyMessages({ chatId });
+                  if (result.success) {
+                    if (result.cleanedCount > 0) {
+                      toast(
+                        `Cleaned up ${result.cleanedCount} empty duplicate messages`,
+                      );
+                    } else {
+                      toast('No empty duplicate messages found to clean up');
+                    }
+                  } else {
+                    toast(`Error: ${result.error}`);
+                  }
+                } catch (error) {
+                  console.error('Error cleaning up messages:', error);
+                  toast('Failed to clean up messages');
+                }
+              }}
+            >
+              Clean Up
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Remove empty duplicate messages</TooltipContent>
+        </Tooltip>
+      )}
 
       {!isReadonly && selectedModelId === 'chat-model' && (
         <DropdownMenu>

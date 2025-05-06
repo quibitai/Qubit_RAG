@@ -17,6 +17,12 @@ import { TavilySearchResults } from '@langchain/community/tools/tavily_search';
 import type { Message as UIMessage } from 'ai';
 import { auth } from '@/app/(auth)/auth';
 
+// State variables to track between requests/handler invocations
+// These fix "Cannot find name" TypeScript errors
+let assistantMessageSaved = false;
+let normalizedChatId = ''; // Will be reassigned in POST
+let effectiveClientId = ''; // Will be reassigned in POST
+
 // Import tools and utilities
 import {
   orchestratorSystemPrompt,
@@ -44,8 +50,14 @@ import { ChatRepository } from '@/lib/db/repositories/chatRepository';
 
 // Helper function to create a custom LangChain streaming handler
 function createLangChainStreamHandler({
+  onStart,
+  onToken,
   onCompletion,
-}: { onCompletion?: (response: string) => Promise<void> } = {}) {
+}: {
+  onStart?: () => Promise<void>;
+  onToken?: (token: string) => Promise<void>;
+  onCompletion?: (response: string) => Promise<void>;
+} = {}) {
   // Track the complete response for onCompletion callback
   let completeResponse = '';
 
@@ -67,9 +79,207 @@ function createLangChainStreamHandler({
         });
       }
     }
+
+    // Add the custom callbacks as methods on the BaseCallbackHandler class
+    async handleStart() {
+      console.log(
+        `[Brain API] >> Stream started, setting assistantMessageSaved flag to false`,
+      );
+      // Reset the flag at the start of streaming to ensure we save exactly one message
+      assistantMessageSaved = false;
+
+      if (onStart) {
+        await onStart();
+      }
+    }
+
+    async handleTokenEmitted(token: string) {
+      if (onToken) {
+        await onToken(token);
+      }
+    }
+
+    async handleCompletion(fullResponse: string) {
+      // Skip if response is empty or just whitespace
+      console.log('[Brain API] ON_COMPLETION_HANDLER TRIGGERED');
+
+      if (!fullResponse || !fullResponse.trim()) {
+        console.log(`[Brain API] Skipping empty response in onCompletion`);
+        return;
+      }
+
+      // Add detailed logging to help debug duplicate saves
+      console.log(`[Brain API] >> onCompletion Handler Triggered <<`);
+      console.log(
+        `[Brain API]    Flag 'assistantMessageSaved': ${assistantMessageSaved}`,
+      );
+      console.log(
+        `[Brain API]    Response Length: ${fullResponse?.length || 0}`,
+      );
+      console.log(
+        `[Brain API]    Response Snippet: ${(fullResponse || '').substring(0, 100)}...`,
+      );
+
+      // Check if message is already saved
+      if (assistantMessageSaved) {
+        console.log(
+          '[Brain API] onCompletion: Assistant message already saved, skipping duplicate save.',
+        );
+        return;
+      }
+
+      // Set flag to prevent duplicate saves
+      assistantMessageSaved = true;
+
+      // This code runs AFTER the entire response has been streamed
+      console.log(
+        '[Brain API] Stream completed. Saving final assistant message.',
+      );
+
+      try {
+        // Format the assistant message for the database
+        const assistantId = randomUUID(); // Generate a new unique ID for the assistant message
+        console.log(
+          `[Brain API] Generated assistant message UUID: ${assistantId}`,
+        );
+
+        console.log(
+          `[Brain API] Assistant UUID validation: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assistantId)}`,
+        );
+
+        const assistantMessageToSave = {
+          id: assistantId,
+          chatId: normalizedChatId,
+          role: 'assistant',
+          content: fullResponse, // Required by ChatRepository
+          createdAt: new Date(),
+          parts: [{ type: 'text', text: fullResponse }], // Required by DBMessage
+          attachments: [], // Required by DBMessage
+          clientId: effectiveClientId, // Make sure clientId is included
+        };
+
+        // Additional validation to ensure the UUID is valid
+        if (
+          !assistantId ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            assistantId,
+          )
+        ) {
+          console.error(
+            `[Brain API] Invalid UUID generated for assistant message, attempting to regenerate`,
+          );
+          // If by some chance the UUID is invalid, generate a new one
+          const regeneratedId = randomUUID();
+          if (
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+              regeneratedId,
+            )
+          ) {
+            throw new Error(
+              'Failed to generate a valid UUID for assistant message',
+            );
+          }
+          console.log(
+            `[Brain API] Successfully regenerated UUID: ${regeneratedId}`,
+          );
+          assistantMessageToSave.id = regeneratedId;
+        }
+
+        console.log(
+          `[Brain API] Saving assistant message ${assistantMessageToSave.id} for chat ${normalizedChatId}`,
+        );
+
+        // First, check if there's an existing message with the same ID pattern but empty content
+        try {
+          // Look for existing messages with this chat ID that are empty and from assistant
+          const existingEmptyMessages = await sql<{ id: string; parts: any }[]>`
+            SELECT id, parts FROM "Message_v2" 
+            WHERE "chatId" = ${normalizedChatId} 
+            AND role = 'assistant' 
+            AND (
+              parts::text = '[{"type":"text","text":""}]' 
+              OR parts::text = '[]'
+              OR parts::text IS NULL
+              OR (parts::text)::jsonb->0->>'text' = ''
+            )
+          `;
+
+          if (existingEmptyMessages && existingEmptyMessages.length > 0) {
+            console.log(
+              `[Brain API] Found ${existingEmptyMessages.length} empty assistant messages for this chat, will update one instead of creating new`,
+            );
+
+            // Use the first empty message ID instead of creating a new one
+            const emptyMsgId = existingEmptyMessages[0].id;
+            console.log(
+              `[Brain API] Updating empty message ${emptyMsgId} with content instead of creating new`,
+            );
+
+            // Update the existing empty message with our content
+            await sql`
+              UPDATE "Message_v2"
+              SET parts = ${JSON.stringify(assistantMessageToSave.parts)}
+              WHERE id = ${emptyMsgId} AND "chatId" = ${normalizedChatId}
+            `;
+
+            console.log(
+              `[Brain API] Successfully updated empty message ${emptyMsgId} with content`,
+            );
+            return;
+          } else {
+            console.log(
+              `[Brain API] No empty messages found, creating new message`,
+            );
+          }
+        } catch (err) {
+          console.error(`[Brain API] Error checking for empty messages:`, err);
+          // Continue with normal message creation since checking failed
+        }
+
+        // Only create a new message if we didn't find an empty one to update
+        await sql`
+          INSERT INTO "Message_v2" (
+            id, 
+            "chatId", 
+            role, 
+            parts, 
+            attachments, 
+            "createdAt",
+            client_id
+          ) VALUES (
+            ${assistantMessageToSave.id}, 
+            ${assistantMessageToSave.chatId}, 
+            ${assistantMessageToSave.role}, 
+            ${JSON.stringify(assistantMessageToSave.parts)}, 
+            ${JSON.stringify(assistantMessageToSave.attachments)}, 
+            ${assistantMessageToSave.createdAt.toISOString()},
+            ${effectiveClientId}
+          )
+        `;
+
+        console.log(
+          `[Brain API] Successfully saved assistant message ${assistantMessageToSave.id}`,
+        );
+      } catch (dbError: any) {
+        console.error(`[Brain API] FAILED to save assistant message:`, dbError);
+        console.error(`[Brain API] Assistant message save error details:`, {
+          message: dbError?.message,
+          name: dbError?.name,
+          stack: dbError?.stack?.split('\n').slice(0, 3),
+        });
+        // Log error, but don't block response as stream already finished
+        // Do not reset assistantMessageSaved flag here to prevent duplicate save attempts
+      }
+
+      if (onCompletion) {
+        await onCompletion(fullResponse);
+      }
+    }
   }
 
-  return { handlers: [new CompletionCallbackHandler()] };
+  return {
+    handlers: [new CompletionCallbackHandler()],
+  };
 }
 
 // Create Tavily search tool directly
@@ -1683,8 +1893,27 @@ ${extractedText}
     }
 
     // Set up LangChainStream with onCompletion handler for message saving
-    const { handlers } = createLangChainStreamHandler({
+    const streamHandler = createLangChainStreamHandler({
+      onStart: async () => {
+        console.log(
+          `[Brain API] >> Stream started, setting assistantMessageSaved flag to false`,
+        );
+        // Reset the flag at the start of streaming to ensure we save exactly one message
+        assistantMessageSaved = false;
+      },
+      onToken: async (token: string) => {
+        // Don't do anything special here, just let tokens stream
+        // This is just to ensure we have a handler registered
+      },
       onCompletion: async (fullResponse: string) => {
+        // Skip if response is empty or just whitespace
+        console.log('[Brain API] ON_COMPLETION_HANDLER TRIGGERED');
+
+        if (!fullResponse || !fullResponse.trim()) {
+          console.log(`[Brain API] Skipping empty response in onCompletion`);
+          return;
+        }
+
         // Add detailed logging to help debug duplicate saves
         console.log(`[Brain API] >> onCompletion Handler Triggered <<`);
         console.log(
@@ -1766,7 +1995,59 @@ ${extractedText}
             `[Brain API] Saving assistant message ${assistantMessageToSave.id} for chat ${normalizedChatId}`,
           );
 
-          // Use direct SQL instead of chatRepository
+          // First, check if there's an existing message with the same ID pattern but empty content
+          try {
+            // Look for existing messages with this chat ID that are empty and from assistant
+            const existingEmptyMessages = await sql<
+              { id: string; parts: any }[]
+            >`
+              SELECT id, parts FROM "Message_v2" 
+              WHERE "chatId" = ${normalizedChatId} 
+              AND role = 'assistant' 
+              AND (
+                parts::text = '[{"type":"text","text":""}]' 
+                OR parts::text = '[]'
+                OR parts::text IS NULL
+                OR (parts::text)::jsonb->0->>'text' = ''
+              )
+            `;
+
+            if (existingEmptyMessages && existingEmptyMessages.length > 0) {
+              console.log(
+                `[Brain API] Found ${existingEmptyMessages.length} empty assistant messages for this chat, will update one instead of creating new`,
+              );
+
+              // Use the first empty message ID instead of creating a new one
+              const emptyMsgId = existingEmptyMessages[0].id;
+              console.log(
+                `[Brain API] Updating empty message ${emptyMsgId} with content instead of creating new`,
+              );
+
+              // Update the existing empty message with our content
+              await sql`
+                UPDATE "Message_v2"
+                SET parts = ${JSON.stringify(assistantMessageToSave.parts)}
+                WHERE id = ${emptyMsgId} AND "chatId" = ${normalizedChatId}
+              `;
+
+              console.log(
+                `[Brain API] Successfully updated empty message ${emptyMsgId} with content`,
+              );
+              return;
+            } else {
+              console.log(
+                `[Brain API] No empty messages found, creating new message`,
+              );
+            }
+          } catch (err) {
+            console.error(
+              `[Brain API] Error checking for empty messages:`,
+              err,
+            );
+            // Continue with normal message creation since checking failed
+          }
+
+          // Only create a new message if we didn't find an empty one to update
           await sql`
             INSERT INTO "Message_v2" (
               id, 
@@ -1807,32 +2088,23 @@ ${extractedText}
     });
 
     // Start the agent streaming execution
-    agentExecutor
-      .stream(
-        {
-          input: combinedMessage,
-          chat_history: directInstances,
-          activeBitContextId: effectiveContextId || null,
-        },
-        { callbacks: handlers },
-      )
-      .catch((error) => {
-        console.error('[Brain API] Error in agent execution:', error);
-      });
+    // REMOVED: First problematic invocation of agentExecutor.stream
+    // This was causing duplicate message persistence as the same agent was executed twice
 
     // Implement custom streaming with a ReadableStream for character-by-character display
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          // Execute the agent and get the streaming result
+          // SINGLE AGENT EXECUTION: This is now the only call to agentExecutor.stream
+          console.log('[Brain API] SINGLE AGENT EXECUTION STARTING');
           const streamResult = await agentExecutor.stream(
             {
               input: combinedMessage,
               chat_history: directInstances,
               activeBitContextId: effectiveContextId || null,
             },
-            { callbacks: handlers },
+            { callbacks: streamHandler.handlers },
           );
 
           // Process each chunk from the stream

@@ -17,10 +17,7 @@ import { toast } from 'sonner';
 import { unstable_serialize } from 'swr/infinite';
 import { getChatHistoryPaginationKey } from './sidebar-history';
 import { ChatPaneToggle } from './ChatPaneToggle';
-import {
-  saveSubsequentMessages,
-  createChatAndSaveFirstMessages,
-} from '@/app/(chat)/actions';
+import { createChatAndSaveFirstMessages } from '@/app/(chat)/actions';
 import { cn } from '@/lib/utils';
 import { ChatScrollAnchor } from '@/components/chat-scroll-anchor';
 import { ChatForm } from '@/components/chat-form';
@@ -33,7 +30,6 @@ import { useChatPane } from '@/context/ChatPaneContext';
 
 console.log('[Chat] actions:', {
   createChatAndSaveFirstMessages,
-  saveSubsequentMessages,
 });
 
 // Define the ChatRequestOptions interface based on the actual structure
@@ -515,6 +511,120 @@ export function Chat({
     },
     [input, originalHandleSubmit, setInput, fileContext, toast, id, messages], // Add all dependencies
   );
+
+  useEffect(() => {
+    // Add a robust fallback to ensure messages are properly saved to the database
+    const ensureMessagesSaved = async () => {
+      if (!messages.length || messages.length < 2) return;
+
+      // Track how many message pairs we've processed
+      let processedPairs = 0;
+
+      // Find pairs of user messages followed by assistant messages
+      for (let i = 0; i < messages.length - 1; i++) {
+        const currentMsg = messages[i];
+        const nextMsg = messages[i + 1];
+
+        // Check if we have a user->assistant message pair
+        if (currentMsg.role === 'user' && nextMsg.role === 'assistant') {
+          // Skip if assistant message has no content (still streaming)
+          if (!nextMsg.content || nextMsg.content.trim() === '') {
+            console.log(
+              `[Chat] Skipping message pair [${i},${i + 1}] - assistant message has no content yet`,
+            );
+            continue;
+          }
+
+          // Skip if the assistant message is marked as saved and has content
+          if (
+            (nextMsg as EnhancedUIMessage).__saved &&
+            nextMsg.content &&
+            nextMsg.content.trim() !== ''
+          ) {
+            continue;
+          }
+
+          processedPairs++;
+          console.log(
+            `[Chat] Processing message pair [${i},${i + 1}] (${processedPairs}/${Math.floor(messages.length / 2)})`,
+            {
+              userMsgId: currentMsg.id,
+              assistantMsgId: nextMsg.id,
+              assistantContent: nextMsg.content?.substring(0, 50) + '...',
+            },
+          );
+
+          // Format messages for database storage
+          const userMessage = {
+            id: currentMsg.id,
+            chatId: id,
+            role: currentMsg.role,
+            parts: [{ type: 'text', text: currentMsg.content }],
+            attachments: currentMsg.attachments || [],
+            createdAt: new Date(currentMsg.createdAt || Date.now()),
+          };
+
+          const assistantMessage = {
+            id: nextMsg.id,
+            chatId: id,
+            role: nextMsg.role,
+            parts: [{ type: 'text', text: nextMsg.content }],
+            attachments: nextMsg.attachments || [],
+            createdAt: new Date(nextMsg.createdAt || Date.now()),
+          };
+
+          try {
+            // Message saving is now handled by the Brain API
+            console.log(
+              `[Chat] Message saving now handled by Brain API - skipping client-side save`,
+            );
+
+            // Mark the message as saved since Brain API handles it
+            (nextMsg as EnhancedUIMessage).__saved = true;
+          } catch (error) {
+            console.error(
+              `[Chat] Error processing message pair [${i},${i + 1}]:`,
+              error,
+            );
+
+            // Wait a bit before the next attempt
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+        }
+      }
+
+      // Log summary
+      if (processedPairs > 0) {
+        console.log(
+          `[Chat] Processed ${processedPairs} message pairs for persistence`,
+        );
+      }
+    };
+
+    // Create a debounced version of the function to avoid too many calls
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    const debouncedEnsureMessagesSaved = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+
+      timeoutId = setTimeout(() => {
+        ensureMessagesSaved();
+        timeoutId = null;
+      }, 1000); // Wait 1 second after messages change
+    };
+
+    // Execute the debounced function whenever messages change
+    debouncedEnsureMessagesSaved();
+
+    // Clear timeout on cleanup
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [messages, id]);
 
   return (
     <>

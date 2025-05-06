@@ -31,50 +31,6 @@ import { createChatAndSaveFirstMessages } from '../app/(chat)/actions';
 import { toast } from 'sonner';
 import { useChat } from 'ai/react';
 
-// Add utility function for fallback API calls
-const callServerActionWithFallback = async (
-  action: 'createChatAndSaveFirstMessages' | 'saveSubsequentMessages',
-  payload: any,
-) => {
-  try {
-    // First try using the server action directly
-    if (
-      action === 'createChatAndSaveFirstMessages' &&
-      typeof createChatAndSaveFirstMessages === 'function'
-    ) {
-      console.log('[FALLBACK] Trying direct server action first');
-      return await createChatAndSaveFirstMessages(payload);
-    }
-
-    // If server action is not available or fails, use the API fallback
-    console.log('[FALLBACK] Using API route fallback for', action);
-    const response = await fetch('/api/chat-actions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, ...payload }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`API fallback failed with status: ${response.status}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('[FALLBACK] Error in callServerActionWithFallback:', error);
-    return { success: false, error: (error as Error).message };
-  }
-};
-
-console.log('[GlobalChatPane] action (relative import):', {
-  createChatAndSaveFirstMessages,
-  isServerAction:
-    typeof createChatAndSaveFirstMessages === 'function' &&
-    (createChatAndSaveFirstMessages as any)?.__$SERVER_REFERENCE !== undefined,
-});
-
-// Export the utility function for use in ChatPaneContext
-export { callServerActionWithFallback };
-
 interface GlobalChatPaneProps {
   title?: string;
 }
@@ -115,7 +71,7 @@ export function GlobalChatPane({
     messages,
     input,
     handleInputChange,
-    handleSubmit: originalHandleSubmit,
+    handleSubmit,
     isLoading,
     error,
     setInput,
@@ -206,147 +162,44 @@ export function GlobalChatPane({
   // Ref to track chat persistence
   const chatPersistedRef = React.useRef<boolean>(false);
 
-  // Add onFinish handler for GlobalChatPane
+  // Create a message observer to monitor when assistant messages are completed
+  const checkAndSaveCompletedMessages = () => {
+    // No longer needed - messages are saved by the Brain API
+    console.log(
+      '[GlobalChatPane] Skipping message saving - now handled by Brain API',
+    );
+  };
+
+  // Set up an interval to check for stable messages
   React.useEffect(() => {
-    // Create a custom message handler function
-    const handleMessageCompletion = (message: any) => {
-      // Skip messages with no content
-      if (!message.content) {
-        console.log('[GlobalChatPane] Skipping persistence for empty message');
-        return;
-      }
+    const messageCheckInterval = setInterval(() => {
+      checkAndSaveCompletedMessages();
+    }, 1000);
 
-      // Skip if we already saved or are processing this message
-      if (
-        savedMessageIdsRef.current.has(message.id) ||
-        processingMessageIdsRef.current.has(message.id)
-      ) {
-        console.log(
-          `[GlobalChatPane] Message ${message.id} already saved or being processed, skipping`,
-        );
-        return;
-      }
+    // Clean up interval on component unmount
+    return () => clearInterval(messageCheckInterval);
+  }, [messages]);
 
-      // Mark this message as being processed
-      processingMessageIdsRef.current.add(message.id);
-      console.log(`[GlobalChatPane] Started processing message ${message.id}`);
+  // Add cleanup for empty messages when a streaming session ends
+  React.useEffect(() => {
+    if (status === 'streaming') return;
 
-      // Get the user message from our ref
-      if (!lastUserMsgRef.current) {
-        console.log(
-          '[GlobalChatPane] No user message ref found for persistence',
-        );
-        processingMessageIdsRef.current.delete(message.id);
-        return;
-      }
-
-      const currentChatId = globalPaneChatId;
-
-      // Skip if chat is already persisted
-      if (chatPersistedRef.current) {
-        console.log('[GlobalChatPane] Chat already persisted, adding messages');
-
-        // Note: Removed fetch to /api/chat-actions
-        // Messages are now saved directly by the Brain API
-        console.log(
-          '[GlobalChatPane] Skipping manual message save - handled by Brain API',
-        );
-
-        // Still mark this message as processed
-        savedMessageIdsRef.current.add(message.id);
-        processingMessageIdsRef.current.delete(message.id);
-        console.log(
-          `[GlobalChatPane] Marked message ${message.id} as processed`,
-        );
-      } else {
-        console.log('[GlobalChatPane] New chat, creating with messages');
-
-        // Note: Removed fetch to /api/chat-actions
-        // Messages are now saved directly by the Brain API
-        console.log(
-          '[GlobalChatPane] Skipping manual message save - handled by Brain API',
-        );
-
-        // Mark chat as persisted to avoid future creations
-        chatPersistedRef.current = true;
-
-        // Mark this message as processed
-        savedMessageIdsRef.current.add(message.id);
-        processingMessageIdsRef.current.delete(message.id);
-        console.log(
-          `[GlobalChatPane] Marked message ${message.id} as processed`,
-        );
-      }
-
-      // Reset the user message ref
-      lastUserMsgRef.current = null;
-    };
-
-    // Create an event handler to listen for message completions
-    const handleMessageEvent = (event: CustomEvent) => {
-      if (event.detail && event.detail.role === 'assistant') {
-        handleMessageCompletion(event.detail);
-      }
-    };
-
-    // Register a custom event listener for completed messages
-    window.addEventListener(
-      'ai-message-complete',
-      handleMessageEvent as EventListener,
-    );
-
-    // Dispatch an event whenever new messages appear
-    const messagesObserver = new MutationObserver(() => {
-      const assistantMessages = messages.filter(
-        (m: any) => m.role === 'assistant',
-      );
-      if (assistantMessages.length > 0) {
-        const lastAssistantMessage =
-          assistantMessages[assistantMessages.length - 1];
-        // Ensure we only fire for completed messages that have content
-        if (lastAssistantMessage.content && !isLoading) {
-          // Skip if we've already processed this message
-          if (
-            savedMessageIdsRef.current.has(lastAssistantMessage.id) ||
-            processingMessageIdsRef.current.has(lastAssistantMessage.id)
-          ) {
-            console.log(
-              `[GlobalChatPane] Skipping event for already processed message ${lastAssistantMessage.id}`,
-            );
-            return;
-          }
-
+    let cleanupInterval: NodeJS.Timeout | null = null;
+    if (!isLoading && status !== 'streaming') {
+      cleanupInterval = setTimeout(() => {
+        if (!isLoading && status !== 'streaming' && globalPaneChatId) {
+          // No longer needed - cleaning now handled by Brain API
           console.log(
-            `[GlobalChatPane] Dispatching event for message ${lastAssistantMessage.id}`,
+            '[GlobalChatPane] Skipping message cleanup - now handled by Brain API',
           );
-          const event = new CustomEvent('ai-message-complete', {
-            detail: lastAssistantMessage,
-          });
-          window.dispatchEvent(event);
         }
-      }
-    });
-
-    // Observe the messages container for changes
-    const messagesContainer = document.querySelector(
-      '[data-testid="messages-container"]',
-    );
-    if (messagesContainer) {
-      messagesObserver.observe(messagesContainer, {
-        childList: true,
-        subtree: true,
-      });
+      }, 2000);
     }
 
     return () => {
-      // Clean up event listener and observer
-      window.removeEventListener(
-        'ai-message-complete',
-        handleMessageEvent as EventListener,
-      );
-      messagesObserver.disconnect();
+      if (cleanupInterval) clearTimeout(cleanupInterval);
     };
-  }, [messages, isLoading]);
+  }, [status, isLoading, globalPaneChatId]);
 
   const submitMessage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -398,9 +251,26 @@ export function GlobalChatPane({
       console.log('[GlobalChatPane] Using chat ID:', validChatId);
     });
 
+    // Check if we're asking about Echo Tango or other specialists
+    // Look for variations of "echo tango" with word boundaries to avoid false positives
+    const hasEchoTangoReference = /\b(echo\s*tango|specialist)\b/i.test(input);
+
+    // Create a global variable to make request context available to tool handlers
+    // Use global variable that now has proper TypeScript typing
+    global.CURRENT_REQUEST_BODY = {
+      referencedChatId: mainUiChatId,
+      currentActiveSpecialistId: currentActiveSpecialistId,
+    };
+
+    console.log('[GlobalChatPane] Request context:', {
+      hasEchoTangoReference,
+      referencedChatId: mainUiChatId,
+      currentActiveSpecialistId: currentActiveSpecialistId,
+    });
+
     // Send the message to the AI with model selection
     // Always use the shared currentActiveSpecialistId from context
-    await originalHandleSubmit(e, {
+    await handleSubmit(e, {
       body: {
         selectedChatModel: 'global-orchestrator', // Always use orchestrator
         activeBitContextId: currentActiveSpecialistId, // Use shared context
@@ -408,9 +278,12 @@ export function GlobalChatPane({
         chatId: validChatId, // Include the valid chatId in the request
         id: validChatId, // Also include as id for compatibility
         isFromGlobalPane: true, // Flag this request as coming from the global pane
-        referencedChatId: mainUiChatId, // Include reference to the main UI chat ID
+        referencedChatId: mainUiChatId, // Always include main UI chat ID reference
       },
     });
+
+    // Clean up global context (set to null instead of using delete)
+    global.CURRENT_REQUEST_BODY = null;
 
     // Clear the input and reset height - defer to next frame
     requestAnimationFrame(() => {

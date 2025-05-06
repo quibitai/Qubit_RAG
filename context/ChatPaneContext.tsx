@@ -16,14 +16,10 @@ import { useChat } from '@ai-sdk/react';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import { DEFAULT_CHAT_MODEL } from '@/lib/ai/models';
 import { generateUUID } from '@/lib/utils';
-import {
-  saveSubsequentMessages,
-  createChatAndSaveFirstMessages,
-} from '@/app/(chat)/actions';
+import { createChatAndSaveFirstMessages } from '@/app/(chat)/actions';
 
 console.log('[ChatPaneContext] actions:', {
   createChatAndSaveFirstMessages,
-  saveSubsequentMessages,
 });
 
 import type { DBMessage } from '@/lib/db/schema';
@@ -77,11 +73,12 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
   useEffect(() => {
     if (!hasLoggedServerActionCheck.current) {
       console.log('[CLIENT] Server action check in ChatPaneContext:', {
-        isFunction: typeof saveSubsequentMessages === 'function',
+        isFunction: typeof createChatAndSaveFirstMessages === 'function',
         hasServerRef:
-          typeof saveSubsequentMessages === 'object' &&
-          (saveSubsequentMessages as any)?.__$SERVER_REFERENCE,
-        serverActionId: (saveSubsequentMessages as any).__next_action_id,
+          typeof createChatAndSaveFirstMessages === 'object' &&
+          (createChatAndSaveFirstMessages as any)?.__$SERVER_REFERENCE,
+        serverActionId: (createChatAndSaveFirstMessages as any)
+          .__next_action_id,
       });
       hasLoggedServerActionCheck.current = true;
     }
