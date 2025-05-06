@@ -376,7 +376,7 @@ export function GlobalChatPane({
 
   return (
     <div className="flex flex-col h-full bg-background border-l">
-      <div className="px-3 py-2 border-b flex items-center justify-between">
+      <header className="px-3 py-2 border-b flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -404,31 +404,9 @@ export function GlobalChatPane({
           <h2 className="font-semibold">{title}</h2>
         </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8 gap-1">
-              Echo Tango Bit
-              <ChevronDown className="h-3 w-3" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-[200px]">
-            <DropdownMenuItem
-              onClick={() => setActiveBitContextId('chat-model')}
-              className="flex items-center justify-between"
-            >
-              <div className="flex flex-col">
-                <span>Echo Tango Bit</span>
-                <span className="text-xs text-muted-foreground">
-                  Primary model for all-purpose chat
-                </span>
-              </div>
-              {activeBitContextId === 'chat-model' && (
-                <CheckIcon className="h-4 w-4" />
-              )}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+        {/* Simple text label showing the current bit, replacing the dropdown */}
+        <div className="text-sm text-muted-foreground">Echo Tango Bit</div>
+      </header>
 
       {/* Messages container */}
       <div
