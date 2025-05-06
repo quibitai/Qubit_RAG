@@ -68,12 +68,12 @@ Okay, here is a detailed checklist based on the revised roadmap. You can use thi
     * `[x]` **Ensure the orchestrator is not user-selectable in dropdown menus:**
 
 * **Step 2.2: Make Brain API Client-Aware**
-    * `[ ]` **Fetch Client ID:** In `app/api/brain/route.ts`, get `clientId` from the session/JWT.
-    * `[ ]` **Define DB Function:** Define `getClientConfig(clientId: string)` signature in `lib/db/queries.ts`.
-    * `[ ]` **Implement DB Function:** Write the implementation for `getClientConfig` to query the `Clients` table based on `clientId`.
-    * `[ ]` **Call DB Function:** In `app/api/brain/route.ts`, call `getClientConfig`.
-    * `[ ]` **Prompt Construction:** Update prompt logic in `/api/brain` to combine base orchestrator prompt, specialist prompt (from `activeBitContextId`), and client-specific instructions (from `clientConfig`).
-    * `[ ]` **Verification:** Add temporary logging in `/api/brain` to output the final combined system prompt. Send requests with different `activeBitContextId` values and for different (test) clients. Confirm the prompt includes the correct base, specialist (if applicable), and client instructions.
+    * `[x]` **Fetch Client ID:** In `app/api/brain/route.ts`, get `clientId` from the session/JWT.
+    * `[x]` **Define DB Function:** Define `getClientConfig(clientId: string)` signature in `lib/db/queries.ts`.
+    * `[x]` **Implement DB Function:** Write the implementation for `getClientConfig` to query the `Clients` table based on `clientId`.
+    * `[x]` **Call DB Function:** In `app/api/brain/route.ts`, call `getClientConfig`.
+    * `[x]` **Prompt Construction:** Update prompt logic in `/api/brain` to combine base orchestrator prompt, specialist prompt (from `activeBitContextId`), and client-specific instructions (from `clientConfig`).
+    * `[x]` **Verification:** Add temporary logging in `/api/brain` to output the final combined system prompt. Send requests with different `activeBitContextId` values and for different (test) clients. Confirm the prompt includes the correct base, specialist (if applicable), and client instructions.
 
 * **Step 2.3: Implement Server-Side Langchain Streaming**
     * `[ ]` **Refine Handler:** Review/complete the custom streaming handler in `app/api/brain/route.ts` (`ReadableStream`, Langchain callbacks). Ensure robustness.
@@ -192,6 +192,13 @@ Okay, here is a detailed checklist based on the revised roadmap. You can use thi
   - ✅ Update systemPrompt function in lib/ai/prompts.ts to check for 'global-orchestrator'
   - ✅ Update components referencing the old ID (GlobalChatPane, chat-header, etc.)
   - ✅ Ensure the orchestrator is not user-selectable in dropdown menus
+  
+- ✅ Step 2.2: Make Brain API Client-Aware
+  - ✅ Updated schema to add customInstructions and enabledBits to Clients table
+  - ✅ Created getClientConfig function in queries.ts to fetch client configuration
+  - ✅ Added getSpecialistPrompt to prompts.ts to get specialist-specific instructions
+  - ✅ Updated brain API to combine base prompt with specialist and client-specific instructions
+  - ✅ Added logging to verify correct prompt construction
 
 ### Features
 

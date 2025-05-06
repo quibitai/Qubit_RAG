@@ -27,6 +27,8 @@ import {
   vote,
   type DBMessage,
   type Chat,
+  clients,
+  type Client,
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 
@@ -37,6 +39,66 @@ import type { ArtifactKind } from '@/components/artifact';
 // biome-ignore lint: Forbidden non-null assertion.
 const client = postgres(process.env.POSTGRES_URL!);
 const db = drizzle(client);
+
+/**
+ * Client configuration type returned by getClientConfig
+ */
+export type ClientConfig = {
+  id: string;
+  name: string;
+  customInstructions?: string | null;
+  enabledBits?: string[] | null;
+};
+
+/**
+ * Fetch client configuration based on client ID
+ * @param clientId The client ID to fetch configuration for
+ * @returns ClientConfig object or null if not found
+ */
+export async function getClientConfig(
+  clientId: string,
+): Promise<ClientConfig | null> {
+  try {
+    console.log(
+      `[DB:getClientConfig] Fetching config for clientId: ${clientId}`,
+    );
+    const result = await db
+      .select({
+        id: clients.id,
+        name: clients.name,
+        customInstructions: clients.customInstructions,
+        enabledBits: clients.enabledBits,
+      })
+      .from(clients)
+      .where(eq(clients.id, clientId))
+      .limit(1);
+
+    if (result.length === 0) {
+      console.warn(
+        `[DB:getClientConfig] No configuration found for clientId: ${clientId}`,
+      );
+      return null;
+    }
+
+    console.log(
+      `[DB:getClientConfig] Found config for ${clientId}:`,
+      result[0],
+    );
+
+    return {
+      id: result[0].id,
+      name: result[0].name,
+      customInstructions: result[0].customInstructions,
+      enabledBits: result[0].enabledBits as string[] | null,
+    };
+  } catch (error) {
+    console.error(
+      `[DB:getClientConfig] Error fetching config for clientId ${clientId}:`,
+      error,
+    );
+    return null; // Return null on error
+  }
+}
 
 export async function getUser(email: string): Promise<Array<User>> {
   try {

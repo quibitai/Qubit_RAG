@@ -50,6 +50,13 @@
       "when": 1746471532931,
       "tag": "0006_open_venom",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1746542528807,
+      "tag": "0007_unusual_prodigy",
+      "breakpoints": true
     }
   ]
 }

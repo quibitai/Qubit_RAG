@@ -18,7 +18,10 @@ import type { Message as UIMessage } from 'ai';
 import { auth } from '@/app/(auth)/auth';
 
 // Import tools and utilities
-import { orchestratorSystemPrompt } from '@/lib/ai/prompts';
+import {
+  orchestratorSystemPrompt,
+  getSpecialistPrompt,
+} from '@/lib/ai/prompts';
 import { modelMapping } from '@/lib/ai/models';
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import type { Serialized } from '@langchain/core/load/serializable';
@@ -31,8 +34,9 @@ import { availableTools } from '@/lib/ai/tools/index';
 import { db } from '@/lib/db';
 import { sql } from '@/lib/db/client';
 import { chat, message } from '@/lib/db/schema';
-import { saveMessages } from '@/lib/db/queries';
+import { saveMessages, getClientConfig } from '@/lib/db/queries';
 import type { DBMessage } from '@/lib/db/schema';
+import type { ClientConfig } from '@/lib/db/queries';
 import { randomUUID } from 'node:crypto';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { RunnableSequence } from '@langchain/core/runnables';
@@ -1192,6 +1196,24 @@ export async function POST(req: NextRequest) {
       `[Brain API] Using User ID: ${effectiveUserId}, Client ID: ${effectiveClientId}`,
     );
 
+    // Fetch client configuration
+    let clientConfig: ClientConfig | null = null;
+    try {
+      clientConfig = await getClientConfig(effectiveClientId);
+      if (clientConfig) {
+        console.log(
+          `[Brain API] Loaded config for client: ${clientConfig.name}`,
+        );
+      } else {
+        console.warn(
+          `[Brain API] Could not load configuration for client: ${effectiveClientId}. Using defaults.`,
+        );
+      }
+    } catch (configError) {
+      console.error(`[Brain API] Error fetching client config:`, configError);
+      // Continue without client config - we'll use defaults
+    }
+
     // Validate and normalize UUID format
     let normalizedChatId = chatId;
     // Check if the chatId is in UUID format (8-4-4-4-12)
@@ -1368,8 +1390,32 @@ export async function POST(req: NextRequest) {
     // Get available tools for the current context
     const tools = await getAvailableTools();
 
+    // Construct the final system prompt based on base prompt, specialist context, and client configuration
+    let finalSystemPrompt = orchestratorSystemPrompt; // Start with the base
+
+    // Add specialist prompt if context demands it
+    const specialistPrompt = getSpecialistPrompt(activeBitContextId);
+    if (specialistPrompt) {
+      finalSystemPrompt += `\n\n${specialistPrompt}`;
+      console.log(
+        `[Brain API] Added specialist prompt for ${activeBitContextId}`,
+      );
+    }
+
+    // Add client-specific instructions if available
+    if (clientConfig?.customInstructions) {
+      finalSystemPrompt += `\n\n# Client Instructions (${clientConfig.name})\n${clientConfig.customInstructions}`;
+      console.log(
+        `[Brain API] Added custom instructions for client: ${clientConfig.name}`,
+      );
+    }
+
+    console.log(
+      `[Brain API] Constructed final system prompt with length: ${finalSystemPrompt.length}`,
+    );
+
     const prompt = ChatPromptTemplate.fromMessages([
-      ['system', orchestratorSystemPrompt],
+      ['system', finalSystemPrompt], // Use the combined prompt
       new MessagesPlaceholder('chat_history'),
       ['human', '{input}'],
       new MessagesPlaceholder('agent_scratchpad'),

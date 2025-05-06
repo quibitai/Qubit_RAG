@@ -343,3 +343,52 @@ Explain your analysis in simple terms, highlighting key insights from the data.`
   // Return the bit-specific prompt if available, otherwise the default
   return bitPrompts[bitId] || defaultPrompt;
 }
+
+/**
+ * Get a specialized system prompt for a specific Bit context
+ *
+ * This is used by the orchestrator to add specialization to the base prompt
+ * when a specific Bit context is active.
+ *
+ * @param activeBitContextId - The ID of the active Bit context
+ * @returns Specialized prompt instructions for the Bit context, or null if no specialization is needed
+ */
+export function getSpecialistPrompt(
+  activeBitContextId: string | null,
+): string | null {
+  if (!activeBitContextId) return null;
+
+  // Specialized Bit prompts
+  const specialistPrompts: Record<string, string> = {
+    'chat-model': `
+## Echo Tango Bit Context
+You are now operating in the Echo Tango Bit context. In this mode, focus on:
+- Using a more conversational, creative tone appropriate for a creative agency
+- Prioritizing brevity and clarity in your responses
+- Emphasizing Echo Tango's core values of storytelling and brand elevation
+- Using examples and metaphors that resonate with creative professionals
+`,
+
+    'document-editor': `
+## Document Editor Context
+You are now operating in the Document Editor context. In this mode:
+- Focus on directly assisting with document creation and editing
+- When the user asks for changes to the current document, always use the updateDocument tool
+- Provide more concise writing style guidance and help structure documents effectively
+- If the user asks to create a new document, use the createDocument tool
+`,
+
+    'echo-tango-specialist': `
+## Echo Tango Specialist Context
+You are now operating as Echo Tango's dedicated specialist AI assistant. In this specialized mode:
+- You have deep knowledge of Echo Tango's brand voice, projects, and production processes
+- You understand the marketing and creative industry terminology and best practices
+- When searching for information, prioritize Echo Tango's internal documents first
+- Your responses should align with Echo Tango's brand style: sophisticated, clear, impactful
+- Include relevant industry examples when explaining concepts
+- Demonstrate understanding of video production, motion graphics, and marketing campaign workflows
+`,
+  };
+
+  return specialistPrompts[activeBitContextId] || null;
+}

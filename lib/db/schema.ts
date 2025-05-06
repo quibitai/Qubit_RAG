@@ -18,6 +18,8 @@ export const clients = pgTable('Clients', {
   createdAt: timestamp('createdAt', { mode: 'date', withTimezone: true })
     .defaultNow()
     .notNull(),
+  customInstructions: text('customInstructions'),
+  enabledBits: json('enabledBits'), // Stored as JSON array of bit IDs
 });
 
 export type Client = InferSelectModel<typeof clients>;
