@@ -12,9 +12,9 @@ import React, {
   type FC,
 } from 'react';
 import { useRouter } from 'next/navigation';
-import { useChat, type UseChatHelpers } from '@ai-sdk/react';
+import { useChat } from '@ai-sdk/react';
+import type { UseChatHelpers } from '@ai-sdk/react';
 import { DEFAULT_CHAT_MODEL } from '@/lib/ai/models';
-import type { Attachment, Message } from 'ai';
 import { generateUUID } from '@/lib/utils';
 import {
   saveSubsequentMessages,
@@ -27,18 +27,17 @@ console.log('[ChatPaneContext] actions:', {
 });
 
 import type { DBMessage } from '@/lib/db/schema';
-import { unstable_serialize } from 'swr/infinite';
-import { getChatHistoryPaginationKey } from '@/components/sidebar-history';
-import type { ChatRequestOptions } from 'ai';
 import { useDocumentState } from './DocumentContext';
 import { toast } from 'sonner';
 
+type MessageOptions = {
+  message?: string;
+  data?: Record<string, any>;
+};
+
 export interface ChatPaneContextType {
   chatState: Omit<UseChatHelpers, 'handleSubmit'> & {
-    handleSubmit: (options?: {
-      message?: any;
-      data?: Record<string, any>;
-    }) => Promise<void | string | null | undefined>;
+    handleSubmit: (options?: MessageOptions) => Promise<void>;
   };
   isPaneOpen: boolean;
   setIsPaneOpen: (isOpen: boolean) => void;
@@ -46,10 +45,7 @@ export interface ChatPaneContextType {
   setCurrentActiveSpecialistId: (id: string | null) => void;
   activeDocId: string | null;
   setActiveDocId: (id: string | null) => void;
-  submitMessage: (options?: {
-    message?: any;
-    data?: Record<string, any>;
-  }) => Promise<void | string | null | undefined>;
+  submitMessage: (options?: MessageOptions) => Promise<void>;
   streamedContentMap: Record<string, string>;
   lastStreamUpdateTs: number;
   mainUiChatId: string;
