@@ -1,12 +1,10 @@
 // lib/ai/prompts/tools/web-search.ts
 
-// Placeholder for web search tool instructions to be fully implemented in Phase 4
+/**
+ * Instructions for using tools that perform web searches (e.g., tavilySearch).
+ */
 export const webSearchToolInstructions = `
-When using tavilySearch for web information:
-- Synthesize key findings from results
-- Cite sources (titles/URLs)
-- State if no relevant information was found
-- Verify information across multiple sources when possible
-
-This is a placeholder that will be expanded in Phase 4.
-`;
+- When using web search tools, synthesize key findings from the results.
+- Cite sources clearly (e.g., "According to [Source Title]...").
+- If no relevant information is found, explicitly state that.
+- Prioritize information from reputable sources when available.`;

@@ -1,11 +1,10 @@
 // lib/ai/prompts/tools/knowledge.ts
 
-// Placeholder for knowledge tool instructions to be fully implemented in Phase 4
+/**
+ * Instructions for using tools that interact with the internal knowledge base
+ * (e.g., searchInternalKnowledgeBase, getFileContents, listDocuments).
+ */
 export const knowledgeToolInstructions = `
-When using internal knowledge tools (searchInternalKnowledgeBase, getFileContents, listDocuments):
-- Cite the document title or ID
-- Base answers strictly on retrieved content unless asked otherwise
-- Prioritize relevant, specific information over general facts
-
-This is a placeholder that will be expanded in Phase 4.
-`;
+- When using internal knowledge tools, cite the document title or ID if known.
+- Base answers strictly on the retrieved document content unless explicitly asked to supplement.
+- If retrieved content is insufficient, state that clearly.`;

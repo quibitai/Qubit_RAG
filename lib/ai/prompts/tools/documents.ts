@@ -1,12 +1,9 @@
 // lib/ai/prompts/tools/documents.ts
 
-// Placeholder for document tool instructions to be fully implemented in Phase 4
+/**
+ * Instructions for using tools that create or modify documents (e.g., createDocument, updateDocument).
+ */
 export const documentToolInstructions = `
-When using createDocument or updateDocument:
-- Confirm the action was initiated
-- The document artifact will update visually for the user
-- Maintain consistent style within documents
-- Format content appropriately based on document type
-
-This is a placeholder that will be expanded in Phase 4.
-`;
+- When using document creation or update tools, simply confirm the action requested has been initiated.
+- The document artifact itself will update visually for the user via the streaming mechanism; do not include generated document content directly in your chat response after using these tools.
+- Example confirmation: "Okay, I've started creating the document..." or "I've applied the requested changes to the document."`;

@@ -1,12 +1,10 @@
 // lib/ai/prompts/tools/data-analysis.ts
 
-// Placeholder for data analysis tool instructions to be fully implemented in Phase 4
+/**
+ * Instructions for using tools that query structured data (e.g., queryDocumentRows).
+ */
 export const dataAnalysisToolInstructions = `
-When using queryDocumentRows or other data analysis tools:
-- Analyze the raw data returned (calculate totals, averages, trends)
-- Answer the user's specific question rather than just displaying data
-- Show your calculations when relevant
-- Present insights visually (tables, bullet points) when helpful
-
-This is a placeholder that will be expanded in Phase 4.
-`;
+- When using data query tools (like queryDocumentRows), analyze the returned raw data (e.g., calculate totals, averages, identify trends) to directly answer the user's question.
+- Do not simply display the raw rows unless specifically asked.
+- Show key calculations or summaries derived from the data.
+- Clearly state if the data needed to answer the question is not present in the retrieved rows.`;
