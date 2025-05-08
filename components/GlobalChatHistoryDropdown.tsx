@@ -59,7 +59,30 @@ export function GlobalChatHistoryDropdown() {
 
   // Ensure global chats are loaded
   useEffect(() => {
+    // Add debouncing to prevent multiple calls in quick succession
+    const lastLoadTime = localStorage.getItem('global-chats-last-load-time');
+    const now = Date.now();
+    const minInterval = 5000; // 5 seconds minimum between loads
+
+    if (lastLoadTime && now - Number.parseInt(lastLoadTime, 10) < minInterval) {
+      console.log(
+        `[GlobalChatHistoryDropdown] Skipping loadGlobalChats - called too recently (${now - Number.parseInt(lastLoadTime, 10)}ms ago)`,
+      );
+      return;
+    }
+
+    // Save the current timestamp to track when we last loaded
+    try {
+      localStorage.setItem('global-chats-last-load-time', now.toString());
+    } catch (e) {
+      console.error(
+        '[GlobalChatHistoryDropdown] Error storing load timestamp:',
+        e,
+      );
+    }
+
     // Initial load of global chats
+    console.log('[GlobalChatHistoryDropdown] Calling loadGlobalChats');
     loadGlobalChats();
   }, [loadGlobalChats]);
 
@@ -77,43 +100,38 @@ export function GlobalChatHistoryDropdown() {
 
   // LESS STRICT filtering for orchestrator chats
   const chatOptions = globalChats.filter((chat) => {
-    // Always include chats without titles for safety
-    if (!chat.title) return true;
+    // Log each chat we're considering for debugging
+    console.log(`[GlobalChatHistoryDropdown] Processing chat:`, {
+      id: chat.id,
+      title: chat.title,
+      bitContextId: chat.bitContextId,
+      isGlobal: chat.isGlobal,
+    });
 
-    const title = chat.title.toLowerCase();
+    // NEW APPROACH: Use bitContextId and isGlobal flag instead of title-based filtering
 
-    // DEBUG: Log each title being processed
-    if (process.env.NODE_ENV === 'development') {
+    // Include chats that:
+    // 1. Have no bitContextId or empty bitContextId (global chats)
+    // 2. Have 'global-orchestrator' bitContextId
+    // 3. Have isGlobal flag set to true
+
+    const isGlobalChat =
+      !chat.bitContextId ||
+      chat.bitContextId === '' ||
+      chat.bitContextId === 'global-orchestrator' ||
+      chat.isGlobal === true;
+
+    if (isGlobalChat) {
       console.log(
-        `[GlobalChatHistoryDropdown] Processing chat title: "${title}"`,
+        `[GlobalChatHistoryDropdown] Including global chat: "${chat.title}"`,
+      );
+    } else {
+      console.log(
+        `[GlobalChatHistoryDropdown] Excluding non-global chat: "${chat.title}"`,
       );
     }
 
-    // Less strict criteria for orchestrator chats - include more possibilities
-    const isLikelyOrchestratorChat =
-      title.includes('quibit') ||
-      title.includes('orchestrator') ||
-      title.includes('global') ||
-      title.includes('ai assistant') ||
-      title.includes('chat assistant') ||
-      title.includes('conversation') ||
-      !title.includes('echo tango'); // Assume it's orchestrator if not explicitly Echo Tango
-
-    // Skip chats that explicitly mention specialists
-    const containsSpecialistReferences =
-      title.includes('echo tango') ||
-      (title.includes('specialist') && !title.includes('quibit'));
-
-    // For debugging in development only
-    if (process.env.NODE_ENV === 'development' && isLikelyOrchestratorChat) {
-      console.log(
-        `[GlobalChatHistoryDropdown] Including likely orchestrator chat: "${chat.title}"`,
-      );
-    }
-
-    // Return true for chats that are likely from orchestrator
-    // and don't have explicit specialist references
-    return isLikelyOrchestratorChat && !containsSpecialistReferences;
+    return isGlobalChat;
   });
 
   // Debug filtered orchestrator chats

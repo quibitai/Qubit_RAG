@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTransition } from 'react';
 import useSWRInfinite from 'swr/infinite';
@@ -51,42 +51,54 @@ export const groupChatsByDate = (chats: Chat[]): GroupedChats => {
   );
 };
 
-// Update the separateChatsByType function with more strict filtering
+// Update the separateChatsByType function with more inclusive filtering
 export const separateChatsByType = (chats: Chat[]): GroupedChats => {
-  // Only include non-orchestrator chats (Chat Bit conversations) in the sidebar
-  if (process.env.NODE_ENV === 'development') {
-    console.log('[useChatHistory] Total chats to filter:', chats.length);
+  // Include ALL chats in the sidebar now, regardless of bitContextId
+  console.log('[useChatHistory] Total chats to filter:', chats.length);
+
+  // Log a sample of the incoming chats
+  if (chats.length > 0) {
+    console.log('[useChatHistory] Sample of incoming chats (first 3):');
+    chats.slice(0, 3).forEach((chat, idx) => {
+      console.log(`[useChatHistory] Chat ${idx + 1}:`, {
+        id: chat.id.substring(0, 8) + '...',
+        title: chat.title,
+        bitContextId: chat.bitContextId,
+        createdAt: chat.createdAt,
+      });
+    });
+  } else {
+    console.log('[useChatHistory] No chats received from backend');
   }
 
+  // MODIFIED APPROACH: Include all chats, except global orchestrator
   const chatBitChats = chats.filter((chat) => {
-    // Skip chats without titles - consider them Chat Bit chats
-    if (!chat.title) return true;
-
-    const title = chat.title.toLowerCase();
-
-    // Check if this is an orchestrator chat (should be excluded from sidebar)
-    const isOrchestratorChat =
-      title.includes('quibit') ||
-      title.includes('orchestrator') ||
-      title.includes('global');
-
-    // For debugging in development only
-    if (process.env.NODE_ENV === 'development' && isOrchestratorChat) {
+    // Only exclude global orchestrator chats
+    if (chat.bitContextId === 'global-orchestrator') {
       console.log(
-        `[useChatHistory] Filtering out orchestrator chat: "${chat.title}"`,
+        `[useChatHistory] Excluding global orchestrator chat "${chat.title}"`,
       );
+      return false;
     }
 
-    // Return true ONLY for non-orchestrator chats
-    return !isOrchestratorChat;
+    // Include all other chats, even if bitContextId is null or empty
+    console.log(
+      `[useChatHistory] Including chat "${chat.title}" with bitContextId: ${chat.bitContextId || 'NULL/EMPTY'}`,
+    );
+    return true;
   });
 
-  if (process.env.NODE_ENV === 'development') {
-    console.log(
-      '[useChatHistory] Filtered chat count (for sidebar):',
-      chatBitChats.length,
-    );
-  }
+  console.log(
+    '[useChatHistory] Filtered chat count (for sidebar):',
+    chatBitChats.length,
+  );
+
+  // Log summary of included/excluded chats
+  console.log(`[useChatHistory] Filtering summary:
+    - Total chats: ${chats.length}
+    - Included in sidebar: ${chatBitChats.length}
+    - Excluded from sidebar: ${chats.length - chatBitChats.length}
+  `);
 
   // Now group by date
   return groupChatsByDate(chatBitChats);
@@ -96,38 +108,152 @@ export function getChatHistoryPaginationKey(
   pageIndex: number,
   previousPageData: ChatHistory,
 ) {
+  // CRITICAL: Check where this function is being called from
+  const caller = new Error().stack?.split('\n')[2] || 'unknown';
+  console.error(`[SWR Key Gen] CALLER >>> ${caller.trim()}`);
+
+  console.log(
+    `[getChatHistoryPaginationKey] Function called with pageIndex=${pageIndex}, previousPageData=`,
+    previousPageData
+      ? {
+          hasMore: previousPageData.hasMore,
+          chatCount: previousPageData.chats?.length || 0,
+          firstChatId:
+            previousPageData.chats?.[0]?.id?.substring(0, 8) || 'none',
+        }
+      : 'null/undefined',
+  );
+
   if (previousPageData && previousPageData.hasMore === false) {
+    console.log(
+      '[getChatHistoryPaginationKey] Returning null (end of pagination reached)',
+    );
     return null;
   }
 
-  if (pageIndex === 0) return `/api/history?limit=${PAGE_SIZE}`;
+  // Get the active bit context ID from localStorage, default to 'chat-model'
+  try {
+    // Determine the type of history being requested
+    // For now, we're hard-coding type=sidebar here to ensure we get sidebar requests
+    const type = 'sidebar';
 
-  const firstChatFromPage = previousPageData.chats.at(-1);
+    // Get contextId from localStorage
+    const activeContextId =
+      localStorage.getItem('current-active-specialist') || 'chat-model';
 
-  if (!firstChatFromPage) return null;
+    // Add uniqueness tracker to prevent repeated fetches
+    // This creates a stable key that will only change when the specialist changes
+    const lastFetchTimestamp =
+      localStorage.getItem('last-sidebar-fetch-timestamp') || '0';
+    const now = Date.now();
 
-  return `/api/history?ending_before=${firstChatFromPage.id}&limit=${PAGE_SIZE}`;
+    // Only update the timestamp for new fetches, not for SWR internal validation
+    if (Number(lastFetchTimestamp) + 5000 < now) {
+      // 5 second minimum between actual fetches
+      localStorage.setItem('last-sidebar-fetch-timestamp', now.toString());
+      console.log(
+        `[SWR Key Gen] Updating timestamp, prev=${lastFetchTimestamp}, new=${now}`,
+      );
+    } else {
+      console.log(
+        `[SWR Key Gen] Using existing timestamp ${lastFetchTimestamp}, not updating yet`,
+      );
+    }
+
+    console.error(
+      `[SWR Key Gen] >> Using type=${type}, contextId=${activeContextId}`,
+    );
+
+    // Create the URL with correct parameters
+    let url = '';
+
+    if (pageIndex === 0) {
+      // Create a very clear, unmissable log about the key being generated
+      url = `/api/history?type=${type}&contextId=${activeContextId}&limit=${PAGE_SIZE}`;
+      console.error(
+        `[SWR Key Gen] SIDEBAR ATTEMPT >> Type: ${type}, ContextID: ${activeContextId}, Page: ${pageIndex + 1}, Limit: ${PAGE_SIZE} || FINAL KEY: ${url}`,
+      );
+      return url;
+    }
+
+    const firstChatFromPage = previousPageData.chats.at(-1);
+
+    if (!firstChatFromPage) {
+      console.log(
+        '[getChatHistoryPaginationKey] No chats in previous page, returning null',
+      );
+      return null;
+    }
+
+    // Include the same parameters as the first page, plus the cursor
+    url = `/api/history?type=${type}&contextId=${activeContextId}&limit=${PAGE_SIZE}&cursor=${firstChatFromPage.id}`;
+    console.error(
+      `[SWR Key Gen] SIDEBAR PAGINATION ATTEMPT >> Type: ${type}, ContextID: ${activeContextId}, Page: ${pageIndex + 1}, Limit: ${PAGE_SIZE}, Cursor: ${firstChatFromPage.id.substring(0, 8)}... || FINAL KEY: ${url}`,
+    );
+    return url;
+  } catch (error) {
+    console.error('[getChatHistoryPaginationKey] Error generating key:', error);
+    // In case of error, return a sane default that will at least load some data
+    const url = `/api/history?type=sidebar&contextId=chat-model&limit=${PAGE_SIZE}`;
+    console.error(
+      `[SWR Key Gen] ERROR FALLBACK >> FINAL KEY: ${url}, Error: ${error}`,
+    );
+    return url;
+  }
 }
 
 export function getDocumentHistoryPaginationKey(
   pageIndex: number,
   previousPageData: DocumentHistory,
 ) {
+  console.log(
+    `[getDocumentHistoryPaginationKey] Function called with pageIndex=${pageIndex}, previousPageData=`,
+    previousPageData
+      ? {
+          hasMore: previousPageData.hasMore,
+          documentCount: previousPageData.documents?.length || 0,
+          firstDocId:
+            previousPageData.documents?.[0]?.id?.substring(0, 8) || 'none',
+        }
+      : 'null/undefined',
+  );
+
   if (previousPageData && previousPageData.hasMore === false) {
+    console.log(
+      '[getDocumentHistoryPaginationKey] Returning null (end of pagination reached)',
+    );
     return null;
   }
 
-  if (pageIndex === 0) return `/api/documents-history?limit=${PAGE_SIZE}`;
+  let url = '';
 
-  const firstDocFromPage = previousPageData.documents.at(-1);
+  if (pageIndex === 0) {
+    url = `/api/documents-history?limit=${PAGE_SIZE}`;
+    console.log(`[getDocumentHistoryPaginationKey] Initial URL: ${url}`);
+    return url;
+  }
 
-  if (!firstDocFromPage) return null;
+  const lastDocumentFromPage = previousPageData.documents.at(-1);
 
-  return `/api/documents-history?ending_before=${firstDocFromPage.id}&limit=${PAGE_SIZE}`;
+  if (!lastDocumentFromPage) {
+    console.log(
+      '[getDocumentHistoryPaginationKey] No documents in previous page, returning null',
+    );
+    return null;
+  }
+
+  url = `/api/documents-history?limit=${PAGE_SIZE}&cursor=${lastDocumentFromPage.id}`;
+  console.log(`[getDocumentHistoryPaginationKey] Pagination URL: ${url}`);
+  return url;
 }
 
 // The main hook for chat history management
 export function useChatHistory(currentChatId?: string) {
+  console.log(
+    '[useChatHistory] Hook initializing with currentChatId:',
+    currentChatId,
+  );
+
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -172,6 +298,9 @@ export function useChatHistory(currentChatId?: string) {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
+  // Log when SWR is about to make API calls
+  console.log('[useChatHistory] Setting up SWR infinite hook for chat history');
+
   // Chat History fetching with SWR
   const {
     data: paginatedChatHistories,
@@ -181,14 +310,35 @@ export function useChatHistory(currentChatId?: string) {
     mutate: mutateChatHistory,
   } = useSWRInfinite<ChatHistory>(getChatHistoryPaginationKey, fetcher, {
     fallbackData: [],
-    revalidateOnFocus: true,
+    revalidateOnFocus: false,
     revalidateOnMount: true,
-    dedupingInterval: 20000, // Increase to 20 seconds to prevent excessive refreshes
-    refreshInterval: 60000, // Refresh every 60 seconds (less frequent)
-    refreshWhenHidden: false, // Don't refresh when tab is not visible
-    revalidateIfStale: true,
-    loadingTimeout: 3000, // Only show loading state if it takes more than 3 seconds
+    dedupingInterval: 60000,
+    refreshInterval: 0,
+    refreshWhenHidden: false,
+    revalidateIfStale: false,
+    loadingTimeout: 3000,
+    onSuccess: (data) => {
+      console.log('[useChatHistory] SWR onSuccess for chat history:', {
+        pages: data.length,
+        totalChats: data.reduce(
+          (acc, page) => acc + (page.chats?.length || 0),
+          0,
+        ),
+      });
+    },
+    onError: (error) => {
+      console.error('[useChatHistory] SWR onError for chat history:', error);
+    },
   });
+
+  // Log SWR state changes
+  useEffect(() => {
+    console.log('[useChatHistory] SWR state update:', {
+      paginatedChatHistories: paginatedChatHistories?.length || 0,
+      isValidating: isChatValidating,
+      isLoading: isChatLoading,
+    });
+  }, [paginatedChatHistories, isChatValidating, isChatLoading]);
 
   // Document History fetching with SWR
   const {
@@ -202,13 +352,28 @@ export function useChatHistory(currentChatId?: string) {
     fetcher,
     {
       fallbackData: [],
-      revalidateOnFocus: true,
+      revalidateOnFocus: false,
       revalidateOnMount: true,
-      dedupingInterval: 20000, // Increase to 20 seconds
-      refreshInterval: 120000, // Refresh every 2 minutes for documents (much less frequent)
-      refreshWhenHidden: false, // Don't refresh when tab is not visible
-      revalidateIfStale: true,
-      loadingTimeout: 3000, // Only show loading state if it takes more than 3 seconds
+      dedupingInterval: 60000,
+      refreshInterval: 0,
+      refreshWhenHidden: false,
+      revalidateIfStale: false,
+      loadingTimeout: 3000,
+      onSuccess: (data) => {
+        console.log('[useChatHistory] SWR onSuccess for document history:', {
+          pages: data.length,
+          totalDocs: data.reduce(
+            (acc, page) => acc + (page.documents?.length || 0),
+            0,
+          ),
+        });
+      },
+      onError: (error) => {
+        console.error(
+          '[useChatHistory] SWR onError for document history:',
+          error,
+        );
+      },
     },
   );
 
@@ -217,14 +382,51 @@ export function useChatHistory(currentChatId?: string) {
 
   // Memoize grouped chats to prevent excessive recalculation
   const groupedChats = useMemo(() => {
-    if (!paginatedChatHistories) return null;
+    if (!paginatedChatHistories) {
+      console.log('[useChatHistory] No paginated chat histories available yet');
+      return null;
+    }
+
+    console.log(
+      '[useChatHistory] Processing paginated chat histories:',
+      paginatedChatHistories.length,
+      'pages',
+    );
+
+    // Log details of each pagination page
+    paginatedChatHistories.forEach((page, idx) => {
+      console.log(
+        `[useChatHistory] Page ${idx + 1} contains ${page.chats.length} chats, hasMore: ${page.hasMore}`,
+      );
+    });
 
     const chatsFromHistory = paginatedChatHistories.flatMap(
       (paginatedChatHistory) => paginatedChatHistory.chats,
     );
 
+    console.log(
+      `[useChatHistory] Total chats after flatMap: ${chatsFromHistory.length}`,
+    );
+
     // Filter and group chats
-    return separateChatsByType(chatsFromHistory);
+    const result = separateChatsByType(chatsFromHistory);
+
+    // Log the grouped result summary
+    console.log('[useChatHistory] Grouped chats counts:', {
+      today: result.today.length,
+      yesterday: result.yesterday.length,
+      lastWeek: result.lastWeek.length,
+      lastMonth: result.lastMonth.length,
+      older: result.older.length,
+      total:
+        result.today.length +
+        result.yesterday.length +
+        result.lastWeek.length +
+        result.lastMonth.length +
+        result.older.length,
+    });
+
+    return result;
   }, [paginatedChatHistories]);
 
   // Check if chat history is empty

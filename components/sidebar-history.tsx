@@ -22,24 +22,17 @@ import {
   SidebarMenu,
   useSidebar,
 } from '@/components/ui/sidebar';
-import type { Chat, Document } from '@/lib/db/schema';
+import type { Chat } from '@/lib/db/schema';
 import { fetcher } from '@/lib/utils';
 import { ChatItem } from './sidebar-history-item';
 import useSWRInfinite from 'swr/infinite';
-import {
-  ChevronDown,
-  ChevronRight,
-  FileEdit,
-  Loader,
-  MessageSquare,
-} from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader, MessageSquare } from 'lucide-react';
 import { deleteChat } from '@/app/(chat)/actions';
 import { useTransition } from 'react';
 import { useChatPane } from '@/context/ChatPaneContext';
 import {
   GroupedChats,
   ChatHistory,
-  DocumentHistory,
   ExpandedSections,
   type ChatSummary,
 } from '@/lib/types';
@@ -82,53 +75,49 @@ const groupChatsByDate = (chats: Chat[] | ChatSummary[]): GroupedChats => {
 
 // Update the separateChatsByType function with more logging and less strict filtering
 const separateChatsByType = (chats: Chat[]): GroupedChats => {
-  // Only include non-orchestrator chats (Chat Bit conversations) in the sidebar
-  if (process.env.NODE_ENV === 'development') {
-    console.log('[SidebarHistory] Total chats to filter:', chats.length);
+  // Include ALL chats in the sidebar now, regardless of bitContextId
+  console.log('[SidebarHistory] Total chats to filter:', chats.length);
+
+  // Log a sample of chats for debugging
+  if (chats.length > 0) {
+    console.log('[SidebarHistory] Sample chats (first 3):');
+    chats.slice(0, 3).forEach((chat, idx) => {
+      console.log(`[SidebarHistory] Chat ${idx + 1}:`, {
+        id: chat.id,
+        title: chat.title,
+        bitContextId: chat.bitContextId,
+      });
+    });
   }
 
+  // MODIFIED APPROACH: Include all chats, except global orchestrator
   const chatBitChats = chats.filter((chat) => {
-    // Always include chats without titles
-    if (!chat.title) return true;
-
-    const title = chat.title.toLowerCase();
-
-    // Check if this is an orchestrator chat (should be excluded from sidebar)
-    // Less strict orchestrator detection - look for clear indicators
-    const isOrchestratorChat =
-      (title.includes('quibit') && !title.includes('specialist')) ||
-      title.includes('orchestrator') ||
-      title.includes('global');
-
-    // Check if this is likely a Chat Bit chat
-    const isChatBitChat =
-      title.includes('echo tango') ||
-      title.includes('specialist') ||
-      !isOrchestratorChat; // If not clearly an orchestrator chat, include it
-
-    // For debugging in development only
-    if (process.env.NODE_ENV === 'development') {
-      if (isOrchestratorChat) {
-        console.log(
-          `[SidebarHistory] Filtering out orchestrator chat: "${chat.title}"`,
-        );
-      }
+    // Only exclude global orchestrator chats
+    if (chat.bitContextId === 'global-orchestrator') {
+      console.log(
+        `[SidebarHistory] Excluding global orchestrator chat "${chat.title}"`,
+      );
+      return false;
     }
 
-    // Return true for non-orchestrator chats (show them in sidebar)
-    return !isOrchestratorChat;
+    // Include all other chats, even if bitContextId is null or empty
+    console.log(
+      `[SidebarHistory] Including chat "${chat.title}" with bitContextId: ${chat.bitContextId || 'NULL/EMPTY'}`,
+    );
+    return true;
   });
 
-  if (process.env.NODE_ENV === 'development') {
-    console.log(
-      '[SidebarHistory] Filtered chat count (for sidebar):',
-      chatBitChats.length,
-    );
-    console.log(
-      '[SidebarHistory] Chat Bit titles:',
-      chatBitChats.map((c) => c.title),
-    );
-  }
+  console.log(
+    '[SidebarHistory] Filtered chat count (for sidebar):',
+    chatBitChats.length,
+  );
+
+  // Log summary of included/excluded chats
+  console.log(`[SidebarHistory] Filtering summary:
+    - Total chats: ${chats.length}
+    - Included in sidebar: ${chatBitChats.length}
+    - Excluded from sidebar: ${chats.length - chatBitChats.length}
+  `);
 
   // Now group by date
   return groupChatsByDate(chatBitChats);
@@ -149,23 +138,6 @@ export function getChatHistoryPaginationKey(
   if (!firstChatFromPage) return null;
 
   return `/api/history?ending_before=${firstChatFromPage.id}&limit=${PAGE_SIZE}`;
-}
-
-export function getDocumentHistoryPaginationKey(
-  pageIndex: number,
-  previousPageData: DocumentHistory,
-) {
-  if (previousPageData && previousPageData.hasMore === false) {
-    return null;
-  }
-
-  if (pageIndex === 0) return `/api/documents-history?limit=${PAGE_SIZE}`;
-
-  const firstDocFromPage = previousPageData.documents.at(-1);
-
-  if (!firstDocFromPage) return null;
-
-  return `/api/documents-history?ending_before=${firstDocFromPage.id}&limit=${PAGE_SIZE}`;
 }
 
 // Memoize the DaySection component to prevent unnecessary re-renders
@@ -255,108 +227,18 @@ const DaySection = memo(
 );
 DaySection.displayName = 'DaySection';
 
-// Memoize the DocumentDaySection component similarly
-const DocumentDaySection = memo(
-  ({
-    day,
-    title,
-    documents,
-    isExpanded,
-    isCountExpanded,
-    onToggleExpansion,
-    onToggleCountExpansion,
-    onDelete,
-    setOpenMobile,
-    currentDocId,
-  }: {
-    day: keyof GroupedChats;
-    title: string;
-    documents: Document[];
-    isExpanded: boolean;
-    isCountExpanded: boolean;
-    onToggleExpansion: (day: keyof GroupedChats) => void;
-    onToggleCountExpansion: (day: keyof GroupedChats) => void;
-    onDelete: (docId: string) => void;
-    setOpenMobile: (open: boolean) => void;
-    currentDocId: string | undefined;
-  }) => {
-    // Skip rendering if there are no documents for this day
-    if (documents.length === 0) return null;
-
-    const MAX_INITIAL_DOCS = 5;
-    const visibleDocs = isCountExpanded
-      ? documents
-      : documents.slice(0, MAX_INITIAL_DOCS);
-    const hasMoreDocs = documents.length > MAX_INITIAL_DOCS;
-
-    const handleToggle = useCallback(() => {
-      onToggleExpansion(day);
-    }, [day, onToggleExpansion]);
-
-    const handleToggleCount = useCallback(() => {
-      onToggleCountExpansion(day);
-    }, [day, onToggleCountExpansion]);
-
-    return (
-      <SidebarGroup className="compact-sidebar-group">
-        <div
-          className="flex items-center justify-between px-2 py-0.5 text-xs font-medium text-muted-foreground cursor-pointer hover:text-primary hover:bg-muted/30 rounded-md"
-          onClick={handleToggle}
-        >
-          <div className="flex items-center gap-1">
-            {isExpanded ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
-            )}
-            <span>{title}</span>
-            <span className="text-muted-foreground ml-1">
-              ({documents.length})
-            </span>
-          </div>
-        </div>
-        {isExpanded && (
-          <SidebarGroupContent className="py-0.5">
-            {visibleDocs.map((doc) => (
-              <ChatItem
-                key={doc.id}
-                chat={doc as unknown as Chat}
-                isActive={doc.id === currentDocId}
-                onDelete={onDelete}
-                setOpenMobile={setOpenMobile}
-                itemType="document"
-              />
-            ))}
-            {hasMoreDocs && (
-              <div
-                className="px-2 py-0.5 text-xs text-muted-foreground hover:text-primary cursor-pointer"
-                onClick={handleToggleCount}
-              >
-                {isCountExpanded
-                  ? 'Show less...'
-                  : `Show ${documents.length - MAX_INITIAL_DOCS} more...`}
-              </div>
-            )}
-          </SidebarGroupContent>
-        )}
-      </SidebarGroup>
-    );
-  },
-);
-DocumentDaySection.displayName = 'DocumentDaySection';
-
-// Use memo to optimize the entire SidebarHistory component
+// Memoize the entire SidebarHistory component
 export const SidebarHistory = memo(function SidebarHistory({
   user,
 }: {
   user: User | undefined;
 }) {
+  console.log('[SidebarHistory] Component rendering');
+
   const { setOpenMobile } = useSidebar();
   const { id: chatId } = useParams();
   const router = useRouter();
   const pathname = usePathname();
-  const isOnEditorPage = pathname?.startsWith('/editor') || false;
-  const currentDocId = isOnEditorPage ? (chatId as string) : undefined;
   const {
     currentActiveSpecialistId,
     sidebarChats,
@@ -364,27 +246,31 @@ export const SidebarHistory = memo(function SidebarHistory({
     loadSidebarChats,
   } = useChatPane();
 
-  // Document History fetching
-  const {
-    data: paginatedDocumentHistories,
-    setSize: setDocSize,
-    isValidating: isDocValidating,
-    isLoading: isDocLoading,
-    mutate: mutateDocumentHistory,
-  } = useSWRInfinite<DocumentHistory>(
-    getDocumentHistoryPaginationKey,
-    fetcher,
-    {
-      fallbackData: [],
-      revalidateOnFocus: true,
-      revalidateOnMount: true,
-      dedupingInterval: 20000, // Increase to 20 seconds
-      refreshInterval: 120000, // Refresh every 2 minutes for documents (much less frequent)
-      refreshWhenHidden: false, // Don't refresh when tab is not visible
-      revalidateIfStale: true,
-      loadingTimeout: 3000, // Only show loading state if it takes more than 3 seconds
-    },
-  );
+  // Log fetched sidebar chats information
+  useEffect(() => {
+    console.log('[SidebarHistory] Current sidebar state:', {
+      currentActiveSpecialistId,
+      sidebarChats: sidebarChats?.length || 0,
+      isLoading: isLoadingSidebarChats,
+    });
+
+    // COMMENTING OUT: We'll rely solely on the ChatPaneContext's useEffect to load sidebar chats
+    // This avoids potential race conditions or duplicate calls
+    /*
+    if (loadSidebarChats) {
+      const contextId = currentActiveSpecialistId || 'chat-model';
+      console.error(
+        `!!! SIDEBAR COMPONENT DIRECTLY LOADING CHATS !!! ContextID: ${contextId}, Timestamp: ${new Date().toISOString()}`,
+      );
+      loadSidebarChats(contextId);
+    }
+    */
+  }, [
+    currentActiveSpecialistId,
+    sidebarChats,
+    isLoadingSidebarChats,
+    // loadSidebarChats, // Removed since we're not using it
+  ]);
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -400,28 +286,6 @@ export const SidebarHistory = memo(function SidebarHistory({
   });
 
   const [expandedChatCounts, setExpandedChatCounts] = useState<
-    Record<string, boolean>
-  >({
-    today: false,
-    yesterday: false,
-    lastWeek: false,
-    lastMonth: false,
-    older: false,
-  });
-
-  // Add a state for document sections
-  const [expandedDocumentDays, setExpandedDocumentDays] = useState<
-    Record<string, boolean>
-  >({
-    today: true,
-    yesterday: false,
-    lastWeek: false,
-    lastMonth: false,
-    older: false,
-  });
-
-  // Add a state for document chat counts
-  const [expandedDocumentCounts, setExpandedDocumentCounts] = useState<
     Record<string, boolean>
   >({
     today: false,
@@ -479,39 +343,6 @@ export const SidebarHistory = memo(function SidebarHistory({
     return groupChatsByDate(sidebarChats);
   }, [sidebarChats]);
 
-  // Compute the grouped documents
-  const groupedDocuments = useMemo(() => {
-    if (!paginatedDocumentHistories) return null;
-
-    const docsFromHistory = paginatedDocumentHistories.flatMap(
-      (paginatedDocHistory) => paginatedDocHistory.documents,
-    );
-
-    // Convert Document type to match Chat type for grouping
-    const formattedDocs = docsFromHistory.map((doc) => ({
-      ...doc,
-      title: doc.title || 'Untitled Document',
-    }));
-
-    return groupChatsByDate(formattedDocs as unknown as Chat[]);
-  }, [paginatedDocumentHistories]);
-
-  // Fix issue with empty document history and document end checks
-  const hasReachedDocEnd = useMemo(() => {
-    if (!paginatedDocumentHistories || paginatedDocumentHistories.length === 0)
-      return false;
-    const lastPage =
-      paginatedDocumentHistories[paginatedDocumentHistories.length - 1];
-    return lastPage && lastPage.hasMore === false;
-  }, [paginatedDocumentHistories]);
-
-  const hasEmptyDocHistory = useMemo(() => {
-    if (!paginatedDocumentHistories) return true;
-    return paginatedDocumentHistories.every(
-      (page) => page.documents.length === 0,
-    );
-  }, [paginatedDocumentHistories]);
-
   // Modify the hasEmptyChatHistory to use the new groupedChats structure
   const hasEmptyChatHistory = useMemo(() => {
     if (!groupedChats) return true;
@@ -524,16 +355,6 @@ export const SidebarHistory = memo(function SidebarHistory({
       groupedChats.older.length === 0
     );
   }, [groupedChats]);
-
-  // Load the sidebar chats when the active specialist changes
-  useEffect(() => {
-    if (currentActiveSpecialistId) {
-      console.log(
-        `[SidebarHistory] Active specialist changed to: ${currentActiveSpecialistId}. Ensuring sidebar chats are loaded.`,
-      );
-      loadSidebarChats(currentActiveSpecialistId);
-    }
-  }, [currentActiveSpecialistId, loadSidebarChats]);
 
   // Update useEffect for initial expansion
   useEffect(() => {
@@ -556,30 +377,13 @@ export const SidebarHistory = memo(function SidebarHistory({
         } else if (groupedChats.yesterday.length > 0) {
           setExpandedDays((prev) => ({ ...prev, yesterday: true }));
         }
-
-        // For documents
-        if (groupedChats) {
-          if (groupedChats.today.length > 0) {
-            setExpandedDocumentDays((prev) => ({ ...prev, today: true }));
-          } else if (groupedChats.yesterday.length > 0) {
-            setExpandedDocumentDays((prev) => ({ ...prev, yesterday: true }));
-          }
-        }
       }
     }
-  }, [groupedChats]);
+  }, [groupedChats, expandedDays]);
 
   // Update the toggleDayExpansion to use callback
   const toggleDayExpansion = useCallback((day: keyof GroupedChats) => {
     setExpandedDays((prev) => ({
-      ...prev,
-      [day]: !prev[day],
-    }));
-  }, []);
-
-  // Update the toggleDocumentDayExpansion to use callback
-  const toggleDocumentDayExpansion = useCallback((day: keyof GroupedChats) => {
-    setExpandedDocumentDays((prev) => ({
       ...prev,
       [day]: !prev[day],
     }));
@@ -592,17 +396,6 @@ export const SidebarHistory = memo(function SidebarHistory({
       [day]: !prev[day],
     }));
   }, []);
-
-  // Update the toggleDocumentCountExpansion to use callback
-  const toggleDocumentCountExpansion = useCallback(
-    (day: keyof GroupedChats) => {
-      setExpandedDocumentCounts((prev) => ({
-        ...prev,
-        [day]: !prev[day],
-      }));
-    },
-    [],
-  );
 
   // Optimize the handleDelete function with useCallback
   const handleDelete = useCallback(
@@ -623,9 +416,6 @@ export const SidebarHistory = memo(function SidebarHistory({
           if (deleteId === chatId) {
             router.push('/');
           }
-
-          // Refresh chat history data
-          mutateDocumentHistory();
         } catch (error) {
           console.error('Error deleting chat:', error);
           toast.error('Failed to delete chat');
@@ -635,37 +425,8 @@ export const SidebarHistory = memo(function SidebarHistory({
         }
       });
     },
-    [chatId, mutateDocumentHistory, router],
+    [chatId, router],
   );
-
-  // Add a document delete handler
-  const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
-  const [showDeleteDocDialog, setShowDeleteDocDialog] = useState(false);
-
-  const handleDeleteDocument = async () => {
-    try {
-      const response = await fetch(`/api/documents/${deleteDocId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        toast.error('Failed to delete document');
-      } else {
-        // Force a complete refresh of the document history
-        mutateDocumentHistory();
-        console.log('[Sidebar] Document deleted successfully');
-      }
-    } catch (error) {
-      console.error('[Sidebar] Error deleting document:', error);
-      toast.error('Failed to delete document');
-    }
-
-    setShowDeleteDocDialog(false);
-
-    if (deleteDocId === currentDocId) {
-      router.push('/editor/new');
-    }
-  };
 
   // Render method with memoized sections
   if (!user) {
@@ -680,7 +441,7 @@ export const SidebarHistory = memo(function SidebarHistory({
     );
   }
 
-  if (isDocLoading && !paginatedDocumentHistories?.length) {
+  if (isLoadingSidebarChats && !sidebarChats?.length) {
     return (
       <SidebarGroup>
         <div className="px-2 py-1 text-xs text-sidebar-foreground/50">
@@ -816,126 +577,9 @@ export const SidebarHistory = memo(function SidebarHistory({
         </div>
       )}
 
-      {/* Only show validation loading state on initial load */}
-      {isDocValidating &&
-        !isDocLoading &&
-        !paginatedDocumentHistories?.length && (
-          <div className="flex justify-center p-1">
-            <Loader className="animate-spin h-4 w-4 text-muted-foreground" />
-          </div>
-        )}
-
       {hasEmptyChatHistory && (
         <div className="text-xs text-muted-foreground text-center p-1">
           No chats available
-        </div>
-      )}
-
-      {/* Documents Section - with standardized spacing */}
-      <div className="py-2 px-2 mt-4">
-        <div className="text-xs font-semibold text-muted-foreground px-2 flex gap-2 items-center">
-          <FileEdit className="h-3 w-3" />
-          <span>Documents</span>
-        </div>
-      </div>
-
-      {groupedChats ? (
-        <>
-          <DocumentDaySection
-            day="today"
-            title="Today"
-            documents={groupedChats.today as any}
-            isExpanded={expandedDocumentDays.today}
-            isCountExpanded={expandedDocumentCounts.today}
-            onToggleExpansion={toggleDocumentDayExpansion}
-            onToggleCountExpansion={toggleDocumentCountExpansion}
-            onDelete={(docId) => {
-              setDeleteDocId(docId);
-              setShowDeleteDocDialog(true);
-            }}
-            setOpenMobile={setOpenMobile}
-            currentDocId={currentDocId}
-          />
-          <DocumentDaySection
-            day="yesterday"
-            title="Yesterday"
-            documents={groupedChats.yesterday as any}
-            isExpanded={expandedDocumentDays.yesterday}
-            isCountExpanded={expandedDocumentCounts.yesterday}
-            onToggleExpansion={toggleDocumentDayExpansion}
-            onToggleCountExpansion={toggleDocumentCountExpansion}
-            onDelete={(docId) => {
-              setDeleteDocId(docId);
-              setShowDeleteDocDialog(true);
-            }}
-            setOpenMobile={setOpenMobile}
-            currentDocId={currentDocId}
-          />
-          <DocumentDaySection
-            day="lastWeek"
-            title="Previous 7 Days"
-            documents={groupedChats.lastWeek as any}
-            isExpanded={expandedDocumentDays.lastWeek}
-            isCountExpanded={expandedDocumentCounts.lastWeek}
-            onToggleExpansion={toggleDocumentDayExpansion}
-            onToggleCountExpansion={toggleDocumentCountExpansion}
-            onDelete={(docId) => {
-              setDeleteDocId(docId);
-              setShowDeleteDocDialog(true);
-            }}
-            setOpenMobile={setOpenMobile}
-            currentDocId={currentDocId}
-          />
-          <DocumentDaySection
-            day="lastMonth"
-            title="Previous 30 Days"
-            documents={groupedChats.lastMonth as any}
-            isExpanded={expandedDocumentDays.lastMonth}
-            isCountExpanded={expandedDocumentCounts.lastMonth}
-            onToggleExpansion={toggleDocumentDayExpansion}
-            onToggleCountExpansion={toggleDocumentCountExpansion}
-            onDelete={(docId) => {
-              setDeleteDocId(docId);
-              setShowDeleteDocDialog(true);
-            }}
-            setOpenMobile={setOpenMobile}
-            currentDocId={currentDocId}
-          />
-          <DocumentDaySection
-            day="older"
-            title="Older"
-            documents={groupedChats.older as any}
-            isExpanded={expandedDocumentDays.older}
-            isCountExpanded={expandedDocumentCounts.older}
-            onToggleExpansion={toggleDocumentDayExpansion}
-            onToggleCountExpansion={toggleDocumentCountExpansion}
-            onDelete={(docId) => {
-              setDeleteDocId(docId);
-              setShowDeleteDocDialog(true);
-            }}
-            setOpenMobile={setOpenMobile}
-            currentDocId={currentDocId}
-          />
-
-          {!isDocLoading && (
-            <button
-              type="button"
-              className="text-xs text-muted-foreground hover:text-foreground w-full text-center p-1"
-              onClick={() => setDocSize((size) => size + 1)}
-            >
-              Load more documents
-            </button>
-          )}
-
-          {isDocValidating && (
-            <div className="flex justify-center p-1">
-              <Loader className="animate-spin h-4 w-4 text-muted-foreground" />
-            </div>
-          )}
-        </>
-      ) : (
-        <div className="flex justify-center p-1">
-          <Loader className="animate-spin h-4 w-4 text-muted-foreground" />
         </div>
       )}
 
@@ -956,27 +600,6 @@ export const SidebarHistory = memo(function SidebarHistory({
               className={isPending ? 'opacity-70 cursor-not-allowed' : ''}
             >
               {isPending ? 'Deleting...' : 'Delete'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={showDeleteDocDialog}
-        onOpenChange={setShowDeleteDocDialog}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Document</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this document? This action cannot
-              be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteDocument}>
-              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

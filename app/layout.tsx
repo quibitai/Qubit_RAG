@@ -5,6 +5,7 @@ import { ChatPaneProvider } from '@/context/ChatPaneContext';
 import { DocumentProvider } from '@/context/DocumentContext';
 import { ClientLayout } from '@/components/ClientLayout';
 import { Toaster } from 'sonner';
+import NextAuthProvider from '@/components/session-provider';
 
 import './globals.css';
 
@@ -73,19 +74,21 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased">
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <Toaster position="top-right" richColors closeButton />
-          <DocumentProvider>
-            <ChatPaneProvider>
-              <ClientLayout>{children}</ClientLayout>
-            </ChatPaneProvider>
-          </DocumentProvider>
-        </ThemeProvider>
+        <NextAuthProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            <Toaster position="top-right" richColors closeButton />
+            <DocumentProvider>
+              <ChatPaneProvider>
+                <ClientLayout>{children}</ClientLayout>
+              </ChatPaneProvider>
+            </DocumentProvider>
+          </ThemeProvider>
+        </NextAuthProvider>
       </body>
     </html>
   );

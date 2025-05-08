@@ -831,6 +831,9 @@ export async function getChatSummaries({
       eq(chat.userId, userId),
       eq(chat.clientId, clientId),
     ];
+    console.log(
+      `[DB getChatSummaries] Base conditions: userId=${userId}, clientId=${clientId}`,
+    );
 
     // Define specific filters based on historyType
     let specificFilter: SQL<unknown> | undefined;
@@ -839,8 +842,17 @@ export async function getChatSummaries({
         `[DB getChatSummaries] Filtering for sidebar, bitContextId: ${bitContextId}`,
       );
 
-      // For sidebar, we need chats that match the specific bitContextId
-      specificFilter = eq(chat.bitContextId, bitContextId);
+      // IMPORTANT CHANGE: For sidebar queries, show BOTH specific bitContextId chats AND null/empty bitContextId chats
+      // This ensures all chats appear in the sidebar no matter how they were created
+      specificFilter = or(
+        eq(chat.bitContextId, bitContextId),
+        isNull(chat.bitContextId),
+        eq(chat.bitContextId, ''),
+      );
+
+      console.log(
+        `[DB getChatSummaries] Modified filter: Show chats with bitContextId="${bitContextId}" OR NULL bitContextId`,
+      );
     } else if (historyType === 'global') {
       console.log(`[DB getChatSummaries] Filtering for global chats.`);
 
@@ -850,13 +862,23 @@ export async function getChatSummaries({
         eq(chat.bitContextId, ''), // Handle empty string if that's a possibility
         eq(chat.bitContextId, 'global-orchestrator'), // Handle reserved value
       );
+      console.log(
+        `[DB getChatSummaries] Using filter: bitContextId IS NULL OR bitContextId = '' OR bitContextId = 'global-orchestrator'`,
+      );
+    } else {
+      console.log(
+        `[DB getChatSummaries] No specific historyType filter applied, will return all chats for user`,
+      );
     }
-    // If no specific type, or type is null, fetch all chats for the user
 
     // Combine conditions
     const combinedConditions = specificFilter
       ? and(...baseConditions, specificFilter)
       : and(...baseConditions);
+
+    console.log(
+      `[DB getChatSummaries] Final query conditions applied: ${specificFilter ? 'base + specific filter' : 'base only'}`,
+    );
 
     // Fetch chats with most recent messages in a single query
     // This is a simpler approach without complex joins for the lastMessageSnippet
@@ -877,6 +899,23 @@ export async function getChatSummaries({
 
     console.log(`[DB getChatSummaries] Found ${chats.length} chat summaries.`);
 
+    // Log actual chat data for debugging
+    if (chats.length > 0) {
+      console.log(`[DB getChatSummaries] Sample chat data (first 3 chats):`);
+      chats.slice(0, 3).forEach((chatData, idx) => {
+        console.log(`[DB getChatSummaries] Chat ${idx + 1}:`, {
+          id: chatData.id,
+          title: chatData.title,
+          bitContextId: chatData.bitContextId,
+          createdAt: chatData.createdAt,
+        });
+      });
+    } else {
+      console.log(
+        `[DB getChatSummaries] No chats found with the current filters.`,
+      );
+    }
+
     // Transform database results to ChatSummary objects
     const chatSummaries: ChatSummary[] = chats.map((chat) => ({
       id: chat.id,
@@ -893,6 +932,21 @@ export async function getChatSummaries({
       visibility: chat.visibility,
       pinnedStatus: false, // Default to false until we implement pinning
     }));
+
+    console.log(
+      `[DB getChatSummaries] Processed ${chatSummaries.length} chat summaries with isGlobal calculation.`,
+    );
+    if (chatSummaries.length > 0) {
+      console.log(
+        `[DB getChatSummaries] Sample processed data (first 3):`,
+        chatSummaries.slice(0, 3).map((cs) => ({
+          id: cs.id,
+          title: cs.title,
+          bitContextId: cs.bitContextId,
+          isGlobal: cs.isGlobal,
+        })),
+      );
+    }
 
     return chatSummaries;
   } catch (error) {

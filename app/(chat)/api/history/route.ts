@@ -5,6 +5,10 @@ import { getChatSummaries } from '@/lib/db/queries';
 import type { Session } from 'next-auth';
 
 export async function GET(request: NextRequest) {
+  console.error(
+    `[API /api/history ENTRY POINT] >>> RAW Request URL: ${request.url}, Timestamp: ${new Date().toISOString()}`,
+  );
+
   try {
     const session = (await auth()) as Session;
     if (!session?.user?.id) {
@@ -23,6 +27,12 @@ export async function GET(request: NextRequest) {
       `[API History] GET request: type=${historyType}, bitContextId=${bitContextId}, page=${page}, limit=${limit}, userId=${userId}, clientId=${clientId}`,
     );
 
+    // Log all search params for debugging
+    console.log(
+      `[API History] All search params:`,
+      Object.fromEntries([...searchParams.entries()]),
+    );
+
     const chatSummaries: ChatSummary[] = await getChatSummaries({
       userId,
       clientId,
@@ -33,6 +43,25 @@ export async function GET(request: NextRequest) {
     });
 
     const hasMore = chatSummaries.length === limit;
+
+    console.log(
+      `[API History] Returning ${chatSummaries.length} chat summaries, hasMore=${hasMore}`,
+    );
+
+    // Log the first few summaries for debugging
+    if (chatSummaries.length > 0) {
+      console.log(`[API History] Sample of returned chats (first 3):`);
+      chatSummaries.slice(0, 3).forEach((chat, idx) => {
+        console.log(`[API History] Chat ${idx + 1}:`, {
+          id: chat.id,
+          title: chat.title,
+          bitContextId: chat.bitContextId,
+          isGlobal: chat.isGlobal,
+        });
+      });
+    } else {
+      console.log(`[API History] No chat summaries returned`);
+    }
 
     return NextResponse.json(
       {
