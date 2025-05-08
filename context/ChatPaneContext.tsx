@@ -173,66 +173,111 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
   }, []);
 
   // Add placeholder functions for loading chat history
-  const loadSidebarChats = useCallback(async (bitContextId?: string | null) => {
-    setIsLoadingSidebarChats(true);
-    console.log(
-      `[ChatPaneContext] Placeholder: Attempting to load sidebar chats for bitContextId: ${bitContextId}`,
-    );
-    // TODO: Implement actual API call in a later step
-    // Example: const chats = await fetchSidebarChatsAPI(bitContextId);
-    // setSidebarChats(chats);
+  const loadSidebarChats = useCallback(
+    async (bitContextId?: string | null) => {
+      // Avoid fetching if already loading
+      if (isLoadingSidebarChats) return;
 
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 500)); // Simulate API call
-      // Set empty array for now until we implement the actual API call
-      setSidebarChats([]);
-    } catch (error) {
-      console.error('[ChatPaneContext] Error loading sidebar chats:', error);
-      toast.error('Failed to load chat history');
-    } finally {
-      setIsLoadingSidebarChats(false);
-    }
-  }, []);
+      setIsLoadingSidebarChats(true);
+      console.log(
+        `[ChatPaneContext] Fetching sidebar chats for bitContextId: ${bitContextId}`,
+      );
+      try {
+        // Construct URL with query parameters
+        const params = new URLSearchParams();
+        params.append('type', 'sidebar');
+        if (bitContextId) {
+          params.append('contextId', bitContextId);
+        }
+        params.append('limit', '50'); // Adjust limit as needed
+        // Add page param if implementing pagination later
+
+        const response = await fetch(`/api/history?${params.toString()}`);
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({})); // Try to parse error details
+          console.error(
+            `[ChatPaneContext] Error fetching sidebar chats (${response.status}):`,
+            errorData,
+          );
+          throw new Error(
+            `Failed to fetch sidebar chats: ${response.statusText}`,
+          );
+        }
+
+        const data = await response.json();
+        const chats: ChatSummary[] = data.chats || [];
+        console.log(
+          `[ChatPaneContext] Received ${chats.length} sidebar chats. Has more: ${data.hasMore}`,
+        );
+        setSidebarChats(chats);
+      } catch (error) {
+        console.error('[ChatPaneContext] Failed to load sidebar chats:', error);
+        setSidebarChats([]); // Clear chats on error
+        toast.error('Failed to load chat history');
+      } finally {
+        setIsLoadingSidebarChats(false);
+      }
+    },
+    [isLoadingSidebarChats],
+  ); // Dependency: isLoadingSidebarChats to prevent concurrent fetches
 
   const loadGlobalChats = useCallback(async () => {
-    setIsLoadingGlobalChats(true);
-    console.log(
-      '[ChatPaneContext] Placeholder: Attempting to load global chats',
-    );
-    // TODO: Implement actual API call in a later step
-    // Example: const chats = await fetchGlobalChatsAPI();
-    // setGlobalChats(chats);
+    // Avoid fetching if already loading
+    if (isLoadingGlobalChats) return;
 
+    setIsLoadingGlobalChats(true);
+    console.log('[ChatPaneContext] Fetching global chats');
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500)); // Simulate API call
-      // Set empty array for now until we implement the actual API call
-      setGlobalChats([]);
+      const params = new URLSearchParams();
+      params.append('type', 'global');
+      params.append('limit', '50'); // Adjust limit as needed
+
+      const response = await fetch(`/api/history?${params.toString()}`);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({})); // Try to parse error details
+        console.error(
+          `[ChatPaneContext] Error fetching global chats (${response.status}):`,
+          errorData,
+        );
+        throw new Error(`Failed to fetch global chats: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const chats: ChatSummary[] = data.chats || [];
+      console.log(
+        `[ChatPaneContext] Received ${chats.length} global chats. Has more: ${data.hasMore}`,
+      );
+      setGlobalChats(chats);
     } catch (error) {
-      console.error('[ChatPaneContext] Error loading global chats:', error);
+      console.error('[ChatPaneContext] Failed to load global chats:', error);
+      setGlobalChats([]); // Clear chats on error
       toast.error('Failed to load global chats');
     } finally {
       setIsLoadingGlobalChats(false);
     }
-  }, []);
+  }, [isLoadingGlobalChats]); // Dependency: isLoadingGlobalChats
 
   // Initialize chat history when provider mounts
   useEffect(() => {
     console.log(
-      '[ChatPaneContext] Provider mounted. Placeholder: Triggering initial loadGlobalChats.',
+      '[ChatPaneContext] Provider mounted. Triggering initial loadGlobalChats.',
     );
     loadGlobalChats();
-    // Sidebar chats might depend on activeBitContextId, so load when that changes
-  }, [loadGlobalChats]);
+    // If sidebar should load initially too (e.g., for default bit), call it here
+    // loadSidebarChats(activeBitContextId); // Pass initial context if available
+  }, [loadGlobalChats]); // Only depends on the stable load function
 
   // Load sidebar chats when the active specialist changes
   useEffect(() => {
     if (currentActiveSpecialistId) {
       console.log(
-        `[ChatPaneContext] Active specialist changed to: ${currentActiveSpecialistId}. Loading relevant sidebar chats.`,
+        `[ChatPaneContext] Active specialist (bitContextId) changed to: ${currentActiveSpecialistId}. Reloading sidebar chats.`,
       );
       loadSidebarChats(currentActiveSpecialistId);
     }
-  }, [currentActiveSpecialistId, loadSidebarChats]);
+  }, [currentActiveSpecialistId, loadSidebarChats]); // Reload when context or load function changes
 
   // Track if the current chat has been persisted to avoid duplicate saves
   const chatPersistedRef = useRef<boolean>(false);
