@@ -13,6 +13,7 @@ import {
   type SQL,
   or,
   isNull,
+  sql,
 } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
@@ -25,14 +26,13 @@ import {
   type Suggestion,
   suggestion,
   message,
-  vote,
   type DBMessage,
+  vote,
   type Chat,
   clients,
-  type Client,
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
-import { ChatSummary } from '@/lib/types';
+import type { ChatSummary } from '@/lib/types';
 
 // Optionally, if not using email/pass login, you can
 // use the Drizzle adapter for Auth.js / NextAuth
@@ -283,7 +283,7 @@ export async function getChatById({ id }: { id: string }) {
     );
     if (selectedChat) {
       console.log(
-        `[DB:getChatById] Chat details: title=${selectedChat.title}, userId=${selectedChat.userId}, createdAt=${selectedChat.createdAt}`,
+        `[DB:getChatById] Chat details: title=${selectedChat.title}, userId=${selectedChat.userId}, createdAt=${selectedChat.createdAt}, updatedAt=${selectedChat.updatedAt || 'N/A'}`,
       );
     }
     return selectedChat;
@@ -871,7 +871,7 @@ export async function getChatSummaries({
       })
       .from(chat)
       .where(combinedConditions)
-      .orderBy(desc(chat.updatedAt || chat.createdAt)) // Use updatedAt if available, otherwise fallback to createdAt
+      .orderBy(desc(sql`COALESCE(${chat.updatedAt}, ${chat.createdAt})`)) // Use updatedAt if available, otherwise fallback to createdAt
       .limit(limit)
       .offset(offset);
 
