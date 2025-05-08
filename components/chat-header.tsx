@@ -18,7 +18,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useChatPane } from '@/context/ChatPaneContext';
-import { cleanupEmptyMessages } from '@/app/(chat)/actions';
 import { toast } from 'sonner';
 
 function PureChatHeader({
@@ -75,39 +74,29 @@ function PureChatHeader({
         <TooltipContent>New Chat</TooltipContent>
       </Tooltip>
 
-      {!isReadonly && (
-        <Tooltip>
-          <TooltipTrigger asChild>
+      {/* Clean Up button removed - it was only used for debugging */}
+
+      {/* Select specialist dropdown - rendered in mobile only */}
+      <div className="flex md:hidden">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
             <Button
               variant="outline"
+              className="justify-between items-center w-full text-left"
               size="sm"
-              className="h-8"
-              onClick={async () => {
-                try {
-                  const result = await cleanupEmptyMessages({ chatId });
-                  if (result.success) {
-                    if (result.cleanedCount > 0) {
-                      toast(
-                        `Cleaned up ${result.cleanedCount} empty duplicate messages`,
-                      );
-                    } else {
-                      toast('No empty duplicate messages found to clean up');
-                    }
-                  } else {
-                    toast(`Error: ${result.error}`);
-                  }
-                } catch (error) {
-                  console.error('Error cleaning up messages:', error);
-                  toast('Failed to clean up messages');
-                }
-              }}
             >
-              Clean Up
+              <span className="truncate">Select Specialist</span>
+              <ChevronDown className="h-4 w-4 opacity-50" />
             </Button>
-          </TooltipTrigger>
-          <TooltipContent>Remove empty duplicate messages</TooltipContent>
-        </Tooltip>
-      )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="w-[200px] max-h-[400px] overflow-y-auto"
+          >
+            {/* ... rest of the specialist dropdown ... */}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
       {!isReadonly && selectedModelId === 'chat-model' && (
         <DropdownMenu>

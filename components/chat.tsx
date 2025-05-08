@@ -93,7 +93,13 @@ export function Chat({
   console.log('[Chat] Chat ID:', id);
 
   // Access the ChatPaneContext to update and use the shared mainUiChatId
-  const { setMainUiChatId, ensureValidChatId } = useChatPane();
+  const {
+    setMainUiChatId,
+    ensureValidChatId,
+    mainUiChatId,
+    currentActiveSpecialistId,
+    globalPaneChatId,
+  } = useChatPane();
 
   // When a chat with a specific ID is loaded, update the shared context
   useEffect(() => {
@@ -177,6 +183,13 @@ export function Chat({
       selectedChatModel: selectedChatModel,
       // Flag this as coming from the main UI (not the global pane)
       isFromGlobalPane: false,
+      // Pass the main UI chat ID (should match this component's ID) for reference
+      mainUiChatId: id,
+      // NEW: Include reference to the global pane chat ID to enable bi-directional awareness
+      referencedGlobalPaneChatId: globalPaneChatId,
+      // Include the current active specialist ID for context
+      currentActiveSpecialistId,
+      activeBitContextId: currentActiveSpecialistId,
     },
     initialMessages,
     experimental_throttle: 0,

@@ -3,7 +3,7 @@
 import { isToday, isYesterday, subMonths, subWeeks } from 'date-fns';
 import { useParams, useRouter, usePathname } from 'next/navigation';
 import type { User } from 'next-auth';
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import {
@@ -26,10 +26,16 @@ import type { Chat, Document } from '@/lib/db/schema';
 import { fetcher } from '@/lib/utils';
 import { ChatItem } from './sidebar-history-item';
 import useSWRInfinite from 'swr/infinite';
-import { ChevronDownIcon, ChevronRightIcon, LoaderIcon } from './icons';
-import { FileEdit, MessageSquare } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  FileEdit,
+  Loader,
+  MessageSquare,
+} from 'lucide-react';
 import { deleteChat } from '@/app/(chat)/actions';
 import { useTransition } from 'react';
+import { useChatPane } from '@/context/ChatPaneContext';
 
 type GroupedChats = {
   today: Chat[];
@@ -84,6 +90,55 @@ const groupChatsByDate = (chats: Chat[]): GroupedChats => {
   );
 };
 
+// Update the separateChatsByType function with more strict filtering
+const separateChatsByType = (chats: Chat[]): GroupedChats => {
+  // Only include non-orchestrator chats (Chat Bit conversations) in the sidebar
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[SidebarHistory] Total chats to filter:', chats.length);
+  }
+
+  const chatBitChats = chats.filter((chat) => {
+    // Skip chats without titles - consider them Chat Bit chats
+    if (!chat.title) return true;
+
+    const title = chat.title.toLowerCase();
+
+    // Check if this is an orchestrator chat (should be excluded from sidebar)
+    const isOrchestratorChat =
+      title.includes('quibit') ||
+      title.includes('orchestrator') ||
+      title.includes('global');
+
+    // Check if this is likely a Chat Bit chat
+    const isChatBitChat =
+      title.includes('echo tango') || title.includes('specialist');
+
+    // For debugging in development only
+    if (process.env.NODE_ENV === 'development' && isOrchestratorChat) {
+      console.log(
+        `[SidebarHistory] Filtering out orchestrator chat: "${chat.title}"`,
+      );
+    }
+
+    // Return true ONLY for non-orchestrator chats
+    return !isOrchestratorChat;
+  });
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log(
+      '[SidebarHistory] Filtered chat count (for sidebar):',
+      chatBitChats.length,
+    );
+    console.log(
+      '[SidebarHistory] Chat Bit titles:',
+      chatBitChats.map((c) => c.title),
+    );
+  }
+
+  // Now group by date
+  return groupChatsByDate(chatBitChats);
+};
+
 export function getChatHistoryPaginationKey(
   pageIndex: number,
   previousPageData: ChatHistory,
@@ -125,6 +180,7 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
   const pathname = usePathname();
   const isOnEditorPage = pathname?.startsWith('/editor') || false;
   const currentDocId = isOnEditorPage ? chatId : undefined;
+  const { currentActiveSpecialistId } = useChatPane();
 
   // Chat History fetching
   const {
@@ -137,7 +193,11 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
     fallbackData: [],
     revalidateOnFocus: true,
     revalidateOnMount: true,
-    dedupingInterval: 5000, // 5 seconds
+    dedupingInterval: 20000, // Increase to 20 seconds to prevent excessive refreshes
+    refreshInterval: 60000, // Refresh every 60 seconds (less frequent)
+    refreshWhenHidden: false, // Don't refresh when tab is not visible
+    revalidateIfStale: true,
+    loadingTimeout: 3000, // Only show loading state if it takes more than 3 seconds
   });
 
   // Document History fetching
@@ -154,7 +214,11 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
       fallbackData: [],
       revalidateOnFocus: true,
       revalidateOnMount: true,
-      dedupingInterval: 5000, // 5 seconds
+      dedupingInterval: 20000, // Increase to 20 seconds
+      refreshInterval: 120000, // Refresh every 2 minutes for documents (much less frequent)
+      refreshWhenHidden: false, // Don't refresh when tab is not visible
+      revalidateIfStale: true,
+      loadingTimeout: 3000, // Only show loading state if it takes more than 3 seconds
     },
   );
 
@@ -205,6 +269,9 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
 
   const MAX_INITIAL_CHATS = 5;
 
+  // Add this near the top of your component with other state declarations
+  const initializedRef = useRef(false);
+
   // Calculate which day should be expanded by default
   const calculateDefaultExpandedDay = useCallback(
     (groupedChats: GroupedChats) => {
@@ -233,67 +300,7 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
     [],
   );
 
-  // Toggle expanded state of a day section
-  const toggleDayExpansion = useCallback(
-    (day: keyof GroupedChats) => {
-      console.log(
-        `Toggling day expansion for ${day}, current state:`,
-        expandedDays[day],
-      );
-      setExpandedDays((prev) => {
-        const newState = { ...prev, [day]: !prev[day] };
-        console.log(`New state for ${day}:`, newState[day]);
-        return newState;
-      });
-    },
-    [expandedDays],
-  );
-
-  // Toggle expanded chat count for a day
-  const toggleChatCountExpansion = useCallback((day: keyof GroupedChats) => {
-    setExpandedChatCounts((prev) => ({
-      ...prev,
-      [day]: !prev[day],
-    }));
-  }, []);
-
-  // Toggle expanded state of a document day section
-  const toggleDocumentDayExpansion = useCallback((day: keyof GroupedChats) => {
-    setExpandedDocumentDays((prev) => ({
-      ...prev,
-      [day]: !prev[day],
-    }));
-  }, []);
-
-  // Toggle expanded document count for a day
-  const toggleDocumentCountExpansion = useCallback(
-    (day: keyof GroupedChats) => {
-      setExpandedDocumentCounts((prev) => ({
-        ...prev,
-        [day]: !prev[day],
-      }));
-    },
-    [],
-  );
-
-  const hasReachedChatEnd = paginatedChatHistories
-    ? paginatedChatHistories.some((page) => page.hasMore === false)
-    : false;
-
-  const hasEmptyChatHistory = paginatedChatHistories
-    ? paginatedChatHistories.every((page) => page.chats.length === 0)
-    : false;
-
-  // Add document handling
-  const hasReachedDocEnd = paginatedDocumentHistories
-    ? paginatedDocumentHistories.some((page) => page.hasMore === false)
-    : false;
-
-  const hasEmptyDocHistory = paginatedDocumentHistories
-    ? paginatedDocumentHistories.every((page) => page.documents.length === 0)
-    : false;
-
-  // Compute the grouped chats only when data changes
+  // Compute the grouped chats, now filtering for Chat Bit conversations only
   const groupedChats = useMemo(() => {
     if (!paginatedChatHistories) return null;
 
@@ -301,22 +308,53 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
       (paginatedChatHistory) => paginatedChatHistory.chats,
     );
 
-    const groups = groupChatsByDate(chatsFromHistory);
-
-    // Set the default expanded day the first time we load chats
-    const shouldUpdateExpandedDays =
-      !expandedDays.today &&
-      !expandedDays.yesterday &&
-      !expandedDays.lastWeek &&
-      !expandedDays.lastMonth &&
-      !expandedDays.older;
-
-    if (shouldUpdateExpandedDays) {
-      setExpandedDays(calculateDefaultExpandedDay(groups));
+    if (process.env.NODE_ENV === 'development') {
+      console.log(
+        '[SidebarHistory] Processing total chat count:',
+        chatsFromHistory.length,
+      );
     }
 
-    return groups;
-  }, [paginatedChatHistories, calculateDefaultExpandedDay]);
+    // Filter and group chats
+    return separateChatsByType(chatsFromHistory);
+  }, [paginatedChatHistories]);
+
+  // Modify the hasEmptyChatHistory to use the new groupedChats structure
+  const hasEmptyChatHistory = useMemo(() => {
+    if (!groupedChats) return true;
+
+    return (
+      groupedChats.today.length === 0 &&
+      groupedChats.yesterday.length === 0 &&
+      groupedChats.lastWeek.length === 0 &&
+      groupedChats.lastMonth.length === 0 &&
+      groupedChats.older.length === 0
+    );
+  }, [groupedChats]);
+
+  // Compute if we've reached the end of chat pagination
+  const hasReachedChatEnd = useMemo(() => {
+    if (!paginatedChatHistories || paginatedChatHistories.length === 0)
+      return false;
+    const lastPage = paginatedChatHistories[paginatedChatHistories.length - 1];
+    return lastPage && lastPage.hasMore === false;
+  }, [paginatedChatHistories]);
+
+  // Fix issue with empty document history and document end checks
+  const hasReachedDocEnd = useMemo(() => {
+    if (!paginatedDocumentHistories || paginatedDocumentHistories.length === 0)
+      return false;
+    const lastPage =
+      paginatedDocumentHistories[paginatedDocumentHistories.length - 1];
+    return lastPage && lastPage.hasMore === false;
+  }, [paginatedDocumentHistories]);
+
+  const hasEmptyDocHistory = useMemo(() => {
+    if (!paginatedDocumentHistories) return true;
+    return paginatedDocumentHistories.every(
+      (page) => page.documents.length === 0,
+    );
+  }, [paginatedDocumentHistories]);
 
   // Compute the grouped documents
   const groupedDocuments = useMemo(() => {
@@ -334,6 +372,71 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
 
     return groupChatsByDate(formattedDocs as unknown as Chat[]);
   }, [paginatedDocumentHistories]);
+
+  // Update useEffect for initial expansion
+  useEffect(() => {
+    // Only run this once when data is first loaded
+    if (groupedChats && !initializedRef.current) {
+      // Check if we need to initialize the expanded days
+      const needsInitialization =
+        !expandedDays.today &&
+        !expandedDays.yesterday &&
+        !expandedDays.lastWeek &&
+        !expandedDays.lastMonth &&
+        !expandedDays.older;
+
+      if (needsInitialization) {
+        initializedRef.current = true; // Set flag to prevent future runs
+
+        // For chat bit
+        if (groupedChats.today.length > 0) {
+          setExpandedDays((prev) => ({ ...prev, today: true }));
+        } else if (groupedChats.yesterday.length > 0) {
+          setExpandedDays((prev) => ({ ...prev, yesterday: true }));
+        }
+
+        // For documents
+        if (groupedDocuments) {
+          if (groupedDocuments.today.length > 0) {
+            setExpandedDocumentDays((prev) => ({ ...prev, today: true }));
+          } else if (groupedDocuments.yesterday.length > 0) {
+            setExpandedDocumentDays((prev) => ({ ...prev, yesterday: true }));
+          }
+        }
+      }
+    }
+  }, [groupedChats, groupedDocuments]);
+
+  // Simplify the toggle functions to avoid potential issues
+  const toggleDayExpansion = useCallback((day: keyof GroupedChats) => {
+    setExpandedDays((prev) => ({
+      ...prev,
+      [day]: !prev[day],
+    }));
+  }, []);
+
+  const toggleDocumentDayExpansion = useCallback((day: keyof GroupedChats) => {
+    setExpandedDocumentDays((prev) => ({
+      ...prev,
+      [day]: !prev[day],
+    }));
+  }, []);
+
+  // Toggle expanded chat count for a day
+  const toggleChatCountExpansion = (day: keyof GroupedChats) => {
+    setExpandedChatCounts((prev) => ({
+      ...prev,
+      [day]: !prev[day],
+    }));
+  };
+
+  // Toggle expanded document count for a day
+  const toggleDocumentCountExpansion = (day: keyof GroupedChats) => {
+    setExpandedDocumentCounts((prev) => ({
+      ...prev,
+      [day]: !prev[day],
+    }));
+  };
 
   const handleDelete = async () => {
     if (!deleteId) {
@@ -419,14 +522,9 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
       ? chats
       : chats.slice(0, MAX_INITIAL_CHATS);
 
-    // Create a direct toggle handler that doesn't rely on the callback
+    // Create a direct toggle handler that uses the parent component's function
     const handleToggle = () => {
-      console.log(`[Sidebar] Direct toggle for ${day}, current:`, isExpanded);
-      setExpandedDays((prev) => {
-        const newState = { ...prev, [day]: !prev[day] };
-        console.log(`[Sidebar] New state for ${day}:`, newState[day]);
-        return newState;
-      });
+      toggleDayExpansion(day);
     };
 
     return (
@@ -437,9 +535,9 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
           onClick={handleToggle}
         >
           {isExpanded ? (
-            <ChevronDownIcon className="h-3 w-3" />
+            <ChevronDown className="h-3 w-3" />
           ) : (
-            <ChevronRightIcon className="h-3 w-3" />
+            <ChevronRight className="h-3 w-3" />
           )}
           <span>{title}</span>
           <span className="text-xs font-normal">({chats.length})</span>
@@ -497,12 +595,9 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
       ? documents
       : documents.slice(0, MAX_INITIAL_CHATS);
 
-    // Create a direct toggle handler similar to DaySection
+    // Create a direct toggle handler that uses the parent component's function
     const handleToggle = () => {
-      setExpandedDocumentDays((prev) => ({
-        ...prev,
-        [day]: !prev[day],
-      }));
+      toggleDocumentDayExpansion(day);
     };
 
     return (
@@ -513,9 +608,9 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
           onClick={handleToggle}
         >
           {isExpanded ? (
-            <ChevronDownIcon className="h-3 w-3" />
+            <ChevronDown className="h-3 w-3" />
           ) : (
-            <ChevronRightIcon className="h-3 w-3" />
+            <ChevronRight className="h-3 w-3" />
           )}
           <span>{title}</span>
           <span className="text-xs font-normal">({documents.length})</span>
@@ -554,6 +649,44 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
     );
   };
 
+  // Add a storage event listener for more reliable updates
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (
+        e.key === 'main-ui-chat-id' ||
+        e.key === 'global-pane-chat-id' ||
+        e.key === 'current-active-specialist'
+      ) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log(
+            '[SidebarHistory] Chat ID or specialist changed in storage, revalidating...',
+          );
+        }
+
+        // Use a more debounced approach - only mutate if not already validating
+        if (!isChatValidating) {
+          console.log(
+            '[SidebarHistory] Triggering revalidation for chat history',
+          );
+          mutateChatHistory();
+        } else {
+          console.log(
+            '[SidebarHistory] Skipping revalidation - already in progress',
+          );
+        }
+      }
+    };
+
+    // Add event listener
+    window.addEventListener('storage', handleStorageChange);
+
+    // Clean up
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [mutateChatHistory, isChatValidating]);
+
+  // Simplify the toggle functions to avoid potential issues
   if (!user) {
     return (
       <SidebarGroup>
@@ -566,11 +699,11 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
     );
   }
 
-  if (isChatLoading) {
+  if (isChatLoading && !paginatedChatHistories?.length) {
     return (
       <SidebarGroup>
         <div className="px-2 py-1 text-xs text-sidebar-foreground/50">
-          Today
+          Loading...
         </div>
         <SidebarGroupContent>
           <div className="flex flex-col">
@@ -609,10 +742,11 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
 
   return (
     <div className="space-y-1 overflow-auto h-full pb-20">
-      <div className="pt-6 px-2">
-        <div className="text-xs font-semibold text-muted-foreground mb-2 px-2 flex gap-2 items-center">
+      {/* Chat History Section */}
+      <div className="py-4 px-2">
+        <div className="text-xs font-semibold text-muted-foreground mb-2 px-2 flex gap-2 items-center border-b pb-2">
           <MessageSquare className="h-3 w-3" />
-          <span>Chats</span>
+          <span>Chat History</span>
         </div>
       </div>
 
@@ -635,32 +769,35 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
             chats={groupedChats.lastMonth}
           />
           <DaySection day="older" title="Older" chats={groupedChats.older} />
-
-          {!hasReachedChatEnd && !isChatLoading && !hasEmptyChatHistory && (
-            <button
-              type="button"
-              className="text-xs text-muted-foreground hover:text-foreground w-full text-center p-1"
-              onClick={() => setChatSize((size) => size + 1)}
-            >
-              Load more chats
-            </button>
-          )}
-
-          {isChatValidating && (
-            <div className="flex justify-center p-1">
-              <LoaderIcon className="animate-spin h-4 w-4 text-muted-foreground" />
-            </div>
-          )}
-
-          {hasEmptyChatHistory && (
-            <div className="text-xs text-muted-foreground text-center p-1">
-              No chats available
-            </div>
-          )}
         </>
       ) : (
         <div className="flex justify-center p-1">
-          <LoaderIcon className="animate-spin h-4 w-4 text-muted-foreground" />
+          <Loader className="animate-spin h-4 w-4 text-muted-foreground" />
+        </div>
+      )}
+
+      {!hasReachedChatEnd && !isChatLoading && !hasEmptyChatHistory && (
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:text-foreground w-full text-center p-1"
+          onClick={() => setChatSize((size) => size + 1)}
+        >
+          Load more chats
+        </button>
+      )}
+
+      {/* Only show validation loading state on initial load */}
+      {isChatValidating &&
+        !isChatLoading &&
+        !paginatedChatHistories?.length && (
+          <div className="flex justify-center p-1">
+            <Loader className="animate-spin h-4 w-4 text-muted-foreground" />
+          </div>
+        )}
+
+      {hasEmptyChatHistory && (
+        <div className="text-xs text-muted-foreground text-center p-1">
+          No chats available
         </div>
       )}
 
@@ -677,27 +814,27 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
           <DocumentDaySection
             day="today"
             title="Today"
-            documents={groupedDocuments.today}
+            documents={groupedDocuments.today as any}
           />
           <DocumentDaySection
             day="yesterday"
             title="Yesterday"
-            documents={groupedDocuments.yesterday}
+            documents={groupedDocuments.yesterday as any}
           />
           <DocumentDaySection
             day="lastWeek"
             title="Previous 7 Days"
-            documents={groupedDocuments.lastWeek}
+            documents={groupedDocuments.lastWeek as any}
           />
           <DocumentDaySection
             day="lastMonth"
             title="Previous 30 Days"
-            documents={groupedDocuments.lastMonth}
+            documents={groupedDocuments.lastMonth as any}
           />
           <DocumentDaySection
             day="older"
             title="Older"
-            documents={groupedDocuments.older}
+            documents={groupedDocuments.older as any}
           />
 
           {!hasReachedDocEnd && !isDocLoading && !hasEmptyDocHistory && (
@@ -712,19 +849,13 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
 
           {isDocValidating && (
             <div className="flex justify-center p-1">
-              <LoaderIcon className="animate-spin h-4 w-4 text-muted-foreground" />
-            </div>
-          )}
-
-          {hasEmptyDocHistory && (
-            <div className="text-xs text-muted-foreground text-center p-1">
-              No documents available
+              <Loader className="animate-spin h-4 w-4 text-muted-foreground" />
             </div>
           )}
         </>
       ) : (
         <div className="flex justify-center p-1">
-          <LoaderIcon className="animate-spin h-4 w-4 text-muted-foreground" />
+          <Loader className="animate-spin h-4 w-4 text-muted-foreground" />
         </div>
       )}
 

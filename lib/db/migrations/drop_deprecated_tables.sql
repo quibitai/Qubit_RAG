@@ -2,7 +2,7 @@
 -- This migration removes the old Message and Vote tables that have been replaced by Message_v2 and Vote_v2
 
 -- Drop deprecated tables if they exist
-DO $$
+DO $$ 
 BEGIN
     -- Drop the Vote table if it exists
     BEGIN

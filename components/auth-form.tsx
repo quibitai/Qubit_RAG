@@ -7,12 +7,14 @@ export function AuthForm({
   action,
   children,
   defaultEmail = '',
+  showClientId = false,
 }: {
   action: NonNullable<
     string | ((formData: FormData) => void | Promise<void>) | undefined
   >;
   children: React.ReactNode;
   defaultEmail?: string;
+  showClientId?: boolean;
 }) {
   return (
     <Form action={action} className="flex flex-col gap-4 px-4 sm:px-16">
@@ -36,6 +38,26 @@ export function AuthForm({
           defaultValue={defaultEmail}
         />
       </div>
+
+      {/* Client ID field for multi-tenancy (only on sign up) */}
+      {showClientId && (
+        <div className="flex flex-col gap-2">
+          <Label
+            htmlFor="clientId"
+            className="text-zinc-600 font-normal dark:text-zinc-400"
+          >
+            Client ID
+          </Label>
+          <Input
+            id="clientId"
+            name="clientId"
+            className="bg-muted text-md md:text-sm"
+            type="text"
+            placeholder="Enter your client ID"
+            required
+          />
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <Label

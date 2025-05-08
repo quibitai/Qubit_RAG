@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useChatPane } from '@/context/ChatPaneContext';
 import { cn, generateUUID } from '@/lib/utils';
 import { PreviewMessage, ThinkingMessage } from './message';
@@ -15,6 +15,7 @@ import {
   CheckIcon,
   ArrowUp,
   Plus,
+  Loader,
 } from 'lucide-react';
 import useSWR from 'swr';
 import { fetcher } from '@/lib/utils';
@@ -30,6 +31,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { createChatAndSaveFirstMessages } from '../app/(chat)/actions';
 import { toast } from 'sonner';
 import { useChat } from 'ai/react';
+import { GlobalChatHistoryCombobox } from './GlobalChatHistoryCombobox';
+import { useSWRConfig } from 'swr';
+import { unstable_serialize } from 'swr/infinite';
+import { getChatHistoryPaginationKey } from './sidebar-history';
+import type { UIMessage } from 'ai';
 
 interface GlobalChatPaneProps {
   title?: string;
@@ -182,12 +188,13 @@ export function GlobalChatPane({
 
   // Add cleanup for empty messages when a streaming session ends
   React.useEffect(() => {
-    if (status === 'streaming') return;
+    // Don't do anything if we're currently loading
+    if (isLoading) return;
 
     let cleanupInterval: NodeJS.Timeout | null = null;
-    if (!isLoading && status !== 'streaming') {
+    if (!isLoading) {
       cleanupInterval = setTimeout(() => {
-        if (!isLoading && status !== 'streaming' && globalPaneChatId) {
+        if (!isLoading && globalPaneChatId) {
           // No longer needed - cleaning now handled by Brain API
           console.log(
             '[GlobalChatPane] Skipping message cleanup - now handled by Brain API',
@@ -199,8 +206,12 @@ export function GlobalChatPane({
     return () => {
       if (cleanupInterval) clearTimeout(cleanupInterval);
     };
-  }, [status, isLoading, globalPaneChatId]);
+  }, [isLoading, globalPaneChatId]);
 
+  // Add global mutate
+  const { mutate: globalMutate } = useSWRConfig();
+
+  // Modify submitMessage function to include revalidation
   const submitMessage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!input.trim()) return;
@@ -270,17 +281,26 @@ export function GlobalChatPane({
 
     // Send the message to the AI with model selection
     // Always use the shared currentActiveSpecialistId from context
-    await handleSubmit(e, {
-      body: {
-        selectedChatModel: 'global-orchestrator', // Always use orchestrator
-        activeBitContextId: currentActiveSpecialistId, // Use shared context
-        currentActiveSpecialistId: currentActiveSpecialistId, // Include both for compatibility
-        chatId: validChatId, // Include the valid chatId in the request
-        id: validChatId, // Also include as id for compatibility
-        isFromGlobalPane: true, // Flag this request as coming from the global pane
-        referencedChatId: mainUiChatId, // Always include main UI chat ID reference
-      },
-    });
+    try {
+      await handleSubmit(e, {
+        body: {
+          selectedChatModel: 'global-orchestrator', // Always use orchestrator
+          activeBitContextId: currentActiveSpecialistId, // Use shared context
+          currentActiveSpecialistId: currentActiveSpecialistId, // Include both for compatibility
+          chatId: validChatId, // Include the valid chatId in the request
+          id: validChatId, // Also include as id for compatibility
+          isFromGlobalPane: true, // Flag this request as coming from the global pane
+          referencedChatId: mainUiChatId, // Always include main UI chat ID reference
+        },
+      });
+
+      // After successful submission, trigger revalidation of chat history
+      globalMutate(unstable_serialize(getChatHistoryPaginationKey));
+      globalMutate('/api/history?limit=30');
+    } catch (error) {
+      console.error('[GlobalChatPane] Error submitting message:', error);
+      toast.error('Failed to send message');
+    }
 
     // Clean up global context (set to null instead of using delete)
     global.CURRENT_REQUEST_BODY = null;
@@ -294,7 +314,7 @@ export function GlobalChatPane({
     });
   };
 
-  // Function to start a new chat in the global pane
+  // Modify startNewChat function to include revalidation
   const startNewChat = () => {
     // Generate a new chat ID for the global pane
     const newChatId = generateUUID();
@@ -304,11 +324,142 @@ export function GlobalChatPane({
     // Clear the chat state
     setMessages([]);
     setInput('');
+    setIsLoadingMessages(false); // Reset loading state for new chat
     chatPersistedRef.current = false;
     savedMessageIdsRef.current.clear();
     processingMessageIdsRef.current.clear();
     lastUserMsgRef.current = null;
+
+    // Trigger revalidation of chat history
+    globalMutate(unstable_serialize(getChatHistoryPaginationKey));
+    globalMutate('/api/history?limit=30');
   };
+
+  // Add a state for tracking message loading
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+
+  // Improve the event listener for chat selection to properly load messages
+  useEffect(() => {
+    const handleChatSelected = (
+      event: CustomEvent<{ chatId: string; source: string }>,
+    ) => {
+      const { chatId, source } = event.detail;
+
+      // Only handle events for the global pane
+      if (source === 'global-pane' && chatId) {
+        console.log(
+          `[GlobalChatPane] Chat selected event received for chat: ${chatId}`,
+        );
+
+        // Set the global pane chat ID immediately
+        setGlobalPaneChatId(chatId);
+
+        // Clear current messages
+        setMessages([]);
+        setIsLoadingMessages(true);
+
+        // Directly fetch messages for this chat and display them
+        (async () => {
+          try {
+            console.log(
+              `[GlobalChatPane] Fetching messages for chat: ${chatId}`,
+            );
+            const response = await fetch(`/api/messages?chatId=${chatId}`);
+
+            if (response.ok) {
+              const data = await response.json();
+              console.log(
+                `[GlobalChatPane] Loaded ${data.messages?.length || 0} messages for chat ${chatId}`,
+              );
+
+              // Format messages to match the expected format
+              if (data.messages && Array.isArray(data.messages)) {
+                // Define the message interface for DB messages
+                interface DBMessageType {
+                  id: string;
+                  role: string;
+                  parts: Array<{ type: string; text: string }> | string;
+                  createdAt: string;
+                  chatId?: string;
+                  [key: string]: any; // Allow additional properties
+                }
+
+                // Convert DB messages to UI messages format with better error handling
+                // Use the UIMessage type directly to match what setMessages expects
+                const formattedMessages: UIMessage[] = data.messages.map(
+                  (msg: DBMessageType) => {
+                    let content = '';
+
+                    // Handle all possible formats of message parts
+                    if (Array.isArray(msg.parts) && msg.parts.length > 0) {
+                      const firstPart = msg.parts[0];
+                      content =
+                        typeof firstPart === 'object' && firstPart !== null
+                          ? firstPart.text || ''
+                          : String(firstPart || '');
+                    } else if (typeof msg.parts === 'string') {
+                      content = msg.parts;
+                    } else if (msg.content) {
+                      // Fallback to content field if it exists
+                      content = String(msg.content);
+                    }
+
+                    // Return a properly typed message object
+                    return {
+                      id: msg.id || generateUUID(),
+                      role: msg.role || 'assistant',
+                      content,
+                      createdAt: new Date(msg.createdAt || Date.now()),
+                    } as UIMessage;
+                  },
+                );
+
+                // Set the messages in the chat pane
+                setMessages(formattedMessages);
+
+                console.log(
+                  `[GlobalChatPane] Successfully loaded and set ${formattedMessages.length} messages`,
+                );
+              } else {
+                console.error(
+                  '[GlobalChatPane] Messages data format unexpected:',
+                  data,
+                );
+                toast.error('Error loading chat: unexpected message format');
+              }
+            } else {
+              console.error(
+                `[GlobalChatPane] Failed to fetch messages for chat ${chatId}: ${response.statusText}`,
+              );
+              toast.error('Failed to load chat messages');
+            }
+          } catch (error) {
+            console.error(
+              '[GlobalChatPane] Error loading chat messages:',
+              error,
+            );
+            toast.error('Failed to load chat messages');
+          } finally {
+            setIsLoadingMessages(false);
+          }
+        })();
+      }
+    };
+
+    // Add event listener with type casting
+    window.addEventListener(
+      'chat-selected',
+      handleChatSelected as EventListener,
+    );
+
+    // Clean up
+    return () => {
+      window.removeEventListener(
+        'chat-selected',
+        handleChatSelected as EventListener,
+      );
+    };
+  }, [setGlobalPaneChatId, setMessages, generateUUID]);
 
   if (!isPaneOpen) {
     return null;
@@ -316,26 +467,30 @@ export function GlobalChatPane({
 
   return (
     <div className="flex flex-col h-full bg-background border-l">
-      <header className="px-3 py-2 border-b flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
+      <div className="flex items-center justify-between border-b px-4 py-2">
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <GlobalChatHistoryCombobox />
+        </div>
+        <div className="flex gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 rounded-full hover:bg-muted"
+                className="h-8 w-8"
                 onClick={startNewChat}
-                aria-label="New Chat"
-                title="New Chat"
+                title="Start a new chat"
               >
                 <Plus className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>New Chat</TooltipContent>
+            <TooltipContent side="bottom">
+              <p>New chat</p>
+            </TooltipContent>
           </Tooltip>
-          <h2 className="font-semibold">{title}</h2>
         </div>
-      </header>
+      </div>
 
       {/* Messages container */}
       <div
@@ -343,7 +498,16 @@ export function GlobalChatPane({
         className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
         data-testid="messages-container"
       >
-        {messages.length === 0 ? (
+        {isLoadingMessages ? (
+          <div className="flex justify-center items-center h-full">
+            <div className="flex flex-col items-center gap-2">
+              <Loader className="animate-spin h-6 w-6 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                Loading messages...
+              </p>
+            </div>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="text-center text-muted-foreground py-8">
             <p>Ask me a question to get started</p>
           </div>
@@ -353,9 +517,7 @@ export function GlobalChatPane({
               key={message.id}
               chatId={globalPaneChatId}
               message={message}
-              isLoading={
-                status === 'streaming' && index === messages.length - 1
-              }
+              isLoading={index === messages.length - 1 && isLoading}
               vote={votes?.find((vote) => vote.messageId === message.id)}
               setMessages={setMessages}
               reload={reload}
@@ -364,7 +526,7 @@ export function GlobalChatPane({
           ))
         )}
 
-        {status === 'submitted' &&
+        {isLoading &&
           messages.length > 0 &&
           messages[messages.length - 1].role === 'user' && <ThinkingMessage />}
 

@@ -26,6 +26,13 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     }
   }, [pathname]);
 
+  // Hide GlobalChatPane on auth pages
+  const isAuthPage =
+    pathname === '/login' ||
+    pathname === '/register' ||
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/register');
+
   return (
     <TooltipProvider>
       <div className="flex flex-col h-dvh">
@@ -34,7 +41,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
             {children}
           </ResizablePanel>
 
-          {isPaneOpen && (
+          {!isAuthPage && isPaneOpen && (
             <>
               <ResizableHandle withHandle />
 

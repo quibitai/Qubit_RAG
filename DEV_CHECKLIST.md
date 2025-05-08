@@ -1,5 +1,15 @@
 # Development Checklist: Quibit RAG
 
+**Last updated: 2024-06-10**
+
+---
+**Progress Log:**
+- Phase 1 (Critical Bug Fixes & Core System Stabilization) completed: Duplicate message bug fixed, message saving logic centralized, multi-tenancy and client_id integration verified.
+- Phase 2 (Multi-Tenant Echo Tango) completed: Client-aware streaming, RLS, and multi-tenant RAG ingestion implemented and verified.
+- Phases 3–5: AI streaming, frontend integration, editor streaming, and final testing/documentation are in progress.
+
+---
+
 **Overall Goal:** Stabilize message persistence, ensure robust multi-tenancy, correctly implement the new streaming architecture, and then expand features before final testing and documentation.
 
 ---
@@ -8,27 +18,27 @@
 
 * **Goal:** Resolve the duplicate message bug and ensure all foundational multi-tenancy schema and `client_id` integrations are correct and verified.
 
-    * **[ ] Step 1.1: Eliminate Duplicate Message Persistence**
-        * **[ ] Sub-Step 1.1.1: Resolve Double Agent Execution in Brain API**
+    * **[x] Step 1.1: Eliminate Duplicate Message Persistence**
+        * **[x] Sub-Step 1.1.1: Resolve Double Agent Execution in Brain API**
             * **Action:** Refactor `app/api/brain/route.ts`: Ensure `agentExecutor.stream` is invoked only ONCE per user request.
             * **Action:** Ensure the single stream result is used for both SSE data transmission AND triggers the `onCompletion` handler (for saving assistant messages) exactly once.
             * **Verification:** Add distinct logging to confirm single `agentExecutor.stream` invocation and single `onCompletion` trigger. Test chat; verify assistant messages are no longer duplicated in the database.
-        * **[ ] Sub-Step 1.1.2: Consolidate User Message Saving Logic**
+        * **[x] Sub-Step 1.1.2: Consolidate User Message Saving Logic**
             * **Action:** Designate `app/api/brain/route.ts` (the `// --- BEGIN USER MESSAGE SAVE ---` block) as the SOLE point for saving the *initial user message* in a new chat.
             * **Action:** Modify `app/(chat)/actions.ts` -> `createChatAndSaveFirstMessages`: Remove its logic for inserting the user message into `Message_v2`. This function should now ONLY handle chat metadata creation.
             * **Verification:** Create new chats. Verify the first user message appears only once in `Message_v2`, saved by the Brain API.
-        * **[ ] Sub-Step 1.1.3: Decommission/Neutralize Redundant Message Saving Pathways**
+        * **[x] Sub-Step 1.1.3: Decommission/Neutralize Redundant Message Saving Pathways**
             * **Action:** Evaluate `app/api/chat-actions/route.ts`. Remove if possible, or ensure its message-saving capabilities are inert (log only, no DB write).
             * **Action:** Remove `saveSubsequentMessages` function from `app/(chat)/actions.ts`.
             * **Action:** Audit frontend components (`Chat.tsx`, `GlobalChatPane.tsx`) to remove `Workspace` calls to `/api/chat-actions` or invocations of redundant server actions for message saving.
             * **Verification:** Confirm messages are saved correctly (and singly) *only* through `app/api/brain/route.ts`.
 
-    * **[ ] Step 1.2: Final Verification of `client_id` Integration & Multi-Tenancy Schema**
+    * **[x] Step 1.2: Final Verification of `client_id` Integration & Multi-Tenancy Schema**
         * **Action:** Confirm `clientId` from auth session is correctly used in `app/api/brain/route.ts` for all message/chat creations.
         * **Action:** Re-verify schema in `lib/db/schema.ts` and live DB for correct `client_id` setup (NOT NULL, FKs) in all relevant tables (`User`, `Chat`, `Message_v2`, `Document`, `Suggestion`, `Vote_v2`) and `Clients` table correctness.
         * **Action:** Perform your checklist's "Step 0.1 -> Verification": Log in with users from different clients, send messages, check `Chat` & `Message_v2` tables for correct `client_id` and no duplicates.
 
-    * **[ ] Commit Point 1 (Stabilization):** Duplicate message bug fixed. Core message saving is robust and centralized in Brain API. `client_id` integration verified. Multi-tenancy schema confirmed.
+    * **[x] Commit Point 1 (Stabilization):** Duplicate message bug fixed. Core message saving is robust and centralized in Brain API. `client_id` integration verified. Multi-tenancy schema confirmed.
 
 ---
 
@@ -66,7 +76,7 @@
     * **Action (Ingestion):** Update RAG ingestion scripts to tag all ingested data with the correct `client_id`.
     * **Verification:** Ingest data for different clients. Verify `client_id` in RAG tables. Test RAG queries (e.g., `searchInternalKnowledgeBase` tool) as different clients to confirm data isolation.
 
-    * **[ ] Commit Point 2 (Multi-Tenancy Complete):** RLS active and verified for all client-specific data. RAG ingestion is multi-tenant. Queries correctly leverage RLS.
+    * **[x] Commit Point 2 (Multi-Tenancy Complete):** RLS active and verified for all client-specific data. RAG ingestion is multi-tenant. Queries correctly leverage RLS.
 
 ---
 
