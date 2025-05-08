@@ -28,6 +28,8 @@ import {
   orchestratorSystemPrompt,
   getSpecialistPrompt,
 } from '@/lib/ai/prompts';
+import { loadPrompt } from '@/lib/ai/prompts/loader';
+import { specialistRegistry } from '@/lib/ai/prompts/specialists';
 import { modelMapping } from '@/lib/ai/models';
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import type { Serialized } from '@langchain/core/load/serializable';
@@ -1676,80 +1678,94 @@ export async function POST(req: NextRequest) {
     // Get available tools for the current context
     const tools = await getAvailableTools();
 
-    // Construct the final system prompt based on base prompt, specialist context, and client configuration
-    let finalSystemPrompt = orchestratorSystemPrompt; // Start with the base
-
-    // First check for client-specific specialist prompts in configJson
-    const specialistPromptKey = activeBitPersona || effectiveContextId;
-    let specialistPromptText: string | null | undefined = null;
-
-    if (specialistPromptKey && clientConfig?.configJson?.specialistPrompts) {
-      specialistPromptText =
-        clientConfig.configJson.specialistPrompts[specialistPromptKey];
-      console.log(
-        `[Brain API] Found client-specific specialist prompt for ${specialistPromptKey} in configJson`,
-      );
-    }
-
-    // Fallback to generic specialist prompt if not found in client config
-    if (!specialistPromptText && specialistPromptKey) {
-      specialistPromptText = getSpecialistPrompt(specialistPromptKey);
-      console.log(
-        `[Brain API] Using generic specialist prompt for ${specialistPromptKey}`,
-      );
-    }
-
-    // If we have a specialist prompt, add it to the system prompt
-    if (specialistPromptText) {
-      finalSystemPrompt = `${finalSystemPrompt}\n\n${specialistPromptText}`;
-      console.log(
-        `[Brain API] Added specialist instructions for ${specialistPromptKey}`,
-      );
-    }
-
-    // Add any client-specific custom instructions
-    if (clientConfig?.customInstructions) {
-      finalSystemPrompt = `${finalSystemPrompt}\n\n${clientConfig.customInstructions}`;
-      console.log('[Brain API] Added client-specific custom instructions');
-    }
-
-    // For debugging, show a truncated version of the final prompt
-    const truncatedPrompt =
-      finalSystemPrompt.length > 150
-        ? `${finalSystemPrompt.substring(0, 150)}... [${finalSystemPrompt.length} chars total]`
-        : finalSystemPrompt;
-    console.log(`[Brain API] Final system prompt: ${truncatedPrompt}`);
-
-    const prompt = ChatPromptTemplate.fromMessages([
-      ['system', finalSystemPrompt], // Use the combined prompt
-      new MessagesPlaceholder('chat_history'),
-      ['human', '{input}'],
-      new MessagesPlaceholder('agent_scratchpad'),
-    ]);
-
-    // Create the agent
+    // Determine active context ID (prioritize persona)
+    const contextId = activeBitPersona || effectiveContextId;
     console.log(
-      `[Brain API] Creating Quibit orchestrator agent with ${tools.length} tools`,
+      `[Brain API] Determined contextId for prompt loading: ${contextId}`,
     );
 
-    const agent = await createOpenAIToolsAgent({
-      llm,
-      tools,
-      prompt,
-    });
+    // Declare variables used both inside and outside the try block
+    let finalSystemPrompt: string;
+    let currentTools = tools; // Default to all tools
+    let agentExecutor: AgentExecutor;
 
-    // Create agent executor
-    const agentExecutor = new AgentExecutor({
-      agent,
-      tools,
-      // Set max iterations to prevent infinite loops
-      maxIterations: 10,
-      // Important: Return intermediate steps for tool usage
-      returnIntermediateSteps: true,
-      verbose: true,
-    });
+    try {
+      // Load the appropriate system prompt using the new loader
+      // For the orchestrator, we always use the orchestrator prompt
+      finalSystemPrompt = loadPrompt({
+        modelId: quibitModelId, // Always use global-orchestrator for now
+        contextId: contextId,
+        clientConfig: clientConfig,
+      });
 
-    console.log('[Brain API] Agent executor created');
+      console.log(`[Brain API] Loaded prompt type: Orchestrator`);
+
+      // For debugging, show a truncated version of the final prompt
+      const truncatedPrompt =
+        finalSystemPrompt.length > 150
+          ? `${finalSystemPrompt.substring(0, 150)}... [${finalSystemPrompt.length} chars total]`
+          : finalSystemPrompt;
+      console.log(`[Brain API] Final system prompt: ${truncatedPrompt}`);
+
+      // Get specialist config for tool filtering if context ID is provided
+      // Note: We're using contextId for tool filtering but not for prompt type
+      const activeSpecialistConfig =
+        contextId && specialistRegistry[contextId]
+          ? specialistRegistry[contextId]
+          : null;
+
+      // Filter tools if a specialist is active
+      if (activeSpecialistConfig) {
+        currentTools = tools.filter((tool) =>
+          activeSpecialistConfig.defaultTools.includes(tool.name),
+        );
+        console.log(
+          `[Brain API] Using ${currentTools.length} tools specific to specialist: ${contextId}`,
+          currentTools.map((t) => t.name),
+        );
+      } else {
+        console.log(
+          `[Brain API] Using all ${currentTools.length} available tools for Orchestrator or default context.`,
+        );
+      }
+
+      const prompt = ChatPromptTemplate.fromMessages([
+        ['system', finalSystemPrompt],
+        new MessagesPlaceholder('chat_history'),
+        ['human', '{input}'],
+        new MessagesPlaceholder('agent_scratchpad'),
+      ]);
+
+      // Create the agent
+      console.log(
+        `[Brain API] Creating Quibit orchestrator agent with ${currentTools.length} tools`,
+      );
+
+      const agent = await createOpenAIToolsAgent({
+        llm,
+        tools: currentTools,
+        prompt,
+      });
+
+      // Create agent executor
+      agentExecutor = new AgentExecutor({
+        agent,
+        tools: currentTools,
+        // Set max iterations to prevent infinite loops
+        maxIterations: 10,
+        // Important: Return intermediate steps for tool usage
+        returnIntermediateSteps: true,
+        verbose: true,
+      });
+
+      console.log('[Brain API] Agent executor created');
+    } catch (error) {
+      console.error(
+        '[Brain API] Error loading prompt or creating agent:',
+        error,
+      );
+      throw error; // Re-throw to be caught by the main error handler
+    }
 
     // Format and sanitize the chat history
     let formattedHistory: (HumanMessage | AIMessage)[] = [];

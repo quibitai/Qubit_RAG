@@ -20,6 +20,90 @@ import Link from 'next/link';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { LayoutGrid, PanelLeft, FileEdit, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { memo } from 'react';
+
+// Memoize the sidebar toggle button to prevent unnecessary re-renders
+const SidebarToggleButton = memo(
+  ({
+    toggleSidebar,
+  }: {
+    toggleSidebar: () => void;
+  }) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          type="button"
+          className="p-2 h-fit"
+          onClick={toggleSidebar}
+          aria-label="Toggle Sidebar"
+        >
+          <PanelLeft className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent align="end">Toggle Sidebar</TooltipContent>
+    </Tooltip>
+  ),
+);
+SidebarToggleButton.displayName = 'SidebarToggleButton';
+
+// Memoize navigation links to prevent unnecessary re-renders
+const NavLink = memo(
+  ({
+    href,
+    setOpenMobile,
+    isActive,
+    icon: Icon,
+    label,
+    sidebarState,
+  }: {
+    href: string;
+    setOpenMobile: (open: boolean) => void;
+    isActive: boolean;
+    icon: React.ElementType;
+    label: string;
+    sidebarState: 'expanded' | 'collapsed';
+  }) => (
+    <div className="flex justify-center">
+      <Link
+        href={href}
+        onClick={() => {
+          setOpenMobile(false);
+        }}
+        className={
+          sidebarState === 'collapsed'
+            ? 'flex justify-center w-full'
+            : 'w-full px-2'
+        }
+      >
+        {sidebarState === 'expanded' ? (
+          <Button
+            variant={isActive ? 'secondary' : 'ghost'}
+            className={cn(
+              'w-full justify-start gap-2',
+              isActive && 'bg-secondary text-secondary-foreground',
+            )}
+          >
+            <Icon size={18} />
+            <span>{label}</span>
+          </Button>
+        ) : (
+          <div className="flex justify-center w-full">
+            <SidebarMenuButton
+              tooltip={label}
+              isActive={isActive}
+              variant="default"
+              className="w-8 h-8 flex items-center justify-center"
+            >
+              <Icon className="h-5 w-5" />
+            </SidebarMenuButton>
+          </div>
+        )}
+      </Link>
+    </div>
+  ),
+);
+NavLink.displayName = 'NavLink';
 
 export function AppSidebar({ user }: { user: User | undefined }) {
   const router = useRouter();
@@ -48,58 +132,17 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                 </span>
               )}
             </Link>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  type="button"
-                  className="p-2 h-fit"
-                  onClick={toggleSidebar}
-                  aria-label="Toggle Sidebar"
-                >
-                  <PanelLeft className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent align="end">Toggle Sidebar</TooltipContent>
-            </Tooltip>
+            <SidebarToggleButton toggleSidebar={toggleSidebar} />
           </div>
 
-          <div className="mt-4 flex justify-center">
-            <Link
-              href="/dashboard"
-              onClick={() => {
-                setOpenMobile(false);
-              }}
-              className={
-                state === 'collapsed' ? 'flex justify-center w-full' : 'w-full'
-              }
-            >
-              {state === 'expanded' ? (
-                <Button
-                  variant={isDashboardActive ? 'secondary' : 'ghost'}
-                  className={cn(
-                    'w-full justify-start gap-2',
-                    isDashboardActive &&
-                      'bg-secondary text-secondary-foreground',
-                  )}
-                >
-                  <LayoutGrid size={18} />
-                  <span>Dashboard</span>
-                </Button>
-              ) : (
-                <div className="flex justify-center w-full">
-                  <SidebarMenuButton
-                    tooltip="Dashboard"
-                    isActive={isDashboardActive}
-                    variant="default"
-                    className="w-8 h-8 flex items-center justify-center"
-                  >
-                    <LayoutGrid className="h-5 w-5" />
-                  </SidebarMenuButton>
-                </div>
-              )}
-            </Link>
-          </div>
+          <NavLink
+            href="/dashboard"
+            setOpenMobile={setOpenMobile}
+            isActive={isDashboardActive}
+            icon={LayoutGrid}
+            label="Dashboard"
+            sidebarState={state}
+          />
 
           {/* Bits Section */}
           {state === 'expanded' && (
@@ -111,81 +154,27 @@ export function AppSidebar({ user }: { user: User | undefined }) {
           )}
 
           {/* Chat Bit */}
-          <div className="mt-2 flex justify-center">
-            <Link
+          <div className="mt-2">
+            <NavLink
               href="/"
-              onClick={() => {
-                setOpenMobile(false);
-              }}
-              className={
-                state === 'collapsed'
-                  ? 'flex justify-center w-full'
-                  : 'w-full px-2'
-              }
-            >
-              {state === 'expanded' ? (
-                <Button
-                  variant={isChatActive ? 'secondary' : 'ghost'}
-                  className={cn(
-                    'w-full justify-start gap-2',
-                    isChatActive && 'bg-secondary text-secondary-foreground',
-                  )}
-                >
-                  <MessageSquare size={18} />
-                  <span>Chat Bit</span>
-                </Button>
-              ) : (
-                <div className="flex justify-center w-full">
-                  <SidebarMenuButton
-                    tooltip="Chat Bit"
-                    isActive={isChatActive}
-                    variant="default"
-                    className="w-8 h-8 flex items-center justify-center"
-                  >
-                    <MessageSquare className="h-5 w-5" />
-                  </SidebarMenuButton>
-                </div>
-              )}
-            </Link>
+              setOpenMobile={setOpenMobile}
+              isActive={isChatActive}
+              icon={MessageSquare}
+              label="Chat Bit"
+              sidebarState={state}
+            />
           </div>
 
           {/* Document Bit */}
-          <div className="mt-2 flex justify-center">
-            <Link
+          <div className="mt-2">
+            <NavLink
               href="/editor/new"
-              onClick={() => {
-                setOpenMobile(false);
-              }}
-              className={
-                state === 'collapsed'
-                  ? 'flex justify-center w-full'
-                  : 'w-full px-2'
-              }
-            >
-              {state === 'expanded' ? (
-                <Button
-                  variant={isEditorActive ? 'secondary' : 'ghost'}
-                  className={cn(
-                    'w-full justify-start gap-2',
-                    isEditorActive && 'bg-secondary text-secondary-foreground',
-                  )}
-                >
-                  <FileEdit size={18} />
-                  <span>Document Bit</span>
-                </Button>
-              ) : (
-                <div className="flex justify-center w-full">
-                  <SidebarMenuButton
-                    tooltip="Document Bit"
-                    isActive={isEditorActive}
-                    variant="default"
-                    className="w-8 h-8 flex items-center justify-center"
-                  >
-                    <FileEdit className="h-5 w-5" />
-                  </SidebarMenuButton>
-                </div>
-              )}
-            </Link>
+              setOpenMobile={setOpenMobile}
+              isActive={isEditorActive}
+              icon={FileEdit}
+              label="Document Bit"
+              sidebarState={state}
+            />
           </div>
         </SidebarMenu>
       </SidebarHeader>
