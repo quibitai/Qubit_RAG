@@ -17,6 +17,7 @@ import type { UseChatHelpers } from '@ai-sdk/react';
 import { DEFAULT_CHAT_MODEL } from '@/lib/ai/models';
 import { generateUUID } from '@/lib/utils';
 import { createChatAndSaveFirstMessages } from '@/app/(chat)/actions';
+import type { ChatPaneState, ChatSummary } from '@/lib/types';
 
 console.log('[ChatPaneContext] actions:', {
   createChatAndSaveFirstMessages,
@@ -49,6 +50,15 @@ export interface ChatPaneContextType {
   globalPaneChatId: string;
   setGlobalPaneChatId: (id: string) => void;
   ensureValidChatId: (chatId: string) => string;
+
+  // New properties for chat history management
+  sidebarChats: ChatSummary[];
+  isLoadingSidebarChats: boolean;
+  loadSidebarChats: (bitContextId?: string | null) => Promise<void>;
+
+  globalChats: ChatSummary[];
+  isLoadingGlobalChats: boolean;
+  loadGlobalChats: () => Promise<void>;
 }
 
 export const ChatPaneContext = createContext<ChatPaneContextType | undefined>(
@@ -84,29 +94,62 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, []);
 
-  // Initialize with static value - no toggle functionality
-  const [isPaneOpen, setIsPaneOpen] = useState<boolean>(true);
-  // Replace both activeBitContextId and activeBitPersona with a single currentActiveSpecialistId
-  const [currentActiveSpecialistId, setCurrentActiveSpecialistId] = useState<
-    string | null
-  >(null);
-  const [activeDocId, setActiveDocId] = useState<string | null>(null);
+  // Use a single chatPaneState object to hold state
+  // This prevents cascading re-renders when multiple states change
+  const [chatPaneState, setChatPaneState] = useState<ChatPaneState>(() => {
+    // Initialize with default values
+    return {
+      isPaneOpen: true,
+      currentActiveSpecialistId: null,
+      activeDocId: null,
+      mainUiChatId: generateUUID(),
+      globalPaneChatId: generateUUID(),
+    };
+  });
+
+  // Create individual state setters with useCallback to prevent recreation
+  const setIsPaneOpen = useCallback((isOpen: boolean) => {
+    setChatPaneState((prev) => ({ ...prev, isPaneOpen: isOpen }));
+  }, []);
+
+  const setCurrentActiveSpecialistId = useCallback((id: string | null) => {
+    setChatPaneState((prev) => ({ ...prev, currentActiveSpecialistId: id }));
+  }, []);
+
+  const setActiveDocId = useCallback((id: string | null) => {
+    setChatPaneState((prev) => ({ ...prev, activeDocId: id }));
+  }, []);
+
+  const setMainUiChatId = useCallback((id: string) => {
+    setChatPaneState((prev) => ({ ...prev, mainUiChatId: id }));
+  }, []);
+
+  const setGlobalPaneChatId = useCallback((id: string) => {
+    setChatPaneState((prev) => ({ ...prev, globalPaneChatId: id }));
+  }, []);
+
+  // Use destructuring for easier access to states for the rest of the component
+  const {
+    isPaneOpen,
+    currentActiveSpecialistId,
+    activeDocId,
+    mainUiChatId,
+    globalPaneChatId,
+  } = chatPaneState;
+
+  // New state for chat history management
+  const [sidebarChats, setSidebarChats] = useState<ChatSummary[]>([]);
+  const [isLoadingSidebarChats, setIsLoadingSidebarChats] =
+    useState<boolean>(false);
+  const [globalChats, setGlobalChats] = useState<ChatSummary[]>([]);
+  const [isLoadingGlobalChats, setIsLoadingGlobalChats] =
+    useState<boolean>(false);
+
+  // For stream content, keep as separate state
   const [streamedContentMap, setStreamedContentMap] = useState<
     Record<string, string>
   >({});
   const [lastStreamUpdateTs, setLastStreamUpdateTs] = useState<number>(0);
-
-  // Replace currentChatId with separate IDs for main UI and global pane
-  const [mainUiChatId, setMainUiChatId] = useState<string>(() => {
-    // Generate a valid UUID initially
-    return generateUUID();
-  });
-
-  // Add a separate ID for the global chat pane
-  const [globalPaneChatId, setGlobalPaneChatId] = useState<string>(() => {
-    // Generate a different valid UUID initially
-    return generateUUID();
-  });
 
   const router = useRouter();
 
@@ -129,6 +172,68 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     return newChatId;
   }, []);
 
+  // Add placeholder functions for loading chat history
+  const loadSidebarChats = useCallback(async (bitContextId?: string | null) => {
+    setIsLoadingSidebarChats(true);
+    console.log(
+      `[ChatPaneContext] Placeholder: Attempting to load sidebar chats for bitContextId: ${bitContextId}`,
+    );
+    // TODO: Implement actual API call in a later step
+    // Example: const chats = await fetchSidebarChatsAPI(bitContextId);
+    // setSidebarChats(chats);
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 500)); // Simulate API call
+      // Set empty array for now until we implement the actual API call
+      setSidebarChats([]);
+    } catch (error) {
+      console.error('[ChatPaneContext] Error loading sidebar chats:', error);
+      toast.error('Failed to load chat history');
+    } finally {
+      setIsLoadingSidebarChats(false);
+    }
+  }, []);
+
+  const loadGlobalChats = useCallback(async () => {
+    setIsLoadingGlobalChats(true);
+    console.log(
+      '[ChatPaneContext] Placeholder: Attempting to load global chats',
+    );
+    // TODO: Implement actual API call in a later step
+    // Example: const chats = await fetchGlobalChatsAPI();
+    // setGlobalChats(chats);
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 500)); // Simulate API call
+      // Set empty array for now until we implement the actual API call
+      setGlobalChats([]);
+    } catch (error) {
+      console.error('[ChatPaneContext] Error loading global chats:', error);
+      toast.error('Failed to load global chats');
+    } finally {
+      setIsLoadingGlobalChats(false);
+    }
+  }, []);
+
+  // Initialize chat history when provider mounts
+  useEffect(() => {
+    console.log(
+      '[ChatPaneContext] Provider mounted. Placeholder: Triggering initial loadGlobalChats.',
+    );
+    loadGlobalChats();
+    // Sidebar chats might depend on activeBitContextId, so load when that changes
+  }, [loadGlobalChats]);
+
+  // Load sidebar chats when the active specialist changes
+  useEffect(() => {
+    if (currentActiveSpecialistId) {
+      console.log(
+        `[ChatPaneContext] Active specialist changed to: ${currentActiveSpecialistId}. Loading relevant sidebar chats.`,
+      );
+      loadSidebarChats(currentActiveSpecialistId);
+    }
+  }, [currentActiveSpecialistId, loadSidebarChats]);
+
   // Track if the current chat has been persisted to avoid duplicate saves
   const chatPersistedRef = useRef<boolean>(false);
 
@@ -148,101 +253,84 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
   // Initialize from localStorage after component mounts (client-side)
   useEffect(() => {
     try {
-      // Use RAF to defer state updates to prevent React cycle violations
-      requestAnimationFrame(() => {
+      // Use a single function to load all localStorage values
+      const loadLocalStorageValues = () => {
         const storedPaneState = localStorage.getItem('chat-pane-open');
-        if (storedPaneState !== null) {
-          setIsPaneOpen(storedPaneState === 'true');
-        }
-
-        // Load the specialist ID from localStorage
         const storedSpecialistId = localStorage.getItem(
           'current-active-specialist',
         );
-        if (storedSpecialistId) {
-          setCurrentActiveSpecialistId(storedSpecialistId);
-        }
-
         const storedDocId = localStorage.getItem('chat-active-doc');
-        if (storedDocId) {
-          setActiveDocId(storedDocId);
-        }
-
-        // Load saved chat IDs from localStorage if available
         const storedMainUiChatId = localStorage.getItem('main-ui-chat-id');
-        if (
-          storedMainUiChatId &&
-          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-            storedMainUiChatId,
-          )
-        ) {
-          console.log(
-            `[ChatPaneContext] Restored main UI chat ID from localStorage: ${storedMainUiChatId}`,
-          );
-          setMainUiChatId(storedMainUiChatId);
-        }
-
         const storedGlobalPaneChatId = localStorage.getItem(
           'global-pane-chat-id',
         );
-        if (
-          storedGlobalPaneChatId &&
-          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-            storedGlobalPaneChatId,
-          )
-        ) {
-          console.log(
-            `[ChatPaneContext] Restored global pane chat ID from localStorage: ${storedGlobalPaneChatId}`,
+
+        // Validate UUID format
+        const isValidUuid = (id: string | null) => {
+          return (
+            id &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+              id,
+            )
           );
-          setGlobalPaneChatId(storedGlobalPaneChatId);
-        }
-      });
+        };
+
+        // Create a single state update with all values
+        setChatPaneState((prev) => ({
+          ...prev,
+          isPaneOpen: storedPaneState === 'true' ? true : prev.isPaneOpen,
+          currentActiveSpecialistId:
+            storedSpecialistId || prev.currentActiveSpecialistId,
+          activeDocId: storedDocId || prev.activeDocId,
+          mainUiChatId: isValidUuid(storedMainUiChatId)
+            ? storedMainUiChatId || prev.mainUiChatId
+            : prev.mainUiChatId,
+          globalPaneChatId: isValidUuid(storedGlobalPaneChatId)
+            ? storedGlobalPaneChatId || prev.globalPaneChatId
+            : prev.globalPaneChatId,
+        }));
+      };
+
+      // Use requestAnimationFrame to defer state updates to prevent React cycle violations
+      requestAnimationFrame(loadLocalStorageValues);
     } catch (error) {
       console.error('Error accessing localStorage:', error);
     }
   }, []);
 
-  // Save currentActiveSpecialistId to localStorage when it changes
+  // Combine all localStorage saving effect into a single effect
   useEffect(() => {
     try {
+      // Save all state values to localStorage
+      localStorage.setItem('chat-pane-open', String(isPaneOpen));
       localStorage.setItem(
         'current-active-specialist',
         currentActiveSpecialistId || '',
       );
-      console.log(
-        `[ChatPaneContext] Saved currentActiveSpecialistId to localStorage: ${currentActiveSpecialistId}`,
-      );
-    } catch (error) {
-      console.error(
-        'Error saving currentActiveSpecialistId to localStorage:',
-        error,
-      );
-    }
-  }, [currentActiveSpecialistId]);
-
-  // Save mainUiChatId to localStorage when it changes
-  useEffect(() => {
-    try {
+      localStorage.setItem('chat-active-doc', activeDocId || '');
       localStorage.setItem('main-ui-chat-id', mainUiChatId);
-      console.log(
-        `[ChatPaneContext] Saved mainUiChatId to localStorage: ${mainUiChatId}`,
-      );
-    } catch (error) {
-      console.error('Error saving mainUiChatId to localStorage:', error);
-    }
-  }, [mainUiChatId]);
-
-  // Save globalPaneChatId to localStorage when it changes
-  useEffect(() => {
-    try {
       localStorage.setItem('global-pane-chat-id', globalPaneChatId);
-      console.log(
-        `[ChatPaneContext] Saved globalPaneChatId to localStorage: ${globalPaneChatId}`,
-      );
+
+      // Only log in development for debugging
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[ChatPaneContext] Saved state to localStorage:', {
+          isPaneOpen,
+          currentActiveSpecialistId,
+          activeDocId,
+          mainUiChatId,
+          globalPaneChatId,
+        });
+      }
     } catch (error) {
-      console.error('Error saving globalPaneChatId to localStorage:', error);
+      console.error('Error saving state to localStorage:', error);
     }
-  }, [globalPaneChatId]);
+  }, [
+    isPaneOpen,
+    currentActiveSpecialistId,
+    activeDocId,
+    mainUiChatId,
+    globalPaneChatId,
+  ]);
 
   const baseState = useChat({
     id: mainUiChatId, // Use the main UI chat ID for the primary useChat instance
@@ -353,41 +441,6 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     [baseState, submitMessage],
   );
 
-  const contextValue = useMemo(
-    () => ({
-      chatState,
-      isPaneOpen,
-      setIsPaneOpen,
-      currentActiveSpecialistId,
-      setCurrentActiveSpecialistId,
-      activeDocId,
-      setActiveDocId,
-      submitMessage,
-      streamedContentMap,
-      lastStreamUpdateTs,
-      mainUiChatId,
-      setMainUiChatId,
-      globalPaneChatId,
-      setGlobalPaneChatId,
-      ensureValidChatId,
-    }),
-    [
-      chatState,
-      isPaneOpen,
-      setIsPaneOpen,
-      currentActiveSpecialistId,
-      activeDocId,
-      submitMessage,
-      streamedContentMap,
-      lastStreamUpdateTs,
-      mainUiChatId,
-      setMainUiChatId,
-      globalPaneChatId,
-      setGlobalPaneChatId,
-      ensureValidChatId,
-    ],
-  );
-
   // Add a useEffect to detect document updates in chat messages
   useEffect(() => {
     const currentActiveDocId = activeDocId;
@@ -454,6 +507,63 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       });
     }
   }, [activeDocId, streamedContentMap]);
+
+  // Return memoized context value to prevent unnecessary re-renders
+  const contextValue = useMemo(
+    () => ({
+      chatState: {
+        ...baseState,
+        handleSubmit: submitMessage,
+      },
+      isPaneOpen,
+      setIsPaneOpen,
+      currentActiveSpecialistId,
+      setCurrentActiveSpecialistId,
+      activeDocId,
+      setActiveDocId,
+      submitMessage,
+      streamedContentMap,
+      lastStreamUpdateTs,
+      mainUiChatId,
+      setMainUiChatId,
+      globalPaneChatId,
+      setGlobalPaneChatId,
+      ensureValidChatId,
+
+      // New properties for chat history management
+      sidebarChats,
+      isLoadingSidebarChats,
+      loadSidebarChats,
+      globalChats,
+      isLoadingGlobalChats,
+      loadGlobalChats,
+    }),
+    [
+      baseState,
+      submitMessage,
+      isPaneOpen,
+      setIsPaneOpen,
+      currentActiveSpecialistId,
+      setCurrentActiveSpecialistId,
+      activeDocId,
+      setActiveDocId,
+      streamedContentMap,
+      lastStreamUpdateTs,
+      mainUiChatId,
+      setMainUiChatId,
+      globalPaneChatId,
+      setGlobalPaneChatId,
+      ensureValidChatId,
+
+      // New dependencies
+      sidebarChats,
+      isLoadingSidebarChats,
+      loadSidebarChats,
+      globalChats,
+      isLoadingGlobalChats,
+      loadGlobalChats,
+    ],
+  );
 
   return (
     <ChatPaneContext.Provider value={contextValue}>
