@@ -63,37 +63,67 @@ export function GlobalChatHistoryDropdown() {
     loadGlobalChats();
   }, [loadGlobalChats]);
 
-  // STRICT filtering for orchestrator chats ONLY - already done in context, but double-check here
+  // Add detailed logging for incoming chats before filtering
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development' && globalChats.length > 0) {
+      console.log(
+        '[GlobalChatHistoryDropdown] Raw chat data before filtering:',
+      );
+      globalChats.forEach((chat, index) => {
+        console.log(`Chat ${index + 1}: ID=${chat.id}, Title=${chat.title}`);
+      });
+    }
+  }, [globalChats]);
+
+  // LESS STRICT filtering for orchestrator chats
   const chatOptions = globalChats.filter((chat) => {
-    // Skip chats without titles
-    if (!chat.title) return false;
+    // Always include chats without titles for safety
+    if (!chat.title) return true;
 
     const title = chat.title.toLowerCase();
 
-    // ONLY include chats that are DEFINITELY from the global orchestrator
-    const isOrchestratorChat =
-      title.includes('quibit') ||
-      title.includes('orchestrator') ||
-      title.includes('global');
-
-    // Skip chats that explicitly mention specialists
-    const containsSpecialistReferences =
-      title.includes('echo tango') || title.includes('specialist');
-
-    // For debugging in development only
-    if (process.env.NODE_ENV === 'development' && isOrchestratorChat) {
+    // DEBUG: Log each title being processed
+    if (process.env.NODE_ENV === 'development') {
       console.log(
-        `[GlobalChatHistoryDropdown] Including orchestrator chat: "${chat.title}"`,
+        `[GlobalChatHistoryDropdown] Processing chat title: "${title}"`,
       );
     }
 
-    // Return true ONLY for orchestrator chats that don't have specialist references
-    return isOrchestratorChat && !containsSpecialistReferences;
+    // Less strict criteria for orchestrator chats - include more possibilities
+    const isLikelyOrchestratorChat =
+      title.includes('quibit') ||
+      title.includes('orchestrator') ||
+      title.includes('global') ||
+      title.includes('ai assistant') ||
+      title.includes('chat assistant') ||
+      title.includes('conversation') ||
+      !title.includes('echo tango'); // Assume it's orchestrator if not explicitly Echo Tango
+
+    // Skip chats that explicitly mention specialists
+    const containsSpecialistReferences =
+      title.includes('echo tango') ||
+      (title.includes('specialist') && !title.includes('quibit'));
+
+    // For debugging in development only
+    if (process.env.NODE_ENV === 'development' && isLikelyOrchestratorChat) {
+      console.log(
+        `[GlobalChatHistoryDropdown] Including likely orchestrator chat: "${chat.title}"`,
+      );
+    }
+
+    // Return true for chats that are likely from orchestrator
+    // and don't have explicit specialist references
+    return isLikelyOrchestratorChat && !containsSpecialistReferences;
   });
 
   // Debug filtered orchestrator chats
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
+      console.log(
+        '[GlobalChatHistoryDropdown] Total chats after filtering:',
+        chatOptions.length,
+      );
+
       if (chatOptions.length > 0) {
         console.log(
           '[GlobalChatHistoryDropdown] Filtered orchestrator chats:',

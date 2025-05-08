@@ -80,7 +80,7 @@ const groupChatsByDate = (chats: Chat[] | ChatSummary[]): GroupedChats => {
   );
 };
 
-// Update the separateChatsByType function with more strict filtering
+// Update the separateChatsByType function with more logging and less strict filtering
 const separateChatsByType = (chats: Chat[]): GroupedChats => {
   // Only include non-orchestrator chats (Chat Bit conversations) in the sidebar
   if (process.env.NODE_ENV === 'development') {
@@ -88,29 +88,34 @@ const separateChatsByType = (chats: Chat[]): GroupedChats => {
   }
 
   const chatBitChats = chats.filter((chat) => {
-    // Skip chats without titles - consider them Chat Bit chats
+    // Always include chats without titles
     if (!chat.title) return true;
 
     const title = chat.title.toLowerCase();
 
     // Check if this is an orchestrator chat (should be excluded from sidebar)
+    // Less strict orchestrator detection - look for clear indicators
     const isOrchestratorChat =
-      title.includes('quibit') ||
+      (title.includes('quibit') && !title.includes('specialist')) ||
       title.includes('orchestrator') ||
       title.includes('global');
 
     // Check if this is likely a Chat Bit chat
     const isChatBitChat =
-      title.includes('echo tango') || title.includes('specialist');
+      title.includes('echo tango') ||
+      title.includes('specialist') ||
+      !isOrchestratorChat; // If not clearly an orchestrator chat, include it
 
     // For debugging in development only
-    if (process.env.NODE_ENV === 'development' && isOrchestratorChat) {
-      console.log(
-        `[SidebarHistory] Filtering out orchestrator chat: "${chat.title}"`,
-      );
+    if (process.env.NODE_ENV === 'development') {
+      if (isOrchestratorChat) {
+        console.log(
+          `[SidebarHistory] Filtering out orchestrator chat: "${chat.title}"`,
+        );
+      }
     }
 
-    // Return true ONLY for non-orchestrator chats
+    // Return true for non-orchestrator chats (show them in sidebar)
     return !isOrchestratorChat;
   });
 

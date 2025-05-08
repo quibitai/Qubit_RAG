@@ -2,36 +2,24 @@
 
 import React, { useEffect, useState } from 'react';
 import { useChatPane } from '@/context/ChatPaneContext';
-import { cn, generateUUID } from '@/lib/utils';
+import { generateUUID } from '@/lib/utils';
 import { PreviewMessage, ThinkingMessage } from './message';
 import { useScrollToBottom } from './use-scroll-to-bottom';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
-import {
-  Send,
-  Paperclip,
-  Square,
-  ChevronDown,
-  CheckIcon,
-  ArrowUp,
-  Plus,
-  Loader,
-} from 'lucide-react';
+import { Square, ArrowUp, Plus, Loader } from 'lucide-react';
 import useSWR from 'swr';
 import { fetcher } from '@/lib/utils';
-import type { Vote, DBMessage } from '@/lib/db/schema';
+import type { Vote } from '@/lib/db/schema';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { chatModels } from '@/lib/ai/models';
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { createChatAndSaveFirstMessages } from '../app/(chat)/actions';
 import { toast } from 'sonner';
 import { useChat } from 'ai/react';
-import { GlobalChatHistoryCombobox } from './GlobalChatHistoryCombobox';
 import { useSWRConfig } from 'swr';
 import { unstable_serialize } from 'swr/infinite';
 import { getChatHistoryPaginationKey } from './sidebar-history';

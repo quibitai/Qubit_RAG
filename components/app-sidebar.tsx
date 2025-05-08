@@ -20,7 +20,7 @@ import Link from 'next/link';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { LayoutGrid, PanelLeft, FileEdit, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { memo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 
 // Memoize the sidebar toggle button to prevent unnecessary re-renders
 const SidebarToggleButton = memo(
@@ -105,88 +105,144 @@ const NavLink = memo(
 );
 NavLink.displayName = 'NavLink';
 
-export function AppSidebar({ user }: { user: User | undefined }) {
+// Create a memoized sidebar history component to prevent render cycles
+const MemoizedSidebarHistory = memo(SidebarHistory);
+
+// Create a memoized sidebar user nav component
+const MemoizedSidebarUserNav = memo(SidebarUserNav);
+
+// Memoize the header content to prevent unnecessary re-renders
+const SidebarHeaderContent = memo(
+  ({
+    state,
+    setOpenMobile,
+    toggleSidebar,
+    isDashboardActive,
+    isChatActive,
+    isEditorActive,
+  }: {
+    state: 'expanded' | 'collapsed';
+    setOpenMobile: (open: boolean) => void;
+    toggleSidebar: () => void;
+    isDashboardActive: boolean;
+    isChatActive: boolean;
+    isEditorActive: boolean;
+  }) => (
+    <SidebarMenu>
+      <div className="flex flex-row justify-between items-center">
+        <Link
+          href="/"
+          onClick={() => {
+            setOpenMobile(false);
+          }}
+          className="flex flex-row gap-3 items-center"
+        >
+          {state === 'expanded' && (
+            <span className="text-lg font-semibold px-2 hover:bg-muted rounded-md cursor-pointer">
+              {/* Empty span, previously had "Chatbot" text */}
+            </span>
+          )}
+        </Link>
+        <SidebarToggleButton toggleSidebar={toggleSidebar} />
+      </div>
+
+      <NavLink
+        href="/dashboard"
+        setOpenMobile={setOpenMobile}
+        isActive={isDashboardActive}
+        icon={LayoutGrid}
+        label="Dashboard"
+        sidebarState={state}
+      />
+
+      {/* Bits Section */}
+      {state === 'expanded' && (
+        <div className="mt-6 px-2">
+          <div className="text-xs font-semibold text-muted-foreground mb-2 px-2">
+            Bits
+          </div>
+        </div>
+      )}
+
+      {/* Chat Bit */}
+      <div className="mt-2">
+        <NavLink
+          href="/"
+          setOpenMobile={setOpenMobile}
+          isActive={isChatActive}
+          icon={MessageSquare}
+          label="Chat Bit"
+          sidebarState={state}
+        />
+      </div>
+
+      {/* Document Bit */}
+      <div className="mt-2">
+        <NavLink
+          href="/editor/new"
+          setOpenMobile={setOpenMobile}
+          isActive={isEditorActive}
+          icon={FileEdit}
+          label="Document Bit"
+          sidebarState={state}
+        />
+      </div>
+    </SidebarMenu>
+  ),
+);
+SidebarHeaderContent.displayName = 'SidebarHeaderContent';
+
+export const AppSidebar = memo(function AppSidebar({
+  user,
+}: {
+  user: User | undefined;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const { setOpenMobile, state, toggleSidebar } = useSidebar();
 
-  const isDashboardActive = pathname === '/dashboard';
-  const isEditorActive = pathname.startsWith('/editor');
-  const isChatActive = pathname === '/' || pathname.startsWith('/chat');
+  // Memoize the active state calculations to prevent unnecessary recalculations
+  const activeStates = useMemo(() => {
+    const isDashboardActive = pathname === '/dashboard';
+    const isEditorActive = pathname.startsWith('/editor');
+    const isChatActive = pathname === '/' || pathname.startsWith('/chat');
+
+    return {
+      isDashboardActive,
+      isEditorActive,
+      isChatActive,
+    };
+  }, [pathname]);
+
+  // Create a memoized callback for setOpenMobile to prevent unnecessary re-renders
+  const handleSetOpenMobile = useCallback(
+    (open: boolean) => {
+      setOpenMobile(open);
+    },
+    [setOpenMobile],
+  );
 
   return (
     <Sidebar collapsible="icon" className="group-data-[side=left]:border-r-0">
       <SidebarHeader>
-        <SidebarMenu>
-          <div className="flex flex-row justify-between items-center">
-            <Link
-              href="/"
-              onClick={() => {
-                setOpenMobile(false);
-              }}
-              className="flex flex-row gap-3 items-center"
-            >
-              {state === 'expanded' && (
-                <span className="text-lg font-semibold px-2 hover:bg-muted rounded-md cursor-pointer">
-                  {/* Empty span, previously had "Chatbot" text */}
-                </span>
-              )}
-            </Link>
-            <SidebarToggleButton toggleSidebar={toggleSidebar} />
-          </div>
-
-          <NavLink
-            href="/dashboard"
-            setOpenMobile={setOpenMobile}
-            isActive={isDashboardActive}
-            icon={LayoutGrid}
-            label="Dashboard"
-            sidebarState={state}
-          />
-
-          {/* Bits Section */}
-          {state === 'expanded' && (
-            <div className="mt-6 px-2">
-              <div className="text-xs font-semibold text-muted-foreground mb-2 px-2">
-                Bits
-              </div>
-            </div>
-          )}
-
-          {/* Chat Bit */}
-          <div className="mt-2">
-            <NavLink
-              href="/"
-              setOpenMobile={setOpenMobile}
-              isActive={isChatActive}
-              icon={MessageSquare}
-              label="Chat Bit"
-              sidebarState={state}
-            />
-          </div>
-
-          {/* Document Bit */}
-          <div className="mt-2">
-            <NavLink
-              href="/editor/new"
-              setOpenMobile={setOpenMobile}
-              isActive={isEditorActive}
-              icon={FileEdit}
-              label="Document Bit"
-              sidebarState={state}
-            />
-          </div>
-        </SidebarMenu>
+        <SidebarHeaderContent
+          state={state}
+          setOpenMobile={handleSetOpenMobile}
+          toggleSidebar={toggleSidebar}
+          isDashboardActive={activeStates.isDashboardActive}
+          isChatActive={activeStates.isChatActive}
+          isEditorActive={activeStates.isEditorActive}
+        />
       </SidebarHeader>
       {state === 'expanded' && (
         <SidebarContent>
-          <SidebarHistory user={user} />
+          <MemoizedSidebarHistory user={user} />
         </SidebarContent>
       )}
       <SidebarFooter className="mt-auto">
-        {user && <SidebarUserNav user={user} />}
+        {user && <MemoizedSidebarUserNav user={user} />}
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );
-}
+});

@@ -162,3 +162,30 @@
 .suggestion-highlight {
     @apply bg-blue-200 hover:bg-blue-300 dark:hover:bg-blue-400/50 dark:text-blue-50 dark:bg-blue-500/40;
 }
+
+/* Remove bullet points from sidebar items */
+.sidebar-list li,
+.sidebar-list ul {
+  list-style-type: none !important;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar-list li::before,
+.sidebar-list li::marker {
+  display: none !important;
+  content: none !important;
+}
+
+/* Compact sidebar styling */
+.compact-sidebar-group {
+  margin-bottom: 0 !important;
+}
+
+.compact-sidebar-group + .compact-sidebar-group {
+  margin-top: 0 !important;
+}
+
+.space-y-0\.5 > * + * {
+  margin-top: 0.125rem !important;
+}

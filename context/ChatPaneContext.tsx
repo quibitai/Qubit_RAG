@@ -183,6 +183,29 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
         `[ChatPaneContext] Fetching sidebar chats for bitContextId: ${bitContextId}`,
       );
       try {
+        // Improved authentication check that matches various NextAuth cookie patterns
+        const isAuthenticated = document.cookie
+          .split(';')
+          .some(
+            (cookie) =>
+              cookie.trim().startsWith('next-auth.session-token=') ||
+              cookie.trim().startsWith('__Secure-next-auth.session-token=') ||
+              cookie.trim().startsWith('.auth.') ||
+              cookie.trim().startsWith('__Secure-authjs.session-token='),
+          );
+
+        console.log(
+          `[ChatPaneContext] Authentication check for sidebar chats: ${isAuthenticated}`,
+        );
+
+        if (!isAuthenticated) {
+          console.log(
+            '[ChatPaneContext] Not authenticated, skipping sidebar chats fetch',
+          );
+          setSidebarChats([]);
+          return;
+        }
+
         // Construct URL with query parameters
         const params = new URLSearchParams();
         params.append('type', 'sidebar');
@@ -195,6 +218,15 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
         const response = await fetch(`/api/history?${params.toString()}`);
 
         if (!response.ok) {
+          // Handle authentication redirects specifically
+          if (response.status === 307 || response.status === 401) {
+            console.log(
+              '[ChatPaneContext] Authentication required for history API',
+            );
+            setSidebarChats([]);
+            return;
+          }
+
           const errorData = await response.json().catch(() => ({})); // Try to parse error details
           console.error(
             `[ChatPaneContext] Error fetching sidebar chats (${response.status}):`,
@@ -214,7 +246,6 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       } catch (error) {
         console.error('[ChatPaneContext] Failed to load sidebar chats:', error);
         setSidebarChats([]); // Clear chats on error
-        toast.error('Failed to load chat history');
       } finally {
         setIsLoadingSidebarChats(false);
       }
@@ -229,6 +260,52 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     setIsLoadingGlobalChats(true);
     console.log('[ChatPaneContext] Fetching global chats');
     try {
+      // Improved authentication check that matches various NextAuth cookie patterns
+      const isAuthenticated = document.cookie
+        .split(';')
+        .some(
+          (cookie) =>
+            cookie.trim().startsWith('next-auth.session-token=') ||
+            cookie.trim().startsWith('__Secure-next-auth.session-token=') ||
+            cookie.trim().startsWith('.auth.') ||
+            cookie.trim().startsWith('__Secure-authjs.session-token='),
+        );
+
+      console.log(
+        `[ChatPaneContext] Authentication check for global chats: ${isAuthenticated}`,
+      );
+
+      // Also try a direct API request to verify authentication if cookie check fails
+      if (!isAuthenticated) {
+        try {
+          const sessionResponse = await fetch('/api/auth/session');
+          const isSessionValid = sessionResponse.status === 200;
+          console.log(
+            `[ChatPaneContext] Session API check result: ${isSessionValid}`,
+          );
+
+          if (!isSessionValid) {
+            console.log(
+              '[ChatPaneContext] Not authenticated, skipping global chats fetch',
+            );
+            setGlobalChats([]);
+            return;
+          }
+        } catch (sessionError) {
+          console.log(
+            '[ChatPaneContext] Error checking session API, falling back to cookie check',
+          );
+
+          if (!isAuthenticated) {
+            console.log(
+              '[ChatPaneContext] Not authenticated via cookies either, skipping global chats fetch',
+            );
+            setGlobalChats([]);
+            return;
+          }
+        }
+      }
+
       const params = new URLSearchParams();
       params.append('type', 'global');
       params.append('limit', '50'); // Adjust limit as needed
@@ -236,6 +313,15 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       const response = await fetch(`/api/history?${params.toString()}`);
 
       if (!response.ok) {
+        // Handle authentication redirects specifically
+        if (response.status === 307 || response.status === 401) {
+          console.log(
+            '[ChatPaneContext] Authentication required for history API',
+          );
+          setGlobalChats([]);
+          return;
+        }
+
         const errorData = await response.json().catch(() => ({})); // Try to parse error details
         console.error(
           `[ChatPaneContext] Error fetching global chats (${response.status}):`,

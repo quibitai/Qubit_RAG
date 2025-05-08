@@ -49,8 +49,7 @@ const PureChatItem = ({
   // Get the setCurrentActiveSpecialistId function from ChatPaneContext
   const { setCurrentActiveSpecialistId } = useChatPane();
 
-  // Determine which icon to show based on the type
-  const ItemIcon = itemType === 'document' ? FileEdit : MessageSquare;
+  // Path determination without needing an icon
   const itemPath =
     itemType === 'document' ? `/editor/${chat.id}` : `/chat/${chat.id}`;
 
@@ -69,8 +68,8 @@ const PureChatItem = ({
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={isActive}>
         <Link href={itemPath} onClick={handleNavigation}>
-          <div className="flex items-center gap-2 w-full overflow-hidden">
-            <ItemIcon size={14} className="flex-shrink-0" />
+          <div className="flex items-center w-full overflow-hidden">
+            {/* Icon removed as requested */}
             <span className="truncate overflow-hidden text-ellipsis whitespace-nowrap">
               {chat.title}
             </span>
