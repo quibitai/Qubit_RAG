@@ -11,6 +11,8 @@ import {
   inArray,
   lt,
   type SQL,
+  or,
+  isNull,
 } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
@@ -30,6 +32,7 @@ import {
   type Client,
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
+import { ChatSummary } from '@/lib/types';
 
 // Optionally, if not using email/pass login, you can
 // use the Drizzle adapter for Auth.js / NextAuth
@@ -792,5 +795,113 @@ export async function getDocumentsByUserId({
   } catch (error) {
     console.error('Failed to get documents by user id from database');
     throw error;
+  }
+}
+
+interface GetChatSummariesParams {
+  userId: string;
+  clientId: string;
+  historyType: 'sidebar' | 'global' | null;
+  bitContextId?: string | null;
+  page: number;
+  limit: number;
+}
+
+/**
+ * Fetch chat summaries for display in the UI, with support for pagination and filtering
+ * by history type (sidebar or global) and bitContextId.
+ */
+export async function getChatSummaries({
+  userId,
+  clientId,
+  historyType,
+  bitContextId,
+  page,
+  limit,
+}: GetChatSummariesParams): Promise<ChatSummary[]> {
+  console.log(
+    `[DB getChatSummaries] Params: userId=${userId}, clientId=${clientId}, type=${historyType}, bitContextId=${bitContextId}, page=${page}, limit=${limit}`,
+  );
+
+  const offset = (page - 1) * limit;
+
+  try {
+    // Define base conditions
+    const baseConditions = [
+      eq(chat.userId, userId),
+      eq(chat.clientId, clientId),
+    ];
+
+    // Define specific filters based on historyType
+    let specificFilter: SQL<unknown> | undefined;
+    if (historyType === 'sidebar' && bitContextId) {
+      console.log(
+        `[DB getChatSummaries] Filtering for sidebar, bitContextId: ${bitContextId}`,
+      );
+
+      // For sidebar, we need chats that match the specific bitContextId
+      specificFilter = eq(chat.bitContextId, bitContextId);
+    } else if (historyType === 'global') {
+      console.log(`[DB getChatSummaries] Filtering for global chats.`);
+
+      // Global chats are where bitContextId is NULL/empty OR equals a reserved value like "global-orchestrator"
+      specificFilter = or(
+        isNull(chat.bitContextId),
+        eq(chat.bitContextId, ''), // Handle empty string if that's a possibility
+        eq(chat.bitContextId, 'global-orchestrator'), // Handle reserved value
+      );
+    }
+    // If no specific type, or type is null, fetch all chats for the user
+
+    // Combine conditions
+    const combinedConditions = specificFilter
+      ? and(...baseConditions, specificFilter)
+      : and(...baseConditions);
+
+    // Fetch chats with most recent messages in a single query
+    // This is a simpler approach without complex joins for the lastMessageSnippet
+    const chats = await db
+      .select({
+        id: chat.id,
+        title: chat.title,
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt,
+        bitContextId: chat.bitContextId,
+        visibility: chat.visibility,
+      })
+      .from(chat)
+      .where(combinedConditions)
+      .orderBy(desc(chat.updatedAt || chat.createdAt)) // Use updatedAt if available, otherwise fallback to createdAt
+      .limit(limit)
+      .offset(offset);
+
+    console.log(`[DB getChatSummaries] Found ${chats.length} chat summaries.`);
+
+    // Transform database results to ChatSummary objects
+    const chatSummaries: ChatSummary[] = chats.map((chat) => ({
+      id: chat.id,
+      title: chat.title || 'Untitled Chat',
+      lastMessageTimestamp: chat.updatedAt || chat.createdAt,
+      lastMessageSnippet: undefined, // We'll implement this in a separate step if needed
+      bitContextId: chat.bitContextId,
+      isGlobal:
+        !chat.bitContextId ||
+        chat.bitContextId === '' ||
+        chat.bitContextId === 'global-orchestrator',
+      createdAt: chat.createdAt,
+      updatedAt: chat.updatedAt || chat.createdAt, // Fallback to createdAt if updatedAt isn't available
+      visibility: chat.visibility,
+      pinnedStatus: false, // Default to false until we implement pinning
+    }));
+
+    return chatSummaries;
+  } catch (error) {
+    console.error(
+      '[DB getChatSummaries] Error fetching chat summaries:',
+      error,
+    );
+    throw new Error(
+      `Failed to fetch chat summaries: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    );
   }
 }

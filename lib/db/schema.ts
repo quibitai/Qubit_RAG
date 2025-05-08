@@ -39,6 +39,7 @@ export type User = InferSelectModel<typeof user>;
 export const chat = pgTable('Chat', {
   id: uuid('id').primaryKey().notNull().defaultRandom(),
   createdAt: timestamp('createdAt').notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().notNull(),
   title: text('title').notNull(),
   userId: uuid('userId')
     .notNull()
@@ -49,6 +50,7 @@ export const chat = pgTable('Chat', {
   clientId: text('client_id')
     .notNull()
     .references(() => clients.id),
+  bitContextId: text('bitContextId'), // Add bitContextId field (nullable)
 });
 
 export type Chat = InferSelectModel<typeof chat>;
