@@ -3,7 +3,7 @@
 import { isToday, isYesterday, subMonths, subWeeks } from 'date-fns';
 import { useParams, useRouter, usePathname } from 'next/navigation';
 import type { User } from 'next-auth';
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef, memo } from 'react';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import {
@@ -36,28 +36,18 @@ import {
 import { deleteChat } from '@/app/(chat)/actions';
 import { useTransition } from 'react';
 import { useChatPane } from '@/context/ChatPaneContext';
-
-type GroupedChats = {
-  today: Chat[];
-  yesterday: Chat[];
-  lastWeek: Chat[];
-  lastMonth: Chat[];
-  older: Chat[];
-};
-
-export interface ChatHistory {
-  chats: Array<Chat>;
-  hasMore: boolean;
-}
-
-export interface DocumentHistory {
-  documents: Array<Document>;
-  hasMore: boolean;
-}
+import {
+  GroupedChats,
+  ChatHistory,
+  DocumentHistory,
+  ExpandedSections,
+  type ChatSummary,
+} from '@/lib/types';
 
 const PAGE_SIZE = 20;
 
-const groupChatsByDate = (chats: Chat[]): GroupedChats => {
+// Compute the grouped documents
+const groupChatsByDate = (chats: Chat[] | ChatSummary[]): GroupedChats => {
   const now = new Date();
   const oneWeekAgo = subWeeks(now, 1);
   const oneMonthAgo = subMonths(now, 1);
@@ -67,15 +57,15 @@ const groupChatsByDate = (chats: Chat[]): GroupedChats => {
       const chatDate = new Date(chat.createdAt);
 
       if (isToday(chatDate)) {
-        groups.today.push(chat);
+        groups.today.push(chat as Chat);
       } else if (isYesterday(chatDate)) {
-        groups.yesterday.push(chat);
+        groups.yesterday.push(chat as Chat);
       } else if (chatDate > oneWeekAgo) {
-        groups.lastWeek.push(chat);
+        groups.lastWeek.push(chat as Chat);
       } else if (chatDate > oneMonthAgo) {
-        groups.lastMonth.push(chat);
+        groups.lastMonth.push(chat as Chat);
       } else {
-        groups.older.push(chat);
+        groups.older.push(chat as Chat);
       }
 
       return groups;
@@ -173,32 +163,201 @@ export function getDocumentHistoryPaginationKey(
   return `/api/documents-history?ending_before=${firstDocFromPage.id}&limit=${PAGE_SIZE}`;
 }
 
-export function SidebarHistory({ user }: { user: User | undefined }) {
+// Memoize the DaySection component to prevent unnecessary re-renders
+const DaySection = memo(
+  ({
+    day,
+    title,
+    chats,
+    isExpanded,
+    isCountExpanded,
+    onToggleExpansion,
+    onToggleCountExpansion,
+    onDelete,
+    setOpenMobile,
+    currentChatId,
+  }: {
+    day: keyof GroupedChats;
+    title: string;
+    chats: Chat[];
+    isExpanded: boolean;
+    isCountExpanded: boolean;
+    onToggleExpansion: (day: keyof GroupedChats) => void;
+    onToggleCountExpansion: (day: keyof GroupedChats) => void;
+    onDelete: (chatId: string) => void;
+    setOpenMobile: (open: boolean) => void;
+    currentChatId: string | undefined;
+  }) => {
+    // Skip rendering if there are no chats for this day
+    if (chats.length === 0) return null;
+
+    const MAX_INITIAL_CHATS = 5;
+    const visibleChats = isCountExpanded
+      ? chats
+      : chats.slice(0, MAX_INITIAL_CHATS);
+    const hasMoreChats = chats.length > MAX_INITIAL_CHATS;
+
+    const handleToggle = useCallback(() => {
+      onToggleExpansion(day);
+    }, [day, onToggleExpansion]);
+
+    const handleToggleCount = useCallback(() => {
+      onToggleCountExpansion(day);
+    }, [day, onToggleCountExpansion]);
+
+    return (
+      <SidebarGroup className="compact-sidebar-group">
+        <div
+          className="flex items-center justify-between px-2 py-0.5 text-xs font-medium text-muted-foreground cursor-pointer hover:text-primary hover:bg-muted/30 rounded-md"
+          onClick={handleToggle}
+        >
+          <div className="flex items-center gap-1">
+            {isExpanded ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
+            <span>{title}</span>
+            <span className="text-muted-foreground ml-1">({chats.length})</span>
+          </div>
+        </div>
+        {isExpanded && (
+          <SidebarGroupContent className="py-0.5">
+            {visibleChats.map((chat) => (
+              <ChatItem
+                key={chat.id}
+                chat={chat}
+                isActive={chat.id === currentChatId}
+                onDelete={onDelete}
+                setOpenMobile={setOpenMobile}
+              />
+            ))}
+            {hasMoreChats && (
+              <div
+                className="px-2 py-0.5 text-xs text-muted-foreground hover:text-primary cursor-pointer"
+                onClick={handleToggleCount}
+              >
+                {isCountExpanded
+                  ? 'Show less...'
+                  : `Show ${chats.length - MAX_INITIAL_CHATS} more...`}
+              </div>
+            )}
+          </SidebarGroupContent>
+        )}
+      </SidebarGroup>
+    );
+  },
+);
+DaySection.displayName = 'DaySection';
+
+// Memoize the DocumentDaySection component similarly
+const DocumentDaySection = memo(
+  ({
+    day,
+    title,
+    documents,
+    isExpanded,
+    isCountExpanded,
+    onToggleExpansion,
+    onToggleCountExpansion,
+    onDelete,
+    setOpenMobile,
+    currentDocId,
+  }: {
+    day: keyof GroupedChats;
+    title: string;
+    documents: Document[];
+    isExpanded: boolean;
+    isCountExpanded: boolean;
+    onToggleExpansion: (day: keyof GroupedChats) => void;
+    onToggleCountExpansion: (day: keyof GroupedChats) => void;
+    onDelete: (docId: string) => void;
+    setOpenMobile: (open: boolean) => void;
+    currentDocId: string | undefined;
+  }) => {
+    // Skip rendering if there are no documents for this day
+    if (documents.length === 0) return null;
+
+    const MAX_INITIAL_DOCS = 5;
+    const visibleDocs = isCountExpanded
+      ? documents
+      : documents.slice(0, MAX_INITIAL_DOCS);
+    const hasMoreDocs = documents.length > MAX_INITIAL_DOCS;
+
+    const handleToggle = useCallback(() => {
+      onToggleExpansion(day);
+    }, [day, onToggleExpansion]);
+
+    const handleToggleCount = useCallback(() => {
+      onToggleCountExpansion(day);
+    }, [day, onToggleCountExpansion]);
+
+    return (
+      <SidebarGroup className="compact-sidebar-group">
+        <div
+          className="flex items-center justify-between px-2 py-0.5 text-xs font-medium text-muted-foreground cursor-pointer hover:text-primary hover:bg-muted/30 rounded-md"
+          onClick={handleToggle}
+        >
+          <div className="flex items-center gap-1">
+            {isExpanded ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
+            <span>{title}</span>
+            <span className="text-muted-foreground ml-1">
+              ({documents.length})
+            </span>
+          </div>
+        </div>
+        {isExpanded && (
+          <SidebarGroupContent className="py-0.5">
+            {visibleDocs.map((doc) => (
+              <ChatItem
+                key={doc.id}
+                chat={doc as unknown as Chat}
+                isActive={doc.id === currentDocId}
+                onDelete={onDelete}
+                setOpenMobile={setOpenMobile}
+                itemType="document"
+              />
+            ))}
+            {hasMoreDocs && (
+              <div
+                className="px-2 py-0.5 text-xs text-muted-foreground hover:text-primary cursor-pointer"
+                onClick={handleToggleCount}
+              >
+                {isCountExpanded
+                  ? 'Show less...'
+                  : `Show ${documents.length - MAX_INITIAL_DOCS} more...`}
+              </div>
+            )}
+          </SidebarGroupContent>
+        )}
+      </SidebarGroup>
+    );
+  },
+);
+DocumentDaySection.displayName = 'DocumentDaySection';
+
+// Use memo to optimize the entire SidebarHistory component
+export const SidebarHistory = memo(function SidebarHistory({
+  user,
+}: {
+  user: User | undefined;
+}) {
   const { setOpenMobile } = useSidebar();
   const { id: chatId } = useParams();
   const router = useRouter();
   const pathname = usePathname();
   const isOnEditorPage = pathname?.startsWith('/editor') || false;
-  const currentDocId = isOnEditorPage ? chatId : undefined;
-  const { currentActiveSpecialistId } = useChatPane();
-
-  // Chat History fetching
+  const currentDocId = isOnEditorPage ? (chatId as string) : undefined;
   const {
-    data: paginatedChatHistories,
-    setSize: setChatSize,
-    isValidating: isChatValidating,
-    isLoading: isChatLoading,
-    mutate: mutateChatHistory,
-  } = useSWRInfinite<ChatHistory>(getChatHistoryPaginationKey, fetcher, {
-    fallbackData: [],
-    revalidateOnFocus: true,
-    revalidateOnMount: true,
-    dedupingInterval: 20000, // Increase to 20 seconds to prevent excessive refreshes
-    refreshInterval: 60000, // Refresh every 60 seconds (less frequent)
-    refreshWhenHidden: false, // Don't refresh when tab is not visible
-    revalidateIfStale: true,
-    loadingTimeout: 3000, // Only show loading state if it takes more than 3 seconds
-  });
+    currentActiveSpecialistId,
+    sidebarChats,
+    isLoadingSidebarChats,
+    loadSidebarChats,
+  } = useChatPane();
 
   // Document History fetching
   const {
@@ -300,61 +459,20 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
     [],
   );
 
-  // Compute the grouped chats, now filtering for Chat Bit conversations only
+  // Compute the grouped chats using the filtered sidebarChats from context
   const groupedChats = useMemo(() => {
-    if (!paginatedChatHistories) return null;
-
-    const chatsFromHistory = paginatedChatHistories.flatMap(
-      (paginatedChatHistory) => paginatedChatHistory.chats,
-    );
+    if (!sidebarChats || sidebarChats.length === 0) return null;
 
     if (process.env.NODE_ENV === 'development') {
       console.log(
-        '[SidebarHistory] Processing total chat count:',
-        chatsFromHistory.length,
+        '[SidebarHistory] Processing sidebar chats from context:',
+        sidebarChats.length,
       );
     }
 
-    // Filter and group chats
-    return separateChatsByType(chatsFromHistory);
-  }, [paginatedChatHistories]);
-
-  // Modify the hasEmptyChatHistory to use the new groupedChats structure
-  const hasEmptyChatHistory = useMemo(() => {
-    if (!groupedChats) return true;
-
-    return (
-      groupedChats.today.length === 0 &&
-      groupedChats.yesterday.length === 0 &&
-      groupedChats.lastWeek.length === 0 &&
-      groupedChats.lastMonth.length === 0 &&
-      groupedChats.older.length === 0
-    );
-  }, [groupedChats]);
-
-  // Compute if we've reached the end of chat pagination
-  const hasReachedChatEnd = useMemo(() => {
-    if (!paginatedChatHistories || paginatedChatHistories.length === 0)
-      return false;
-    const lastPage = paginatedChatHistories[paginatedChatHistories.length - 1];
-    return lastPage && lastPage.hasMore === false;
-  }, [paginatedChatHistories]);
-
-  // Fix issue with empty document history and document end checks
-  const hasReachedDocEnd = useMemo(() => {
-    if (!paginatedDocumentHistories || paginatedDocumentHistories.length === 0)
-      return false;
-    const lastPage =
-      paginatedDocumentHistories[paginatedDocumentHistories.length - 1];
-    return lastPage && lastPage.hasMore === false;
-  }, [paginatedDocumentHistories]);
-
-  const hasEmptyDocHistory = useMemo(() => {
-    if (!paginatedDocumentHistories) return true;
-    return paginatedDocumentHistories.every(
-      (page) => page.documents.length === 0,
-    );
-  }, [paginatedDocumentHistories]);
+    // Group the already-filtered sidebar chats by date
+    return groupChatsByDate(sidebarChats);
+  }, [sidebarChats]);
 
   // Compute the grouped documents
   const groupedDocuments = useMemo(() => {
@@ -372,6 +490,45 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
 
     return groupChatsByDate(formattedDocs as unknown as Chat[]);
   }, [paginatedDocumentHistories]);
+
+  // Fix issue with empty document history and document end checks
+  const hasReachedDocEnd = useMemo(() => {
+    if (!paginatedDocumentHistories || paginatedDocumentHistories.length === 0)
+      return false;
+    const lastPage =
+      paginatedDocumentHistories[paginatedDocumentHistories.length - 1];
+    return lastPage && lastPage.hasMore === false;
+  }, [paginatedDocumentHistories]);
+
+  const hasEmptyDocHistory = useMemo(() => {
+    if (!paginatedDocumentHistories) return true;
+    return paginatedDocumentHistories.every(
+      (page) => page.documents.length === 0,
+    );
+  }, [paginatedDocumentHistories]);
+
+  // Modify the hasEmptyChatHistory to use the new groupedChats structure
+  const hasEmptyChatHistory = useMemo(() => {
+    if (!groupedChats) return true;
+
+    return (
+      groupedChats.today.length === 0 &&
+      groupedChats.yesterday.length === 0 &&
+      groupedChats.lastWeek.length === 0 &&
+      groupedChats.lastMonth.length === 0 &&
+      groupedChats.older.length === 0
+    );
+  }, [groupedChats]);
+
+  // Load the sidebar chats when the active specialist changes
+  useEffect(() => {
+    if (currentActiveSpecialistId) {
+      console.log(
+        `[SidebarHistory] Active specialist changed to: ${currentActiveSpecialistId}. Ensuring sidebar chats are loaded.`,
+      );
+      loadSidebarChats(currentActiveSpecialistId);
+    }
+  }, [currentActiveSpecialistId, loadSidebarChats]);
 
   // Update useEffect for initial expansion
   useEffect(() => {
@@ -396,18 +553,18 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
         }
 
         // For documents
-        if (groupedDocuments) {
-          if (groupedDocuments.today.length > 0) {
+        if (groupedChats) {
+          if (groupedChats.today.length > 0) {
             setExpandedDocumentDays((prev) => ({ ...prev, today: true }));
-          } else if (groupedDocuments.yesterday.length > 0) {
+          } else if (groupedChats.yesterday.length > 0) {
             setExpandedDocumentDays((prev) => ({ ...prev, yesterday: true }));
           }
         }
       }
     }
-  }, [groupedChats, groupedDocuments]);
+  }, [groupedChats]);
 
-  // Simplify the toggle functions to avoid potential issues
+  // Update the toggleDayExpansion to use callback
   const toggleDayExpansion = useCallback((day: keyof GroupedChats) => {
     setExpandedDays((prev) => ({
       ...prev,
@@ -415,6 +572,7 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
     }));
   }, []);
 
+  // Update the toggleDocumentDayExpansion to use callback
   const toggleDocumentDayExpansion = useCallback((day: keyof GroupedChats) => {
     setExpandedDocumentDays((prev) => ({
       ...prev,
@@ -422,56 +580,58 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
     }));
   }, []);
 
-  // Toggle expanded chat count for a day
-  const toggleChatCountExpansion = (day: keyof GroupedChats) => {
+  // Update the toggleChatCountExpansion to use callback
+  const toggleChatCountExpansion = useCallback((day: keyof GroupedChats) => {
     setExpandedChatCounts((prev) => ({
       ...prev,
       [day]: !prev[day],
     }));
-  };
+  }, []);
 
-  // Toggle expanded document count for a day
-  const toggleDocumentCountExpansion = (day: keyof GroupedChats) => {
-    setExpandedDocumentCounts((prev) => ({
-      ...prev,
-      [day]: !prev[day],
-    }));
-  };
+  // Update the toggleDocumentCountExpansion to use callback
+  const toggleDocumentCountExpansion = useCallback(
+    (day: keyof GroupedChats) => {
+      setExpandedDocumentCounts((prev) => ({
+        ...prev,
+        [day]: !prev[day],
+      }));
+    },
+    [],
+  );
 
-  const handleDelete = async () => {
-    if (!deleteId) {
-      setShowDeleteDialog(false);
-      return;
-    }
+  // Optimize the handleDelete function with useCallback
+  const handleDelete = useCallback(
+    async (deleteId: string) => {
+      if (!deleteId) {
+        setShowDeleteDialog(false);
+        return;
+      }
 
-    // Use useTransition to show loading state
-    startTransition(async () => {
-      try {
-        const result = await deleteChat(deleteId);
+      // Use useTransition to show loading state
+      startTransition(async () => {
+        try {
+          // Call server action to delete
+          await deleteChat(deleteId);
+          toast.success('Chat deleted');
 
-        if (result.success) {
-          // Force a complete refresh of the chat history
-          mutateChatHistory();
-          console.log('[Sidebar] Chat deleted successfully');
-          toast.success('Chat deleted successfully');
-        } else {
-          console.error('[Sidebar] Error deleting chat:', result.error);
-          toast.error(
-            `Failed to delete chat: ${result.error || 'Unknown error'}`,
-          );
+          // If we're viewing the deleted chat, redirect
+          if (deleteId === chatId) {
+            router.push('/');
+          }
+
+          // Refresh chat history data
+          mutateDocumentHistory();
+        } catch (error) {
+          console.error('Error deleting chat:', error);
+          toast.error('Failed to delete chat');
+        } finally {
+          setDeleteId(null);
+          setShowDeleteDialog(false);
         }
-      } catch (error) {
-        console.error('[Sidebar] Error deleting chat:', error);
-        toast.error('Failed to delete chat');
-      }
-
-      setShowDeleteDialog(false);
-
-      if (deleteId === chatId) {
-        router.push('/');
-      }
-    });
-  };
+      });
+    },
+    [chatId, mutateDocumentHistory, router],
+  );
 
   // Add a document delete handler
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
@@ -502,191 +662,7 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
     }
   };
 
-  // Helper component for day section
-  const DaySection = ({
-    day,
-    title,
-    chats,
-  }: {
-    day: keyof GroupedChats;
-    title: string;
-    chats: Chat[];
-  }) => {
-    const hasChats = chats.length > 0;
-    const isExpanded = expandedDays[day];
-    const showAllChats = expandedChatCounts[day];
-
-    if (!hasChats) return null;
-
-    const displayChats = showAllChats
-      ? chats
-      : chats.slice(0, MAX_INITIAL_CHATS);
-
-    // Create a direct toggle handler that uses the parent component's function
-    const handleToggle = () => {
-      toggleDayExpansion(day);
-    };
-
-    return (
-      <SidebarGroup>
-        <button
-          type="button"
-          className="flex items-center gap-1 text-xs font-semibold text-muted-foreground w-full px-2"
-          onClick={handleToggle}
-        >
-          {isExpanded ? (
-            <ChevronDown className="h-3 w-3" />
-          ) : (
-            <ChevronRight className="h-3 w-3" />
-          )}
-          <span>{title}</span>
-          <span className="text-xs font-normal">({chats.length})</span>
-        </button>
-        {isExpanded && (
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {displayChats.map((chat) => (
-                <ChatItem
-                  key={`chat-${chat.id}-${chat.createdAt}`}
-                  chat={chat}
-                  isActive={chat.id === chatId}
-                  onDelete={(chatId) => {
-                    setDeleteId(chatId);
-                    setShowDeleteDialog(true);
-                  }}
-                  setOpenMobile={setOpenMobile}
-                />
-              ))}
-              {chats.length > MAX_INITIAL_CHATS && (
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground hover:text-foreground w-full text-center p-1"
-                  onClick={() => toggleChatCountExpansion(day)}
-                >
-                  {showAllChats
-                    ? 'Show less'
-                    : `Show ${chats.length - MAX_INITIAL_CHATS} more`}
-                </button>
-              )}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        )}
-      </SidebarGroup>
-    );
-  };
-
-  // Create a similar DocumentDaySection component
-  const DocumentDaySection = ({
-    day,
-    title,
-    documents,
-  }: {
-    day: keyof GroupedChats;
-    title: string;
-    documents: Document[];
-  }) => {
-    const hasDocuments = documents.length > 0;
-    const isExpanded = expandedDocumentDays[day];
-    const showAllDocuments = expandedDocumentCounts[day];
-
-    if (!hasDocuments) return null;
-
-    const docsToShow = showAllDocuments
-      ? documents
-      : documents.slice(0, MAX_INITIAL_CHATS);
-
-    // Create a direct toggle handler that uses the parent component's function
-    const handleToggle = () => {
-      toggleDocumentDayExpansion(day);
-    };
-
-    return (
-      <SidebarGroup>
-        <button
-          type="button"
-          className="flex items-center gap-1 text-xs font-semibold text-muted-foreground w-full px-2"
-          onClick={handleToggle}
-        >
-          {isExpanded ? (
-            <ChevronDown className="h-3 w-3" />
-          ) : (
-            <ChevronRight className="h-3 w-3" />
-          )}
-          <span>{title}</span>
-          <span className="text-xs font-normal">({documents.length})</span>
-        </button>
-        {isExpanded && (
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {docsToShow.map((doc, index) => (
-                <ChatItem
-                  key={`doc-${doc.id}-${doc.createdAt}`}
-                  chat={doc as unknown as Chat}
-                  isActive={doc.id === currentDocId}
-                  onDelete={(docId) => {
-                    setDeleteDocId(docId);
-                    setShowDeleteDocDialog(true);
-                  }}
-                  setOpenMobile={setOpenMobile}
-                  itemType="document"
-                />
-              ))}
-              {documents.length > MAX_INITIAL_CHATS && (
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground hover:text-foreground w-full text-center p-1"
-                  onClick={() => toggleDocumentCountExpansion(day)}
-                >
-                  {showAllDocuments
-                    ? 'Show less'
-                    : `Show ${documents.length - MAX_INITIAL_CHATS} more`}
-                </button>
-              )}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        )}
-      </SidebarGroup>
-    );
-  };
-
-  // Add a storage event listener for more reliable updates
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (
-        e.key === 'main-ui-chat-id' ||
-        e.key === 'global-pane-chat-id' ||
-        e.key === 'current-active-specialist'
-      ) {
-        if (process.env.NODE_ENV === 'development') {
-          console.log(
-            '[SidebarHistory] Chat ID or specialist changed in storage, revalidating...',
-          );
-        }
-
-        // Use a more debounced approach - only mutate if not already validating
-        if (!isChatValidating) {
-          console.log(
-            '[SidebarHistory] Triggering revalidation for chat history',
-          );
-          mutateChatHistory();
-        } else {
-          console.log(
-            '[SidebarHistory] Skipping revalidation - already in progress',
-          );
-        }
-      }
-    };
-
-    // Add event listener
-    window.addEventListener('storage', handleStorageChange);
-
-    // Clean up
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
-  }, [mutateChatHistory, isChatValidating]);
-
-  // Simplify the toggle functions to avoid potential issues
+  // Render method with memoized sections
   if (!user) {
     return (
       <SidebarGroup>
@@ -699,7 +675,7 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
     );
   }
 
-  if (isChatLoading && !paginatedChatHistories?.length) {
+  if (isDocLoading && !paginatedDocumentHistories?.length) {
     return (
       <SidebarGroup>
         <div className="px-2 py-1 text-xs text-sidebar-foreground/50">
@@ -741,34 +717,93 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
   }
 
   return (
-    <div className="space-y-1 overflow-auto h-full pb-20">
-      {/* Chat History Section */}
-      <div className="py-4 px-2">
-        <div className="text-xs font-semibold text-muted-foreground mb-2 px-2 flex gap-2 items-center border-b pb-2">
+    <div className="space-y-0.5 overflow-auto h-full pb-20 sidebar-list">
+      {/* Chat History Section - with standardized spacing */}
+      <div className="py-2 px-2">
+        <div className="text-xs font-semibold text-muted-foreground px-2 flex gap-2 items-center">
           <MessageSquare className="h-3 w-3" />
           <span>Chat History</span>
         </div>
       </div>
 
+      {/* Chat history content */}
       {groupedChats ? (
         <>
-          <DaySection day="today" title="Today" chats={groupedChats.today} />
+          <DaySection
+            day="today"
+            title="Today"
+            chats={groupedChats.today}
+            isExpanded={expandedDays.today}
+            isCountExpanded={expandedChatCounts.today}
+            onToggleExpansion={toggleDayExpansion}
+            onToggleCountExpansion={toggleChatCountExpansion}
+            onDelete={(chatId) => {
+              setDeleteId(chatId);
+              setShowDeleteDialog(true);
+            }}
+            setOpenMobile={setOpenMobile}
+            currentChatId={chatId}
+          />
           <DaySection
             day="yesterday"
             title="Yesterday"
             chats={groupedChats.yesterday}
+            isExpanded={expandedDays.yesterday}
+            isCountExpanded={expandedChatCounts.yesterday}
+            onToggleExpansion={toggleDayExpansion}
+            onToggleCountExpansion={toggleChatCountExpansion}
+            onDelete={(chatId) => {
+              setDeleteId(chatId);
+              setShowDeleteDialog(true);
+            }}
+            setOpenMobile={setOpenMobile}
+            currentChatId={chatId}
           />
           <DaySection
             day="lastWeek"
             title="Previous 7 Days"
             chats={groupedChats.lastWeek}
+            isExpanded={expandedDays.lastWeek}
+            isCountExpanded={expandedChatCounts.lastWeek}
+            onToggleExpansion={toggleDayExpansion}
+            onToggleCountExpansion={toggleChatCountExpansion}
+            onDelete={(chatId) => {
+              setDeleteId(chatId);
+              setShowDeleteDialog(true);
+            }}
+            setOpenMobile={setOpenMobile}
+            currentChatId={chatId}
           />
           <DaySection
             day="lastMonth"
             title="Previous 30 Days"
             chats={groupedChats.lastMonth}
+            isExpanded={expandedDays.lastMonth}
+            isCountExpanded={expandedChatCounts.lastMonth}
+            onToggleExpansion={toggleDayExpansion}
+            onToggleCountExpansion={toggleChatCountExpansion}
+            onDelete={(chatId) => {
+              setDeleteId(chatId);
+              setShowDeleteDialog(true);
+            }}
+            setOpenMobile={setOpenMobile}
+            currentChatId={chatId}
           />
-          <DaySection day="older" title="Older" chats={groupedChats.older} />
+          <DaySection
+            day="older"
+            title="Older"
+            chats={groupedChats.older}
+            isExpanded={expandedDays.older}
+            isCountExpanded={expandedChatCounts.older}
+            onToggleExpansion={toggleDayExpansion}
+            onToggleCountExpansion={toggleChatCountExpansion}
+            onDelete={(chatId) => {
+              setDeleteId(chatId);
+              setShowDeleteDialog(true);
+            }}
+            setOpenMobile={setOpenMobile}
+            currentChatId={chatId}
+          />
         </>
       ) : (
         <div className="flex justify-center p-1">
@@ -776,20 +811,10 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
         </div>
       )}
 
-      {!hasReachedChatEnd && !isChatLoading && !hasEmptyChatHistory && (
-        <button
-          type="button"
-          className="text-xs text-muted-foreground hover:text-foreground w-full text-center p-1"
-          onClick={() => setChatSize((size) => size + 1)}
-        >
-          Load more chats
-        </button>
-      )}
-
       {/* Only show validation loading state on initial load */}
-      {isChatValidating &&
-        !isChatLoading &&
-        !paginatedChatHistories?.length && (
+      {isDocValidating &&
+        !isDocLoading &&
+        !paginatedDocumentHistories?.length && (
           <div className="flex justify-center p-1">
             <Loader className="animate-spin h-4 w-4 text-muted-foreground" />
           </div>
@@ -801,43 +826,93 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
         </div>
       )}
 
-      {/* Documents Section */}
-      <div className="pt-6 px-2">
-        <div className="text-xs font-semibold text-muted-foreground mb-2 px-2 flex gap-2 items-center">
+      {/* Documents Section - with standardized spacing */}
+      <div className="py-2 px-2 mt-4">
+        <div className="text-xs font-semibold text-muted-foreground px-2 flex gap-2 items-center">
           <FileEdit className="h-3 w-3" />
           <span>Documents</span>
         </div>
       </div>
 
-      {groupedDocuments ? (
+      {groupedChats ? (
         <>
           <DocumentDaySection
             day="today"
             title="Today"
-            documents={groupedDocuments.today as any}
+            documents={groupedChats.today as any}
+            isExpanded={expandedDocumentDays.today}
+            isCountExpanded={expandedDocumentCounts.today}
+            onToggleExpansion={toggleDocumentDayExpansion}
+            onToggleCountExpansion={toggleDocumentCountExpansion}
+            onDelete={(docId) => {
+              setDeleteDocId(docId);
+              setShowDeleteDocDialog(true);
+            }}
+            setOpenMobile={setOpenMobile}
+            currentDocId={currentDocId}
           />
           <DocumentDaySection
             day="yesterday"
             title="Yesterday"
-            documents={groupedDocuments.yesterday as any}
+            documents={groupedChats.yesterday as any}
+            isExpanded={expandedDocumentDays.yesterday}
+            isCountExpanded={expandedDocumentCounts.yesterday}
+            onToggleExpansion={toggleDocumentDayExpansion}
+            onToggleCountExpansion={toggleDocumentCountExpansion}
+            onDelete={(docId) => {
+              setDeleteDocId(docId);
+              setShowDeleteDocDialog(true);
+            }}
+            setOpenMobile={setOpenMobile}
+            currentDocId={currentDocId}
           />
           <DocumentDaySection
             day="lastWeek"
             title="Previous 7 Days"
-            documents={groupedDocuments.lastWeek as any}
+            documents={groupedChats.lastWeek as any}
+            isExpanded={expandedDocumentDays.lastWeek}
+            isCountExpanded={expandedDocumentCounts.lastWeek}
+            onToggleExpansion={toggleDocumentDayExpansion}
+            onToggleCountExpansion={toggleDocumentCountExpansion}
+            onDelete={(docId) => {
+              setDeleteDocId(docId);
+              setShowDeleteDocDialog(true);
+            }}
+            setOpenMobile={setOpenMobile}
+            currentDocId={currentDocId}
           />
           <DocumentDaySection
             day="lastMonth"
             title="Previous 30 Days"
-            documents={groupedDocuments.lastMonth as any}
+            documents={groupedChats.lastMonth as any}
+            isExpanded={expandedDocumentDays.lastMonth}
+            isCountExpanded={expandedDocumentCounts.lastMonth}
+            onToggleExpansion={toggleDocumentDayExpansion}
+            onToggleCountExpansion={toggleDocumentCountExpansion}
+            onDelete={(docId) => {
+              setDeleteDocId(docId);
+              setShowDeleteDocDialog(true);
+            }}
+            setOpenMobile={setOpenMobile}
+            currentDocId={currentDocId}
           />
           <DocumentDaySection
             day="older"
             title="Older"
-            documents={groupedDocuments.older as any}
+            documents={groupedChats.older as any}
+            isExpanded={expandedDocumentDays.older}
+            isCountExpanded={expandedDocumentCounts.older}
+            onToggleExpansion={toggleDocumentDayExpansion}
+            onToggleCountExpansion={toggleDocumentCountExpansion}
+            onDelete={(docId) => {
+              setDeleteDocId(docId);
+              setShowDeleteDocDialog(true);
+            }}
+            setOpenMobile={setOpenMobile}
+            currentDocId={currentDocId}
           />
 
-          {!hasReachedDocEnd && !isDocLoading && !hasEmptyDocHistory && (
+          {!isDocLoading && (
             <button
               type="button"
               className="text-xs text-muted-foreground hover:text-foreground w-full text-center p-1"
@@ -871,7 +946,7 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDelete}
+              onClick={() => handleDelete(deleteId)}
               disabled={isPending}
               className={isPending ? 'opacity-70 cursor-not-allowed' : ''}
             >
@@ -903,4 +978,4 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
       </AlertDialog>
     </div>
   );
-}
+});

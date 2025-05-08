@@ -36,6 +36,7 @@ import { useSWRConfig } from 'swr';
 import { unstable_serialize } from 'swr/infinite';
 import { getChatHistoryPaginationKey } from './sidebar-history';
 import type { UIMessage } from 'ai';
+import { GlobalChatHistoryDropdown } from './GlobalChatHistoryDropdown';
 
 interface GlobalChatPaneProps {
   title?: string;
@@ -467,28 +468,25 @@ export function GlobalChatPane({
 
   return (
     <div className="flex flex-col h-full bg-background border-l">
-      <div className="flex items-center justify-between border-b px-4 py-2">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <GlobalChatHistoryCombobox />
+      <div className="border-border/50 flex items-center border-b p-2 sticky top-0 z-10 bg-muted/95 backdrop-blur-sm">
+        <div className="flex-1 overflow-hidden">
+          <h1 className="truncate text-sm font-semibold">{title}</h1>
         </div>
-        <div className="flex gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={startNewChat}
-                title="Start a new chat"
-              >
+        <div className="flex gap-2 items-center">
+          <GlobalChatHistoryDropdown />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
                 <Plus className="h-4 w-4" />
+                <span className="sr-only">New chat</span>
               </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              <p>New chat</p>
-            </TooltipContent>
-          </Tooltip>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={startNewChat}>
+                New chat
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
