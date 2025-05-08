@@ -1,30 +1,49 @@
 import type { SpecialistConfig } from './template';
 import { echoTangoConfig, echoTangoPrompt } from './echo-tango';
+// --- Import future specialists here ---
+// Example: import { dataAnalystConfig, dataAnalystPrompt } from './data-analyst';
 
-// Registry of all specialists
+/**
+ * Registry mapping specialist IDs to their full configuration objects.
+ * This is the single source of truth for specialist definitions.
+ */
 export const specialistRegistry: Record<string, SpecialistConfig> = {
   [echoTangoConfig.id]: echoTangoConfig,
-  // Add future specialists here
+  // --- Register future specialists here ---
+  // [dataAnalystConfig.id]: dataAnalystConfig,
 };
 
-// Registry mapping ID to just the persona prompt string
+/**
+ * Registry mapping specialist IDs directly to their persona prompt strings.
+ * Used for quick lookup by the prompt loader.
+ */
 const promptRegistry: Record<string, string> = {
   [echoTangoConfig.id]: echoTangoPrompt,
-  // Add future specialist prompts here
+  // --- Register future specialist prompts here ---
+  // [dataAnalystConfig.id]: dataAnalystPrompt,
 };
 
 /**
  * Retrieves the persona prompt string for a given specialist ID.
- * @param specialistId - ID of the specialist to retrieve
- * @returns The specialist's persona prompt string or empty string if not found
+ * Returns an empty string if the specialist ID is not found.
+ * @param specialistId - The unique ID of the specialist.
+ * @returns The specialist's persona prompt string or an empty string.
  */
 export function getSpecialistPromptById(specialistId: string): string {
-  return promptRegistry[specialistId] || '';
+  const prompt = promptRegistry[specialistId];
+  if (!prompt) {
+    console.warn(
+      `[SpecialistRegistry] Prompt not found for specialistId: ${specialistId}`,
+    );
+    return '';
+  }
+  return prompt;
 }
 
 /**
- * Retrieves a list of available specialists for UI population.
- * @returns Array of specialist data objects with id, name, and description
+ * Retrieves a list of available specialists (ID, name, description)
+ * suitable for populating UI elements like dropdowns.
+ * @returns An array of specialist info objects.
  */
 export function getAvailableSpecialists(): Array<{
   id: string;
