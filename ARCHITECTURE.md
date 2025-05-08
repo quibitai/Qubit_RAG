@@ -34,10 +34,14 @@ The new architecture centralizes the AI orchestration within a Brain micro-servi
 - Unified error handling and logging
 - Dynamic tool selection based on Bit context
 
-### 3. Prompt Management (`/lib/ai/prompts.ts`)
-- Specialized system prompts for different Bits
-- Context-aware instruction formatting
-- Consistent formatting for chat history
+### 3. Prompt System (`/lib/ai/prompts/`)
+The AI prompt system is modular, located in `lib/ai/prompts/`. It distinguishes between a central Orchestrator and various Specialist personas. A `PromptLoader` service dynamically composes system prompts based on the current context (Orchestrator, specific Specialist, or Default Assistant), incorporating base instructions, persona-specific details, and relevant tool usage guidelines. This design allows for clear separation of concerns and easier management of AI behaviors. For detailed information, see [`docs/PROMPT_SYSTEM.md`](./docs/PROMPT_SYSTEM.md).
+
+The key components include:
+- **Core prompts**: Base templates and the Orchestrator persona
+- **Specialists**: Configurable specialist personas with dedicated prompts and tool sets
+- **Tool instructions**: Concise usage guidelines for various tool categories
+- **Prompt loader**: Dynamic prompt composition based on context
 
 ### 4. Front-end Integration
 - Bit components call the Brain API
@@ -83,7 +87,11 @@ The new architecture centralizes the AI orchestration within a Brain micro-servi
       /serpapi.ts           # Web search tools
       /googleCalendar.ts    # Calendar tools
       /index.ts             # Tool registry and exports
-    /prompts.ts             # System prompts
+    /prompts                # Modular prompt system
+      /core                 # Base prompts and orchestrator
+      /specialists          # Specialist personas
+      /tools                # Tool-specific instructions
+      /loader.ts            # Dynamic prompt composition
     /models.ts              # LLM initialization logic
   /db                       # Database utilities
 /components                 # UI components

@@ -1,7 +1,7 @@
-import {
+const {
   getSpecialistPromptById,
   specialistRegistry,
-} from './lib/ai/prompts/specialists';
+} = require('./lib/ai/prompts/specialists');
 
 /**
  * Test script to verify the Echo Tango Specialist prompt functionality
