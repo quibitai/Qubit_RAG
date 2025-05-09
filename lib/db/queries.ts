@@ -33,6 +33,10 @@ import {
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 import type { ChatSummary } from '@/lib/types';
+import {
+  GLOBAL_ORCHESTRATOR_CONTEXT_ID,
+  CHAT_BIT_CONTEXT_ID,
+} from '@/lib/constants';
 
 // Optionally, if not using email/pass login, you can
 // use the Drizzle adapter for Auth.js / NextAuth
@@ -815,74 +819,52 @@ export async function getChatSummaries({
   userId,
   clientId,
   historyType,
-  bitContextId,
+  bitContextId: queryBitContextId,
   page,
   limit,
 }: GetChatSummariesParams): Promise<ChatSummary[]> {
   console.log(
-    `[DB getChatSummaries] Params: userId=${userId}, clientId=${clientId}, type=${historyType}, bitContextId=${bitContextId}, page=${page}, limit=${limit}`,
+    `[DB getChatSummaries] Params: userId=${userId}, clientId=${clientId}, type=${historyType}, bitContextId=${queryBitContextId}, page=${page}, limit=${limit}`,
   );
 
   const offset = (page - 1) * limit;
 
   try {
     // Define base conditions
-    const baseConditions = [
-      eq(chat.userId, userId),
-      eq(chat.clientId, clientId),
-    ];
+    const conditions = [eq(chat.userId, userId), eq(chat.clientId, clientId)];
     console.log(
       `[DB getChatSummaries] Base conditions: userId=${userId}, clientId=${clientId}`,
     );
 
     // Define specific filters based on historyType
-    let specificFilter: SQL<unknown> | undefined;
-    if (historyType === 'sidebar' && bitContextId) {
+    if (historyType === 'global') {
       console.log(
-        `[DB getChatSummaries] Filtering for sidebar, bitContextId: ${bitContextId}`,
+        `[DB getChatSummaries] Filtering for GLOBAL history. Target bitContextId: ${GLOBAL_ORCHESTRATOR_CONTEXT_ID}`,
       );
-
-      // IMPORTANT CHANGE: For sidebar queries, show BOTH specific bitContextId chats AND null/empty bitContextId chats
-      // This ensures all chats appear in the sidebar no matter how they were created
-      specificFilter = or(
-        eq(chat.bitContextId, bitContextId),
-        isNull(chat.bitContextId),
-        eq(chat.bitContextId, ''),
-      );
-
+      if (GLOBAL_ORCHESTRATOR_CONTEXT_ID === null) {
+        conditions.push(isNull(chat.bitContextId));
+      } else {
+        conditions.push(eq(chat.bitContextId, GLOBAL_ORCHESTRATOR_CONTEXT_ID));
+      }
+    } else if (historyType === 'sidebar' && queryBitContextId) {
       console.log(
-        `[DB getChatSummaries] Modified filter: Show chats with bitContextId="${bitContextId}" OR NULL bitContextId`,
+        `[DB getChatSummaries] Filtering for SIDEBAR history. Target bitContextId: ${queryBitContextId}`,
       );
-    } else if (historyType === 'global') {
-      console.log(`[DB getChatSummaries] Filtering for global chats.`);
-
-      // Global chats are where bitContextId is NULL/empty OR equals a reserved value like "global-orchestrator"
-      specificFilter = or(
-        isNull(chat.bitContextId),
-        eq(chat.bitContextId, ''), // Handle empty string if that's a possibility
-        eq(chat.bitContextId, 'global-orchestrator'), // Handle reserved value
-      );
+      conditions.push(eq(chat.bitContextId, queryBitContextId));
+    } else if (historyType === 'sidebar' && !queryBitContextId) {
+      // Default for sidebar if no specific contextId given - use CHAT_BIT_CONTEXT_ID
       console.log(
-        `[DB getChatSummaries] Using filter: bitContextId IS NULL OR bitContextId = '' OR bitContextId = 'global-orchestrator'`,
+        `[DB getChatSummaries] Filtering for SIDEBAR history (default). Target bitContextId: ${CHAT_BIT_CONTEXT_ID}`,
       );
-    } else {
-      console.log(
-        `[DB getChatSummaries] No specific historyType filter applied, will return all chats for user`,
-      );
+      conditions.push(eq(chat.bitContextId, CHAT_BIT_CONTEXT_ID));
     }
 
-    // Combine conditions
-    const combinedConditions = specificFilter
-      ? and(...baseConditions, specificFilter)
-      : and(...baseConditions);
-
     console.log(
-      `[DB getChatSummaries] Final query conditions applied: ${specificFilter ? 'base + specific filter' : 'base only'}`,
+      `[DB getChatSummaries] Final query conditions applied: ${conditions.length} conditions`,
     );
 
     // Fetch chats with most recent messages in a single query
-    // This is a simpler approach without complex joins for the lastMessageSnippet
-    const chats = await db
+    const groupedAndFilteredChats = await db
       .select({
         id: chat.id,
         title: chat.title,
@@ -890,19 +872,27 @@ export async function getChatSummaries({
         updatedAt: chat.updatedAt,
         bitContextId: chat.bitContextId,
         visibility: chat.visibility,
+        // Subquery to get the timestamp of the last message for sorting/display
+        lastMessageTimestamp: sql`(
+          SELECT MAX(m."createdAt")
+          FROM ${message} m
+          WHERE m."chatId" = ${chat.id}
+        )`.as('last_message_timestamp'),
       })
       .from(chat)
-      .where(combinedConditions)
-      .orderBy(desc(sql`COALESCE(${chat.updatedAt}, ${chat.createdAt})`)) // Use updatedAt if available, otherwise fallback to createdAt
+      .where(and(...conditions))
+      .orderBy(desc(sql`COALESCE(last_message_timestamp, ${chat.updatedAt})`)) // Sort by last message or chat update time
       .limit(limit)
       .offset(offset);
 
-    console.log(`[DB getChatSummaries] Found ${chats.length} chat summaries.`);
+    console.log(
+      `[DB getChatSummaries] Found ${groupedAndFilteredChats.length} chats after DB query.`,
+    );
 
     // Log actual chat data for debugging
-    if (chats.length > 0) {
+    if (groupedAndFilteredChats.length > 0) {
       console.log(`[DB getChatSummaries] Sample chat data (first 3 chats):`);
-      chats.slice(0, 3).forEach((chatData, idx) => {
+      groupedAndFilteredChats.slice(0, 3).forEach((chatData, idx) => {
         console.log(`[DB getChatSummaries] Chat ${idx + 1}:`, {
           id: chatData.id,
           title: chatData.title,
@@ -917,29 +907,33 @@ export async function getChatSummaries({
     }
 
     // Transform database results to ChatSummary objects
-    const chatSummaries: ChatSummary[] = chats.map((chat) => ({
-      id: chat.id,
-      title: chat.title || 'Untitled Chat',
-      lastMessageTimestamp: chat.updatedAt || chat.createdAt,
-      lastMessageSnippet: undefined, // We'll implement this in a separate step if needed
-      bitContextId: chat.bitContextId,
-      isGlobal:
-        !chat.bitContextId ||
-        chat.bitContextId === '' ||
-        chat.bitContextId === 'global-orchestrator',
-      createdAt: chat.createdAt,
-      updatedAt: chat.updatedAt || chat.createdAt, // Fallback to createdAt if updatedAt isn't available
-      visibility: chat.visibility,
-      pinnedStatus: false, // Default to false until we implement pinning
-    }));
+    const chatSummaries: ChatSummary[] = groupedAndFilteredChats.map(
+      (chat) => ({
+        id: chat.id,
+        title: chat.title || 'Untitled Chat',
+        lastMessageTimestamp:
+          (chat.lastMessageTimestamp as Date | null) ?? chat.updatedAt, // Provide a fallback
+        lastMessageSnippet: undefined, // We'll implement this in a separate step if needed
+        bitContextId: chat.bitContextId,
+        // Derive isGlobal based on bitContextId using the constant
+        isGlobal:
+          chat.bitContextId === GLOBAL_ORCHESTRATOR_CONTEXT_ID ||
+          (chat.bitContextId === null &&
+            GLOBAL_ORCHESTRATOR_CONTEXT_ID === null),
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt || chat.createdAt, // Fallback to createdAt if updatedAt isn't available
+        visibility: chat.visibility,
+        pinnedStatus: false, // Default to false until we implement pinning
+      }),
+    );
 
     console.log(
       `[DB getChatSummaries] Processed ${chatSummaries.length} chat summaries with isGlobal calculation.`,
     );
     if (chatSummaries.length > 0) {
       console.log(
-        `[DB getChatSummaries] Sample processed data (first 3):`,
-        chatSummaries.slice(0, 3).map((cs) => ({
+        `[DB getChatSummaries] Sample of processed summaries (first 1):`,
+        chatSummaries.slice(0, 1).map((cs) => ({
           id: cs.id,
           title: cs.title,
           bitContextId: cs.bitContextId,

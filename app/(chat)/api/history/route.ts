@@ -3,6 +3,10 @@ import { auth } from '@/app/(auth)/auth';
 import type { ChatSummary } from '@/lib/types';
 import { getChatSummaries } from '@/lib/db/queries';
 import type { Session } from 'next-auth';
+import {
+  GLOBAL_ORCHESTRATOR_CONTEXT_ID,
+  CHAT_BIT_CONTEXT_ID,
+} from '@/lib/constants';
 
 export async function GET(request: NextRequest) {
   console.error(
@@ -23,8 +27,18 @@ export async function GET(request: NextRequest) {
     const page = Number.parseInt(searchParams.get('page') || '1', 10);
     const limit = Number.parseInt(searchParams.get('limit') || '20', 10);
 
+    // Apply default context ID values based on historyType if none provided
+    let resolvedContextId = bitContextId;
+    if (!bitContextId) {
+      if (historyType === 'global') {
+        resolvedContextId = GLOBAL_ORCHESTRATOR_CONTEXT_ID;
+      } else if (historyType === 'sidebar') {
+        resolvedContextId = CHAT_BIT_CONTEXT_ID;
+      }
+    }
+
     console.log(
-      `[API History] GET request: type=${historyType}, bitContextId=${bitContextId}, page=${page}, limit=${limit}, userId=${userId}, clientId=${clientId}`,
+      `[API History] GET request: type=${historyType}, bitContextId=${resolvedContextId} (original=${bitContextId}), page=${page}, limit=${limit}, userId=${userId}, clientId=${clientId}`,
     );
 
     // Log all search params for debugging
@@ -37,7 +51,7 @@ export async function GET(request: NextRequest) {
       userId,
       clientId,
       historyType,
-      bitContextId,
+      bitContextId: resolvedContextId,
       page,
       limit,
     });
@@ -57,6 +71,10 @@ export async function GET(request: NextRequest) {
           title: chat.title,
           bitContextId: chat.bitContextId,
           isGlobal: chat.isGlobal,
+          // Log if this chat matches expected context ID patterns
+          matchesGlobalContext:
+            chat.bitContextId === GLOBAL_ORCHESTRATOR_CONTEXT_ID,
+          matchesChatBitContext: chat.bitContextId === CHAT_BIT_CONTEXT_ID,
         });
       });
     } else {
