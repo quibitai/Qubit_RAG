@@ -26,7 +26,14 @@ import type { Chat } from '@/lib/db/schema';
 import { fetcher } from '@/lib/utils';
 import { ChatItem } from './sidebar-history-item';
 import useSWRInfinite from 'swr/infinite';
-import { ChevronDown, ChevronRight, Loader, MessageSquare } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Loader,
+  MessageSquare,
+  Trash,
+  RotateCw,
+} from 'lucide-react';
 import { deleteChat } from '@/app/(chat)/actions';
 import { useTransition } from 'react';
 import { useChatPane } from '@/context/ChatPaneContext';
@@ -36,6 +43,11 @@ import {
   ExpandedSections,
   type ChatSummary,
 } from '@/lib/types';
+import {
+  GLOBAL_ORCHESTRATOR_CONTEXT_ID,
+  CHAT_BIT_CONTEXT_ID,
+  ECHO_TANGO_SPECIALIST_ID,
+} from '@/lib/constants';
 
 const PAGE_SIZE = 20;
 
@@ -47,34 +59,42 @@ const groupChatsByDate = (chats: Chat[] | ChatSummary[]): GroupedChats => {
 
   return chats.reduce(
     (groups, chat) => {
-      const chatDate = new Date(chat.createdAt);
+      // Ensure we have a valid Date object for createdAt, with fallback
+      const createdAt = chat.createdAt || new Date();
+      const chatDate =
+        createdAt instanceof Date ? createdAt : new Date(createdAt);
 
       if (isToday(chatDate)) {
-        groups.today.push(chat as Chat);
+        groups.today.push(chat);
       } else if (isYesterday(chatDate)) {
-        groups.yesterday.push(chat as Chat);
+        groups.yesterday.push(chat);
       } else if (chatDate > oneWeekAgo) {
-        groups.lastWeek.push(chat as Chat);
+        groups.lastWeek.push(chat);
       } else if (chatDate > oneMonthAgo) {
-        groups.lastMonth.push(chat as Chat);
+        groups.lastMonth.push(chat);
       } else {
-        groups.older.push(chat as Chat);
+        groups.older.push(chat);
       }
 
       return groups;
     },
     {
-      today: [],
-      yesterday: [],
-      lastWeek: [],
-      lastMonth: [],
-      older: [],
+      today: [] as (Chat | ChatSummary)[],
+      yesterday: [] as (Chat | ChatSummary)[],
+      lastWeek: [] as (Chat | ChatSummary)[],
+      lastMonth: [] as (Chat | ChatSummary)[],
+      older: [] as (Chat | ChatSummary)[],
     } as GroupedChats,
   );
 };
 
 // Update the separateChatsByType function with more logging and less strict filtering
+// NOTE: This function can be removed/deprecated as filtering is now handled by ChatPaneContext
+// Keeping it here for reference or potential future use, but it's no longer used in this component
 const separateChatsByType = (chats: Chat[]): GroupedChats => {
+  console.log(
+    '[SidebarHistory] DEPRECATED: separateChatsByType function is now redundant as filtering is handled by ChatPaneContext',
+  );
   // Include ALL chats in the sidebar now, regardless of bitContextId
   console.log('[SidebarHistory] Total chats to filter:', chats.length);
 
@@ -156,7 +176,7 @@ const DaySection = memo(
   }: {
     day: keyof GroupedChats;
     title: string;
-    chats: Chat[];
+    chats: Chat[] | ChatSummary[];
     isExpanded: boolean;
     isCountExpanded: boolean;
     onToggleExpansion: (day: keyof GroupedChats) => void;
@@ -203,7 +223,7 @@ const DaySection = memo(
             {visibleChats.map((chat) => (
               <ChatItem
                 key={chat.id}
-                chat={chat}
+                chat={chat as any} // Use type assertion to avoid TS errors for now
                 isActive={chat.id === currentChatId}
                 onDelete={onDelete}
                 setOpenMobile={setOpenMobile}
@@ -227,6 +247,95 @@ const DaySection = memo(
 );
 DaySection.displayName = 'DaySection';
 
+// Add SpecialistSection component for displaying chats grouped by specialist
+const SpecialistSection = memo(
+  ({
+    specialistId,
+    specialistName,
+    specialistDescription,
+    chats,
+    isExpanded,
+    isCountExpanded,
+    onToggleExpansion,
+    onToggleCountExpansion,
+    onDelete,
+    setOpenMobile,
+    currentChatId,
+  }: {
+    specialistId: string;
+    specialistName: string;
+    specialistDescription: string;
+    chats: ChatSummary[];
+    isExpanded: boolean;
+    isCountExpanded: boolean;
+    onToggleExpansion: (specialistId: string) => void;
+    onToggleCountExpansion: (specialistId: string) => void;
+    onDelete: (chatId: string) => void;
+    setOpenMobile: (open: boolean) => void;
+    currentChatId: string | undefined;
+  }) => {
+    // Skip rendering if there are no chats for this specialist
+    if (chats.length === 0) return null;
+
+    const MAX_INITIAL_CHATS = 5;
+    const visibleChats = isCountExpanded
+      ? chats
+      : chats.slice(0, MAX_INITIAL_CHATS);
+    const hasMoreChats = chats.length > MAX_INITIAL_CHATS;
+
+    const handleToggle = useCallback(() => {
+      onToggleExpansion(specialistId);
+    }, [specialistId, onToggleExpansion]);
+
+    const handleToggleCount = useCallback(() => {
+      onToggleCountExpansion(specialistId);
+    }, [specialistId, onToggleCountExpansion]);
+
+    return (
+      <SidebarGroup className="compact-sidebar-group">
+        <div
+          className="flex items-center justify-between px-2 py-1 text-xs font-medium text-primary cursor-pointer hover:text-primary hover:bg-muted/30 rounded-md"
+          onClick={handleToggle}
+        >
+          <div className="flex items-center gap-1">
+            {isExpanded ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
+            <span>{specialistName}</span>
+            <span className="text-muted-foreground ml-1">({chats.length})</span>
+          </div>
+        </div>
+        {isExpanded && (
+          <SidebarGroupContent className="py-0.5">
+            {visibleChats.map((chat) => (
+              <ChatItem
+                key={chat.id}
+                chat={chat as any} // Use type assertion to avoid TS errors for now
+                isActive={chat.id === currentChatId}
+                onDelete={onDelete}
+                setOpenMobile={setOpenMobile}
+              />
+            ))}
+            {hasMoreChats && (
+              <div
+                className="px-2 py-0.5 text-xs text-muted-foreground hover:text-primary cursor-pointer"
+                onClick={handleToggleCount}
+              >
+                {isCountExpanded
+                  ? 'Show less...'
+                  : `Show ${chats.length - MAX_INITIAL_CHATS} more...`}
+              </div>
+            )}
+          </SidebarGroupContent>
+        )}
+      </SidebarGroup>
+    );
+  },
+);
+SpecialistSection.displayName = 'SpecialistSection';
+
 // Memoize the entire SidebarHistory component
 export const SidebarHistory = memo(function SidebarHistory({
   user,
@@ -243,33 +352,30 @@ export const SidebarHistory = memo(function SidebarHistory({
     currentActiveSpecialistId,
     sidebarChats,
     isLoadingSidebarChats,
-    loadSidebarChats,
+    specialistGroupedChats, // New prop from context
+    refreshHistory, // Use the refreshHistory function which is available in the ChatPaneContext
   } = useChatPane();
 
   // Log fetched sidebar chats information
   useEffect(() => {
     console.log('[SidebarHistory] Current sidebar state:', {
       currentActiveSpecialistId,
-      sidebarChats: sidebarChats?.length || 0,
+      chatCount: sidebarChats?.length || 0,
+      specialistGroupCount: specialistGroupedChats?.length || 0,
       isLoading: isLoadingSidebarChats,
     });
 
-    // COMMENTING OUT: We'll rely solely on the ChatPaneContext's useEffect to load sidebar chats
-    // This avoids potential race conditions or duplicate calls
-    /*
-    if (loadSidebarChats) {
-      const contextId = currentActiveSpecialistId || 'chat-model';
-      console.error(
-        `!!! SIDEBAR COMPONENT DIRECTLY LOADING CHATS !!! ContextID: ${contextId}, Timestamp: ${new Date().toISOString()}`,
+    // Better debug info for the pre-filtered chats
+    if (sidebarChats && sidebarChats.length > 0) {
+      console.log(
+        `[SidebarHistory] Received ${sidebarChats.length} pre-filtered chats from ChatPaneContext. Sample bitContextId: ${sidebarChats[0]?.bitContextId || 'null'}`,
       );
-      loadSidebarChats(contextId);
     }
-    */
   }, [
     currentActiveSpecialistId,
     sidebarChats,
     isLoadingSidebarChats,
-    // loadSidebarChats, // Removed since we're not using it
+    specialistGroupedChats,
   ]);
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -285,6 +391,11 @@ export const SidebarHistory = memo(function SidebarHistory({
     older: false,
   });
 
+  // New state for expanded specialist sections
+  const [expandedSpecialists, setExpandedSpecialists] = useState<
+    Record<string, boolean>
+  >({});
+
   const [expandedChatCounts, setExpandedChatCounts] = useState<
     Record<string, boolean>
   >({
@@ -294,6 +405,10 @@ export const SidebarHistory = memo(function SidebarHistory({
     lastMonth: false,
     older: false,
   });
+
+  // State for expanded specialist chat counts
+  const [expandedSpecialistChatCounts, setExpandedSpecialistChatCounts] =
+    useState<Record<string, boolean>>({});
 
   const MAX_INITIAL_CHATS = 5;
 
@@ -328,282 +443,291 @@ export const SidebarHistory = memo(function SidebarHistory({
     [],
   );
 
-  // Compute the grouped chats using the filtered sidebarChats from context
-  const groupedChats = useMemo(() => {
-    if (!sidebarChats || sidebarChats.length === 0) return null;
-
-    if (process.env.NODE_ENV === 'development') {
-      console.log(
-        '[SidebarHistory] Processing sidebar chats from context:',
-        sidebarChats.length,
-      );
-    }
-
-    // Group the already-filtered sidebar chats by date
-    return groupChatsByDate(sidebarChats);
-  }, [sidebarChats]);
-
-  // Modify the hasEmptyChatHistory to use the new groupedChats structure
-  const hasEmptyChatHistory = useMemo(() => {
-    if (!groupedChats) return true;
-
-    return (
-      groupedChats.today.length === 0 &&
-      groupedChats.yesterday.length === 0 &&
-      groupedChats.lastWeek.length === 0 &&
-      groupedChats.lastMonth.length === 0 &&
-      groupedChats.older.length === 0
-    );
-  }, [groupedChats]);
-
-  // Update useEffect for initial expansion
+  // Initialize specialist expanded state when the list changes
   useEffect(() => {
-    // Only run this once when data is first loaded
-    if (groupedChats && !initializedRef.current) {
-      // Check if we need to initialize the expanded days
-      const needsInitialization =
-        !expandedDays.today &&
-        !expandedDays.yesterday &&
-        !expandedDays.lastWeek &&
-        !expandedDays.lastMonth &&
-        !expandedDays.older;
-
-      if (needsInitialization) {
-        initializedRef.current = true; // Set flag to prevent future runs
-
-        // For chat bit
-        if (groupedChats.today.length > 0) {
-          setExpandedDays((prev) => ({ ...prev, today: true }));
-        } else if (groupedChats.yesterday.length > 0) {
-          setExpandedDays((prev) => ({ ...prev, yesterday: true }));
-        }
-      }
+    if (specialistGroupedChats && specialistGroupedChats.length > 0) {
+      const newExpandedState: Record<string, boolean> = {};
+      specialistGroupedChats.forEach((specialist) => {
+        // Default to expanded for any specialist with chats
+        newExpandedState[specialist.id] = specialist.chats.length > 0;
+      });
+      setExpandedSpecialists((prev) => ({ ...prev, ...newExpandedState }));
     }
-  }, [groupedChats, expandedDays]);
+  }, [specialistGroupedChats]);
 
-  // Update the toggleDayExpansion to use callback
-  const toggleDayExpansion = useCallback((day: keyof GroupedChats) => {
+  // Add these handlers for specialist sections
+  const handleToggleSpecialistExpansion = useCallback(
+    (specialistId: string) => {
+      setExpandedSpecialists((prev) => ({
+        ...prev,
+        [specialistId]: !prev[specialistId],
+      }));
+    },
+    [],
+  );
+
+  const handleToggleSpecialistChatCount = useCallback(
+    (specialistId: string) => {
+      setExpandedSpecialistChatCounts((prev) => ({
+        ...prev,
+        [specialistId]: !prev[specialistId],
+      }));
+    },
+    [],
+  );
+
+  const handleDelete = useCallback(
+    (id: string) => {
+      setDeleteId(id);
+      setShowDeleteDialog(true);
+    },
+    [setDeleteId, setShowDeleteDialog],
+  );
+
+  const confirmDelete = useCallback(() => {
+    if (!deleteId) return;
+
+    startTransition(async () => {
+      try {
+        console.log(
+          `[SidebarHistory] Deleting chat ${deleteId} using server action`,
+        );
+
+        // Call the server action to delete the chat
+        const result = await deleteChat(deleteId);
+
+        if (result?.success) {
+          // Add optional chaining
+          // Update UI with success message
+          console.log(`[SidebarHistory] Successfully deleted chat ${deleteId}`);
+          toast.success('Chat deleted');
+
+          // Refresh sidebar history after successful deletion
+          const contextIdToReload =
+            currentActiveSpecialistId || CHAT_BIT_CONTEXT_ID;
+          console.log(
+            `[SidebarHistory] Chat deletion successful. Refreshing sidebar for context: ${contextIdToReload}`,
+          );
+
+          // Use refreshHistory to refresh both the sidebar and global chats
+          refreshHistory();
+
+          // Navigate away if we're currently viewing the deleted chat
+          if (chatId === deleteId) {
+            router.push('/');
+          }
+        } else {
+          // Handle server action failure
+          console.error(
+            '[SidebarHistory] Server action deleteChat failed:',
+            result?.error,
+          );
+          toast.error(result?.error || 'Failed to delete chat');
+        }
+      } catch (error) {
+        console.error(
+          '[SidebarHistory] Error calling deleteChat server action:',
+          error,
+        );
+        toast.error('Failed to delete chat due to an unexpected error');
+      } finally {
+        setShowDeleteDialog(false);
+        setDeleteId(null);
+      }
+    });
+  }, [deleteId, router, chatId, refreshHistory, currentActiveSpecialistId]);
+
+  const cancelDelete = useCallback(() => {
+    setShowDeleteDialog(false);
+    setDeleteId(null);
+  }, []);
+
+  // Function to toggle day expansion
+  const handleToggleDayExpansion = useCallback((day: keyof GroupedChats) => {
     setExpandedDays((prev) => ({
       ...prev,
       [day]: !prev[day],
     }));
   }, []);
 
-  // Update the toggleChatCountExpansion to use callback
-  const toggleChatCountExpansion = useCallback((day: keyof GroupedChats) => {
+  // Function to toggle chat count expansion
+  const handleToggleChatCount = useCallback((day: keyof GroupedChats) => {
     setExpandedChatCounts((prev) => ({
       ...prev,
       [day]: !prev[day],
     }));
   }, []);
 
-  // Optimize the handleDelete function with useCallback
-  const handleDelete = useCallback(
-    async (deleteId: string) => {
-      if (!deleteId) {
-        setShowDeleteDialog(false);
-        return;
-      }
+  // Use grouped date chats as a fallback if specialist groups are not available
+  const groupedChats = useMemo(() => {
+    if (!sidebarChats || sidebarChats.length === 0) {
+      // console.log('[SidebarHistory] No sidebar chats from context or empty.');
+      return null;
+    }
+    if (process.env.NODE_ENV === 'development') {
+      console.log(
+        `[SidebarHistory] Grouping ${sidebarChats.length} sidebar chats from context by date. First chat bitContextId: ${sidebarChats[0]?.bitContextId}`,
+      );
+    }
+    // No filtering needed as the ChatPaneContext now provides filtered chats
+    return groupChatsByDate(sidebarChats);
+  }, [sidebarChats]);
 
-      // Use useTransition to show loading state
-      startTransition(async () => {
-        try {
-          // Call server action to delete
-          await deleteChat(deleteId);
-          toast.success('Chat deleted');
+  // Determine whether to show specialists grouped view or date grouped view
+  const shouldShowSpecialistGroups = useMemo(() => {
+    return specialistGroupedChats && specialistGroupedChats.length > 0;
+  }, [specialistGroupedChats]);
 
-          // If we're viewing the deleted chat, redirect
-          if (deleteId === chatId) {
-            router.push('/');
-          }
-        } catch (error) {
-          console.error('Error deleting chat:', error);
-          toast.error('Failed to delete chat');
-        } finally {
-          setDeleteId(null);
-          setShowDeleteDialog(false);
-        }
-      });
-    },
-    [chatId, router],
-  );
+  // Skip loading state handling to avoid extra renders
+  // if (isLoadingSidebarChats) {
+  //   return (
+  //     <div className="p-8 text-center">
+  //       <RotateCw className="h-4 w-4 animate-spin" />
+  //     </div>
+  //   );
+  // }
 
-  // Render method with memoized sections
-  if (!user) {
+  // Initialize expandedDays if this is the first render with actual data
+  useEffect(() => {
+    if (groupedChats && !initializedRef.current) {
+      setExpandedDays(calculateDefaultExpandedDay(groupedChats));
+      initializedRef.current = true;
+    }
+  }, [groupedChats, calculateDefaultExpandedDay]);
+
+  // Handle case where there are no chats
+  if (!groupedChats && !shouldShowSpecialistGroups) {
     return (
-      <SidebarGroup>
-        <SidebarGroupContent>
-          <div className="px-2 text-zinc-500 w-full flex flex-row justify-center items-center text-sm gap-2">
-            Login to save and revisit previous chats!
-          </div>
-        </SidebarGroupContent>
-      </SidebarGroup>
-    );
-  }
-
-  if (isLoadingSidebarChats && !sidebarChats?.length) {
-    return (
-      <SidebarGroup>
-        <div className="px-2 py-1 text-xs text-sidebar-foreground/50">
-          Loading...
-        </div>
-        <SidebarGroupContent>
-          <div className="flex flex-col">
-            {[44, 32, 28, 64, 52].map((item) => (
-              <div
-                key={item}
-                className="rounded-md h-8 flex gap-2 px-2 items-center"
-              >
-                <div
-                  className="h-4 rounded-md flex-1 max-w-[--skeleton-width] bg-sidebar-accent-foreground/10"
-                  style={
-                    {
-                      '--skeleton-width': `${item}%`,
-                    } as React.CSSProperties
-                  }
-                />
-              </div>
-            ))}
-          </div>
-        </SidebarGroupContent>
-      </SidebarGroup>
-    );
-  }
-
-  if (hasEmptyChatHistory) {
-    return (
-      <SidebarGroup>
-        <SidebarGroupContent>
-          <div className="px-2 text-zinc-500 w-full flex flex-row justify-center items-center text-sm gap-2">
-            Your conversations will appear here once you start chatting!
-          </div>
-        </SidebarGroupContent>
-      </SidebarGroup>
+      <div className="p-4 text-center text-xs text-muted-foreground">
+        {isLoadingSidebarChats ? 'Loading...' : 'No chat history'}
+      </div>
     );
   }
 
   return (
-    <div className="space-y-0.5 overflow-auto h-full pb-20 sidebar-list">
-      {/* Chat History Section - with standardized spacing */}
-      <div className="py-2 px-2">
-        <div className="text-xs font-semibold text-muted-foreground px-2 flex gap-2 items-center">
-          <MessageSquare className="h-3 w-3" />
-          <span>Chat History</span>
-        </div>
-      </div>
-
-      {/* Chat history content */}
-      {groupedChats ? (
-        <>
-          <DaySection
-            day="today"
-            title="Today"
-            chats={groupedChats.today}
-            isExpanded={expandedDays.today}
-            isCountExpanded={expandedChatCounts.today}
-            onToggleExpansion={toggleDayExpansion}
-            onToggleCountExpansion={toggleChatCountExpansion}
-            onDelete={(chatId) => {
-              setDeleteId(chatId);
-              setShowDeleteDialog(true);
-            }}
-            setOpenMobile={setOpenMobile}
-            currentChatId={chatId}
-          />
-          <DaySection
-            day="yesterday"
-            title="Yesterday"
-            chats={groupedChats.yesterday}
-            isExpanded={expandedDays.yesterday}
-            isCountExpanded={expandedChatCounts.yesterday}
-            onToggleExpansion={toggleDayExpansion}
-            onToggleCountExpansion={toggleChatCountExpansion}
-            onDelete={(chatId) => {
-              setDeleteId(chatId);
-              setShowDeleteDialog(true);
-            }}
-            setOpenMobile={setOpenMobile}
-            currentChatId={chatId}
-          />
-          <DaySection
-            day="lastWeek"
-            title="Previous 7 Days"
-            chats={groupedChats.lastWeek}
-            isExpanded={expandedDays.lastWeek}
-            isCountExpanded={expandedChatCounts.lastWeek}
-            onToggleExpansion={toggleDayExpansion}
-            onToggleCountExpansion={toggleChatCountExpansion}
-            onDelete={(chatId) => {
-              setDeleteId(chatId);
-              setShowDeleteDialog(true);
-            }}
-            setOpenMobile={setOpenMobile}
-            currentChatId={chatId}
-          />
-          <DaySection
-            day="lastMonth"
-            title="Previous 30 Days"
-            chats={groupedChats.lastMonth}
-            isExpanded={expandedDays.lastMonth}
-            isCountExpanded={expandedChatCounts.lastMonth}
-            onToggleExpansion={toggleDayExpansion}
-            onToggleCountExpansion={toggleChatCountExpansion}
-            onDelete={(chatId) => {
-              setDeleteId(chatId);
-              setShowDeleteDialog(true);
-            }}
-            setOpenMobile={setOpenMobile}
-            currentChatId={chatId}
-          />
-          <DaySection
-            day="older"
-            title="Older"
-            chats={groupedChats.older}
-            isExpanded={expandedDays.older}
-            isCountExpanded={expandedChatCounts.older}
-            onToggleExpansion={toggleDayExpansion}
-            onToggleCountExpansion={toggleChatCountExpansion}
-            onDelete={(chatId) => {
-              setDeleteId(chatId);
-              setShowDeleteDialog(true);
-            }}
-            setOpenMobile={setOpenMobile}
-            currentChatId={chatId}
-          />
-        </>
-      ) : (
-        <div className="flex justify-center p-1">
-          <Loader className="animate-spin h-4 w-4 text-muted-foreground" />
-        </div>
-      )}
-
-      {hasEmptyChatHistory && (
-        <div className="text-xs text-muted-foreground text-center p-1">
-          No chats available
-        </div>
-      )}
-
+    <>
+      <SidebarMenu>
+        {shouldShowSpecialistGroups ? (
+          // Display specialist-grouped view
+          <div className="px-1 my-2">
+            <div className="text-xs font-medium text-primary mb-1 px-2">
+              Chat History by Specialist
+            </div>
+            {specialistGroupedChats.map((specialist) => (
+              <SpecialistSection
+                key={specialist.id}
+                specialistId={specialist.id}
+                specialistName={specialist.name}
+                specialistDescription={specialist.description}
+                chats={specialist.chats}
+                isExpanded={!!expandedSpecialists[specialist.id]}
+                isCountExpanded={!!expandedSpecialistChatCounts[specialist.id]}
+                onToggleExpansion={handleToggleSpecialistExpansion}
+                onToggleCountExpansion={handleToggleSpecialistChatCount}
+                onDelete={handleDelete}
+                setOpenMobile={setOpenMobile}
+                currentChatId={chatId}
+              />
+            ))}
+          </div>
+        ) : (
+          // Fallback to date-grouped view
+          <div className="px-1 my-2">
+            <div className="text-xs font-medium text-muted-foreground mb-1 px-2">
+              Recent Chats
+            </div>
+            {groupedChats && (
+              <>
+                <DaySection
+                  day="today"
+                  title="Today"
+                  chats={groupedChats.today}
+                  isExpanded={expandedDays.today}
+                  isCountExpanded={expandedChatCounts.today}
+                  onToggleExpansion={handleToggleDayExpansion}
+                  onToggleCountExpansion={handleToggleChatCount}
+                  onDelete={handleDelete}
+                  setOpenMobile={setOpenMobile}
+                  currentChatId={chatId}
+                />
+                <DaySection
+                  day="yesterday"
+                  title="Yesterday"
+                  chats={groupedChats.yesterday}
+                  isExpanded={expandedDays.yesterday}
+                  isCountExpanded={expandedChatCounts.yesterday}
+                  onToggleExpansion={handleToggleDayExpansion}
+                  onToggleCountExpansion={handleToggleChatCount}
+                  onDelete={handleDelete}
+                  setOpenMobile={setOpenMobile}
+                  currentChatId={chatId}
+                />
+                <DaySection
+                  day="lastWeek"
+                  title="Last 7 Days"
+                  chats={groupedChats.lastWeek}
+                  isExpanded={expandedDays.lastWeek}
+                  isCountExpanded={expandedChatCounts.lastWeek}
+                  onToggleExpansion={handleToggleDayExpansion}
+                  onToggleCountExpansion={handleToggleChatCount}
+                  onDelete={handleDelete}
+                  setOpenMobile={setOpenMobile}
+                  currentChatId={chatId}
+                />
+                <DaySection
+                  day="lastMonth"
+                  title="Last 30 Days"
+                  chats={groupedChats.lastMonth}
+                  isExpanded={expandedDays.lastMonth}
+                  isCountExpanded={expandedChatCounts.lastMonth}
+                  onToggleExpansion={handleToggleDayExpansion}
+                  onToggleCountExpansion={handleToggleChatCount}
+                  onDelete={handleDelete}
+                  setOpenMobile={setOpenMobile}
+                  currentChatId={chatId}
+                />
+                <DaySection
+                  day="older"
+                  title="Older"
+                  chats={groupedChats.older}
+                  isExpanded={expandedDays.older}
+                  isCountExpanded={expandedChatCounts.older}
+                  onToggleExpansion={handleToggleDayExpansion}
+                  onToggleCountExpansion={handleToggleChatCount}
+                  onDelete={handleDelete}
+                  setOpenMobile={setOpenMobile}
+                  currentChatId={chatId}
+                />
+              </>
+            )}
+          </div>
+        )}
+      </SidebarMenu>
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Chat</AlertDialogTitle>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this chat? This action cannot be
-              undone.
+              This will permanently delete this chat and remove the data from
+              our servers.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={cancelDelete}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => handleDelete(deleteId)}
-              disabled={isPending}
-              className={isPending ? 'opacity-70 cursor-not-allowed' : ''}
+              onClick={confirmDelete}
+              className="bg-red-600 focus:ring-red-600"
             >
-              {isPending ? 'Deleting...' : 'Delete'}
+              {isPending ? (
+                <RotateCw className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash className="mr-2 h-4 w-4" />
+              )}
+              <span>Delete</span>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   );
 });
