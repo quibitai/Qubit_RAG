@@ -18,7 +18,6 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { createChatAndSaveFirstMessages } from '../app/(chat)/actions';
-import { toast } from 'sonner';
 import { useChat } from 'ai/react';
 import { useSWRConfig } from 'swr';
 import { unstable_serialize } from 'swr/infinite';
@@ -59,6 +58,7 @@ export function GlobalChatPane({
     setGlobalPaneChatId,
     ensureValidChatId,
     mainUiChatId,
+    loadGlobalChats,
   } = useChatPane();
 
   // Create a separate useChat instance specific for the global chat pane
@@ -75,10 +75,10 @@ export function GlobalChatPane({
     stop,
     reload,
   } = useChat({
-    id: globalPaneChatId, // Use the global pane's own chat ID
+    id: globalPaneChatId || undefined, // Convert null to undefined if needed
     api: '/api/brain',
     body: {
-      id: globalPaneChatId,
+      id: globalPaneChatId || '',
       selectedChatModel: 'global-orchestrator',
       // Include the shared context from the main UI
       activeBitContextId: currentActiveSpecialistId,
@@ -205,14 +205,30 @@ export function GlobalChatPane({
     e.preventDefault();
     if (!input.trim()) return;
 
-    // Ensure we're using a valid UUID for the global pane's chat ID
-    const validChatId = ensureValidChatId(globalPaneChatId);
+    // Declare validChatId at the function scope level
+    let validChatId: string;
 
-    // If the current ID is invalid, update it in the context
-    if (validChatId !== globalPaneChatId) {
+    // Generate a new UUID if we don't have a chat ID
+    if (!globalPaneChatId) {
+      validChatId = generateUUID();
       setGlobalPaneChatId(validChatId);
+      console.log('[GlobalChatPane] Generated new chat ID:', validChatId);
+    } else {
+      // Ensure we're using a valid UUID for the global pane's chat ID
+      // Convert the result to string to ensure type safety
+      const validChatIdResult = ensureValidChatId(globalPaneChatId);
+      validChatId =
+        typeof validChatIdResult === 'string'
+          ? validChatIdResult
+          : generateUUID();
+
+      // If the current ID is invalid, update it in the context
+      if (validChatId !== globalPaneChatId) {
+        setGlobalPaneChatId(validChatId);
+      }
     }
 
+    // Use validChatId after ensuring it's valid above
     console.log('[GlobalChatPane] Using global pane chat ID:', validChatId);
 
     // Ensure a proper UUID is generated for the user message
@@ -232,7 +248,7 @@ export function GlobalChatPane({
 
     const userMsg = {
       id: userMsgId,
-      chatId: validChatId, // Use the valid global pane chat ID
+      chatId: validChatId, // Use validChatId which is now in scope
       role: 'user',
       parts: [{ type: 'text', text: input }],
       attachments: [],
@@ -276,19 +292,26 @@ export function GlobalChatPane({
           selectedChatModel: 'global-orchestrator', // Always use orchestrator
           activeBitContextId: currentActiveSpecialistId, // Use shared context
           currentActiveSpecialistId: currentActiveSpecialistId, // Include both for compatibility
-          chatId: validChatId, // Include the valid chatId in the request
-          id: validChatId, // Also include as id for compatibility
+          chatId: validChatId, // Use validChatId for the chat ID
           isFromGlobalPane: true, // Flag this request as coming from the global pane
-          referencedChatId: mainUiChatId, // Always include main UI chat ID reference
+          referencedChatId: mainUiChatId || '', // Always include main UI chat ID reference with fallback
         },
       });
 
       // After successful submission, trigger revalidation of chat history
       globalMutate(unstable_serialize(getChatHistoryPaginationKey));
       globalMutate('/api/history?limit=30');
+
+      // Also load global chats for the dropdown
+      if (loadGlobalChats) {
+        console.log(
+          '[GlobalChatPane] Refreshing global chat history after message submission',
+        );
+        loadGlobalChats();
+      }
     } catch (error) {
       console.error('[GlobalChatPane] Error submitting message:', error);
-      toast.error('Failed to send message');
+      console.error('Failed to send message');
     }
 
     // Clean up global context (set to null instead of using delete)
@@ -414,20 +437,20 @@ export function GlobalChatPane({
                   '[GlobalChatPane] Messages data format unexpected:',
                   data,
                 );
-                toast.error('Error loading chat: unexpected message format');
+                console.error('Error loading chat: unexpected message format');
               }
             } else {
               console.error(
                 `[GlobalChatPane] Failed to fetch messages for chat ${chatId}: ${response.statusText}`,
               );
-              toast.error('Failed to load chat messages');
+              console.error('Failed to load chat messages');
             }
           } catch (error) {
             console.error(
               '[GlobalChatPane] Error loading chat messages:',
               error,
             );
-            toast.error('Failed to load chat messages');
+            console.error('Failed to load chat messages');
           } finally {
             setIsLoadingMessages(false);
           }
@@ -501,7 +524,7 @@ export function GlobalChatPane({
           messages.map((message, index) => (
             <PreviewMessage
               key={message.id}
-              chatId={globalPaneChatId}
+              chatId={globalPaneChatId || ''}
               message={message}
               isLoading={index === messages.length - 1 && isLoading}
               vote={votes?.find((vote) => vote.messageId === message.id)}

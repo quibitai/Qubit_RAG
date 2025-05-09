@@ -22,7 +22,6 @@ import { useChatPane } from '@/context/ChatPaneContext';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { unstable_serialize } from 'swr/infinite';
 import { getChatHistoryPaginationKey } from './sidebar-history';
-import { toast } from 'sonner';
 import { GLOBAL_ORCHESTRATOR_CONTEXT_ID } from '@/lib/constants';
 
 export function GlobalChatHistoryDropdown() {
@@ -164,14 +163,14 @@ export function GlobalChatHistoryDropdown() {
             console.error(
               `[GlobalChatHistoryDropdown] Failed to load messages for chat ${chatId}: ${response.statusText}`,
             );
-            toast.error('Failed to load chat messages');
+            console.error('Failed to load chat messages');
           }
         } catch (error) {
           console.error(
             '[GlobalChatHistoryDropdown] Error in delayed message loading:',
             error,
           );
-          toast.error('Failed to load chat messages');
+          console.error('Failed to load chat messages');
         }
       }, 100); // Short delay to ensure context updates
     } catch (error) {
@@ -179,7 +178,7 @@ export function GlobalChatHistoryDropdown() {
         '[GlobalChatHistoryDropdown] Error loading chat messages:',
         error,
       );
-      toast.error('Failed to load chat messages');
+      console.error('Failed to load chat messages');
     }
   };
 

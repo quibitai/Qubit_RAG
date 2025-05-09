@@ -30,7 +30,6 @@ console.log('[ChatPaneContext] actions:', {
 
 import type { DBMessage } from '@/lib/db/schema';
 import { useDocumentState } from './DocumentContext';
-import { toast } from 'sonner';
 
 type MessageOptions = {
   message?: string;
@@ -50,20 +49,23 @@ export interface ChatPaneContextType {
   submitMessage: (options?: MessageOptions) => Promise<void>;
   streamedContentMap: Record<string, string>;
   lastStreamUpdateTs: number;
-  mainUiChatId: string;
-  setMainUiChatId: (id: string) => void;
-  globalPaneChatId: string;
-  setGlobalPaneChatId: (id: string) => void;
-  ensureValidChatId: (chatId: string) => string;
-
-  // New properties for chat history management
+  mainUiChatId: string | null;
+  setMainUiChatId: (id: string | null) => void;
+  globalPaneChatId: string | null;
+  setGlobalPaneChatId: (id: string | null) => void;
+  ensureValidChatId: (chatId: string | null) => void;
   sidebarChats: ChatSummary[];
   isLoadingSidebarChats: boolean;
-  loadSidebarChats: (bitContextId?: string | null) => Promise<void>;
-
   globalChats: ChatSummary[];
   isLoadingGlobalChats: boolean;
   loadGlobalChats: () => Promise<void>;
+  refreshHistory: () => void;
+  specialistGroupedChats: Array<{
+    id: string;
+    name: string;
+    description: string;
+    chats: ChatSummary[];
+  }>;
 }
 
 export const ChatPaneContext = createContext<ChatPaneContextType | undefined>(
@@ -137,11 +139,11 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     setChatPaneState((prev) => ({ ...prev, activeDocId: id }));
   }, []);
 
-  const setMainUiChatId = useCallback((id: string) => {
+  const setMainUiChatId = useCallback((id: string | null) => {
     setChatPaneState((prev) => ({ ...prev, mainUiChatId: id }));
   }, []);
 
-  const setGlobalPaneChatId = useCallback((id: string) => {
+  const setGlobalPaneChatId = useCallback((id: string | null) => {
     setChatPaneState((prev) => ({ ...prev, globalPaneChatId: id }));
   }, []);
 
@@ -154,13 +156,25 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     globalPaneChatId,
   } = chatPaneState;
 
-  // New state for chat history management
+  // State for chat history
   const [sidebarChats, setSidebarChats] = useState<ChatSummary[]>([]);
-  const [_isLoadingSidebarChats, _setIsLoadingSidebarChats] =
-    useState<boolean>(false);
+  const [_isLoadingSidebarChats, setIsLoadingSidebarChats] = useState(false);
+  const isLoadingSidebarChats = _isLoadingSidebarChats;
+
+  // Add state for specialist grouped chats
+  const [specialistGroupedChats, setSpecialistGroupedChats] = useState<
+    Array<{
+      id: string;
+      name: string;
+      description: string;
+      chats: ChatSummary[];
+    }>
+  >([]);
+
+  // State for global chat history
   const [globalChats, setGlobalChats] = useState<ChatSummary[]>([]);
-  const [isLoadingGlobalChats, setIsLoadingGlobalChats] =
-    useState<boolean>(false);
+  const [_isLoadingGlobalChats, setIsLoadingGlobalChats] = useState(false);
+  const isLoadingGlobalChats = _isLoadingGlobalChats;
 
   // For stream content, keep as separate state
   const [streamedContentMap, setStreamedContentMap] = useState<
@@ -171,12 +185,12 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const router = useRouter();
 
   // Function to ensure we always have a valid UUID for any chat ID
-  const ensureValidChatId = useCallback((chatId: string) => {
+  const ensureValidChatId = useCallback((chatId: string | null) => {
     // Use the provided chatId if it's already a valid UUID
     const validUuidPattern =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-    if (validUuidPattern.test(chatId)) {
+    if (chatId && validUuidPattern.test(chatId)) {
       return chatId;
     }
 
@@ -189,278 +203,9 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     return newChatId;
   }, []);
 
-  // Create a wrapped version that logs changes
-  const setIsLoadingSidebarChats = useCallback((loading: boolean) => {
-    console.log(`[DEBUG] setIsLoadingSidebarChats changing to: ${loading}`);
-    _setIsLoadingSidebarChats(loading);
-  }, []);
-
-  // Expose the state through a renamed variable
-  const isLoadingSidebarChats = _isLoadingSidebarChats;
-
-  // Add a ref to track the last time loadSidebarChats was called
+  // Create a ref to track the last time loadSidebarChats was called
   const lastSidebarFetchTimeRef = useRef<number>(0);
   const lastContextIdRef = useRef<string | null>(null);
-
-  // Add placeholder functions for loading chat history
-  const loadSidebarChats = useCallback(
-    async (bitContextId?: string | null) => {
-      // IMPLEMENT DEBOUNCING - Check if we called this function recently (in last 5 seconds)
-      const now = Date.now();
-      const minInterval = 5000; // 5 seconds minimum between calls
-
-      // Don't debounce if the context ID has changed
-      const safeContextId: string | null = bitContextId ?? null;
-      const contextIdChanged = lastContextIdRef.current !== safeContextId;
-      lastContextIdRef.current = safeContextId;
-
-      if (
-        !contextIdChanged &&
-        now - lastSidebarFetchTimeRef.current < minInterval
-      ) {
-        console.log(
-          `[ChatPaneContext] loadSidebarChats - Called too frequently, last call was ${now - lastSidebarFetchTimeRef.current}ms ago. Skipping this fetch.`,
-        );
-        return;
-      }
-
-      // Update the timestamp ref for this call
-      lastSidebarFetchTimeRef.current = now;
-
-      // Avoid fetching if already loading
-      if (isLoadingSidebarChats) {
-        console.log(
-          '[ChatPaneContext] loadSidebarChats - Already loading, skipping fetch',
-        );
-        return;
-      }
-
-      // Check authentication status from NextAuth
-      console.log(
-        `[ChatPaneContext] loadSidebarChats - Authentication status from NextAuth: ${sessionStatus}`,
-      );
-
-      if (sessionStatus !== 'authenticated') {
-        console.error(
-          '[ChatPaneContext] loadSidebarChats - NOT AUTHENTICATED via NextAuth, skipping fetch',
-        );
-        setIsLoadingSidebarChats(false);
-        return;
-      }
-
-      setIsLoadingSidebarChats(true);
-      console.log(
-        `[ChatPaneContext] loadSidebarChats - Fetching sidebar chats for bitContextId: ${bitContextId || 'null'}`,
-      );
-
-      // Add unmissable log statement
-      const sidebarContextId = bitContextId || CHAT_BIT_CONTEXT_ID;
-      console.error(
-        `!!! ATTEMPTING SIDEBAR FETCH !!! Type: sidebar, ContextID: ${sidebarContextId}, Timestamp: ${new Date().toISOString()}`,
-      );
-
-      try {
-        // Create the correct URL for sidebar chat history
-        const finalUrlForSidebar = `/api/history?type=sidebar&contextId=${sidebarContextId}&limit=20`;
-        console.error(
-          `[LOAD_SIDEBAR_CHATS] >>> FINAL FETCH URL for Sidebar: ${finalUrlForSidebar}, Timestamp: ${new Date().toISOString()}`,
-        );
-
-        // Make the fetch request directly with explicit headers
-        const response = await fetch(finalUrlForSidebar, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          // Include credentials
-          credentials: 'include',
-        });
-
-        if (!response.ok) {
-          console.error(
-            `[ChatPaneContext] loadSidebarChats - Fetch failed with status: ${response.status}, statusText: ${response.statusText}`,
-          );
-          throw new Error(
-            `Failed to fetch sidebar chats: ${response.status} - ${response.statusText}`,
-          );
-        }
-
-        const data = await response.json();
-        console.log(
-          `[ChatPaneContext] loadSidebarChats - Received ${data.chats?.length || 0} chats`,
-        );
-
-        // Update state with the fetched data
-        setSidebarChats(data.chats || []);
-        setIsLoadingSidebarChats(false);
-      } catch (error) {
-        console.error(
-          '[ChatPaneContext] loadSidebarChats - Error fetching sidebar chats:',
-          error,
-        );
-        setIsLoadingSidebarChats(false);
-      }
-    },
-    [
-      isLoadingSidebarChats,
-      sessionStatus,
-      setIsLoadingSidebarChats,
-      setSidebarChats,
-    ],
-  );
-
-  const loadGlobalChats = useCallback(async () => {
-    // Avoid fetching if already loading
-    if (isLoadingGlobalChats) {
-      console.log(
-        '[ChatPaneContext] loadGlobalChats - Already loading, skipping fetch',
-      );
-      return;
-    }
-
-    // Check authentication status from NextAuth
-    console.log(
-      `[ChatPaneContext] loadGlobalChats - Authentication status from NextAuth: ${sessionStatus}`,
-    );
-
-    if (sessionStatus !== 'authenticated') {
-      console.error(
-        '[ChatPaneContext] loadGlobalChats - NOT AUTHENTICATED via NextAuth, skipping fetch',
-      );
-      // Don't clear global chats if not authenticated - just keep previous state
-      setIsLoadingGlobalChats(false);
-      return;
-    }
-
-    // Check if there's a cached result that's not too old
-    const cachedTime = localStorage.getItem('global-chats-timestamp');
-    const cachedData = localStorage.getItem('global-chats-data');
-    const now = Date.now();
-
-    // Only use cache if it's less than 60 seconds old
-    if (
-      cachedTime &&
-      cachedData &&
-      now - Number.parseInt(cachedTime, 10) < 60000
-    ) {
-      try {
-        const parsedData = JSON.parse(cachedData);
-        console.log(
-          `[ChatPaneContext] Using cached global chats from ${new Date(Number.parseInt(cachedTime, 10)).toISOString()} (${parsedData.length} chats)`,
-        );
-        setGlobalChats(parsedData);
-        return;
-      } catch (e) {
-        console.error(
-          '[ChatPaneContext] Error parsing cached global chats:',
-          e,
-        );
-        // Continue with fetch if cache parsing fails
-      }
-    }
-
-    setIsLoadingGlobalChats(true);
-    console.log('[ChatPaneContext] Fetching global chats');
-
-    try {
-      // Log the exact URL being used for global chat fetch
-      const globalChatUrl = `/api/history?type=global&limit=50`;
-      console.error(
-        `[LOAD_GLOBAL_CHATS] >>> FINAL FETCH URL for Global: ${globalChatUrl}, Timestamp: ${new Date().toISOString()}`,
-      );
-
-      const response = await fetch(globalChatUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        // Handle authentication redirects specifically
-        if (response.status === 307 || response.status === 401) {
-          console.error(
-            '[ChatPaneContext] Authentication required for history API',
-          );
-          setIsLoadingGlobalChats(false);
-          return;
-        }
-
-        throw new Error(`Failed to fetch global chats: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const chats: ChatSummary[] = data.chats || [];
-      console.log(
-        `[ChatPaneContext] Received ${chats.length} global chats. Has more: ${data.hasMore}`,
-      );
-
-      // Cache the results and timestamp
-      try {
-        localStorage.setItem('global-chats-data', JSON.stringify(chats));
-        localStorage.setItem('global-chats-timestamp', now.toString());
-      } catch (e) {
-        console.error('[ChatPaneContext] Error caching global chats:', e);
-      }
-
-      setGlobalChats(chats);
-    } catch (error) {
-      console.error('[ChatPaneContext] Failed to load global chats:', error);
-      // Don't clear chats on error to maintain UI stability
-      toast.error('Failed to load global chats');
-    } finally {
-      setIsLoadingGlobalChats(false);
-    }
-  }, [
-    isLoadingGlobalChats,
-    sessionStatus,
-    setGlobalChats,
-    setIsLoadingGlobalChats,
-  ]);
-
-  // Initialize chat history when provider mounts
-  useEffect(() => {
-    if (sessionStatus === 'authenticated') {
-      console.log(
-        '[ChatPaneContext] Provider mounted & authenticated. Triggering initial loadGlobalChats.',
-      );
-      loadGlobalChats();
-    } else if (sessionStatus === 'loading') {
-      console.log(
-        '[ChatPaneContext] Session loading, deferring initial global chat load.',
-      );
-    } else {
-      console.log(
-        '[ChatPaneContext] Session not authenticated, skipping initial global chat load.',
-      );
-    }
-  }, [sessionStatus, loadGlobalChats]); // Primary dependencies
-
-  // Load sidebar chats when the active specialist changes
-  useEffect(() => {
-    if (sessionStatus === 'authenticated') {
-      // Determine the context ID for the sidebar.
-      // If a specialist is active, use its ID, otherwise default to the general Chat Bit context.
-      // If specialists are meant to have entirely separate history lists, currentActiveSpecialistId would be their specific ID.
-      // If specialists operate within the Chat Bit's history, CHAT_BIT_CONTEXT_ID is always appropriate here.
-      const contextIdForSidebar =
-        currentActiveSpecialistId || CHAT_BIT_CONTEXT_ID;
-
-      console.log(
-        `[ChatPaneContext] Sidebar useEffect: session authenticated. Will load sidebar chats for contextId: ${contextIdForSidebar}`,
-      );
-      loadSidebarChats(contextIdForSidebar);
-    } else if (sessionStatus === 'loading') {
-      console.log(
-        '[ChatPaneContext] Session loading, deferring sidebar chat load.',
-      );
-    } else {
-      console.log(
-        '[ChatPaneContext] Session not authenticated, skipping sidebar chat load.',
-      );
-    }
-  }, [currentActiveSpecialistId, sessionStatus, loadSidebarChats]); // Primary dependencies
 
   // Track if the current chat has been persisted to avoid duplicate saves
   const chatPersistedRef = useRef<boolean>(false);
@@ -475,8 +220,128 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     createdAt: Date;
   } | null>(null);
 
-  // Get the document context for applying AI-driven updates
-  const { applyStreamedUpdate } = useDocumentState();
+  // Mock function for document updates until we properly integrate with DocumentContext
+  const applyStreamedUpdate = useCallback((content: string, docId: string) => {
+    console.log(
+      `[ChatPaneContext] Would apply update to document ${docId}:`,
+      `${content.substring(0, 50)}...`,
+    );
+    // In a complete implementation, this would call into DocumentContext
+  }, []);
+
+  // Add loadAllSpecialistChats function
+  const loadAllSpecialistChats = useCallback(async () => {
+    console.log('[ChatPaneContext] Loading chats for ALL specialists');
+
+    // Check authentication status from NextAuth
+    if (sessionStatus !== 'authenticated') {
+      console.error(
+        '[ChatPaneContext] loadAllSpecialistChats - NOT AUTHENTICATED via NextAuth, skipping fetch',
+      );
+      return;
+    }
+
+    try {
+      // Create the correct URL for fetching all specialist chats
+      const finalUrl = `/api/history?type=all-specialists&limit=20`;
+      console.log(
+        `[ChatPaneContext] Fetching all specialist chats: ${finalUrl}`,
+      );
+
+      const response = await fetch(finalUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch specialist chats: ${response.status} - ${response.statusText}`,
+        );
+      }
+
+      const data = await response.json();
+      console.log(
+        `[ChatPaneContext] Received specialist groupings: ${data.specialists?.length || 0}`,
+      );
+
+      // Set sidebar chats - combine all specialist chats for now to maintain compatibility
+      // Later we'll modify the sidebar component to handle the grouped structure
+      const allChats = data.specialists?.flatMap((s: any) => s.chats) || [];
+      setSidebarChats(allChats);
+
+      // Also store the original grouped data for the new sidebar component
+      setSpecialistGroupedChats(data.specialists || []);
+
+      setIsLoadingSidebarChats(false);
+    } catch (error) {
+      console.error(
+        '[ChatPaneContext] Error fetching all specialist chats:',
+        error,
+      );
+      setIsLoadingSidebarChats(false);
+    }
+  }, [sessionStatus, setIsLoadingSidebarChats]);
+
+  // Add loadGlobalChats function after loadAllSpecialistChats function
+  const loadGlobalChats = useCallback(async () => {
+    console.log('[ChatPaneContext] Loading global orchestrator chats');
+
+    // Check authentication status from NextAuth
+    if (sessionStatus !== 'authenticated') {
+      console.error(
+        '[ChatPaneContext] loadGlobalChats - NOT AUTHENTICATED via NextAuth, skipping fetch',
+      );
+      return;
+    }
+
+    try {
+      setIsLoadingGlobalChats(true);
+
+      // Create the correct URL for fetching global chats
+      const finalUrl = `/api/history?type=global&limit=20&bitContextId=${GLOBAL_ORCHESTRATOR_CONTEXT_ID}`;
+      console.log(`[ChatPaneContext] Fetching global chats: ${finalUrl}`);
+
+      const response = await fetch(finalUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch global chats: ${response.status} - ${response.statusText}`,
+        );
+      }
+
+      const data = await response.json();
+      console.log(
+        `[ChatPaneContext] Received global chats: ${data.chats?.length || 0}`,
+      );
+
+      // Set global chats
+      setGlobalChats(data.chats || []);
+      setIsLoadingGlobalChats(false);
+    } catch (error) {
+      console.error('[ChatPaneContext] Error fetching global chats:', error);
+      setIsLoadingGlobalChats(false);
+    }
+  }, [sessionStatus, setIsLoadingGlobalChats, GLOBAL_ORCHESTRATOR_CONTEXT_ID]);
+
+  // Update the refreshHistory function to also call loadGlobalChats
+  const refreshHistory = useCallback(() => {
+    console.log('[ChatPaneContext] Manually refreshing chat history lists');
+
+    // Use loadAllSpecialistChats to refresh specialist chats
+    loadAllSpecialistChats();
+
+    // Load global chats
+    loadGlobalChats();
+  }, [loadAllSpecialistChats, loadGlobalChats]);
 
   // Initialize from localStorage after component mounts (client-side)
   useEffect(() => {
@@ -497,6 +362,28 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
           'global-pane-chat-id',
         );
 
+        // Map client ID to specialist ID if needed
+        let effectiveSpecialistId = storedSpecialistId;
+
+        // Special handling for client-specific sessions
+        // If we have a client session for "echo-tango", map it to the specialist ID
+        // Use explicit type assertion for session.user with custom User type that includes clientId
+        const clientId = session?.user
+          ? (session.user as import('next-auth').User & { clientId?: string })
+              ?.clientId || null
+          : null;
+
+        console.log(
+          `[ChatPaneContext] Client ID from session: ${clientId || 'undefined'}`,
+        );
+
+        if (clientId === 'echo-tango' && !effectiveSpecialistId) {
+          console.log(
+            '[ChatPaneContext] Detected Echo Tango client - setting specialist ID to echo-tango-specialist',
+          );
+          effectiveSpecialistId = 'echo-tango-specialist';
+        }
+
         // Validate UUID format
         const isValidUuid = (id: string | null) => {
           return (
@@ -513,7 +400,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
             ...prev,
             isPaneOpen: storedPaneState === 'true' ? true : prev.isPaneOpen,
             currentActiveSpecialistId:
-              storedSpecialistId || prev.currentActiveSpecialistId,
+              effectiveSpecialistId || prev.currentActiveSpecialistId,
             activeDocId: storedDocId || prev.activeDocId,
             mainUiChatId: isValidUuid(storedMainUiChatId)
               ? storedMainUiChatId || prev.mainUiChatId
@@ -529,8 +416,8 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
               isPaneOpen: newState.isPaneOpen,
               currentActiveSpecialistId: newState.currentActiveSpecialistId,
               activeDocId: newState.activeDocId,
-              mainUiChatId: `${newState.mainUiChatId.substring(0, 8)}...`,
-              globalPaneChatId: `${newState.globalPaneChatId.substring(0, 8)}...`,
+              mainUiChatId: `${newState.mainUiChatId?.substring(0, 8) || 'null'}`,
+              globalPaneChatId: `${newState.globalPaneChatId?.substring(0, 8) || 'null'}`,
             },
           );
 
@@ -543,7 +430,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     } catch (error) {
       console.error('[ChatPaneContext] Error accessing localStorage:', error);
     }
-  }, []);
+  }, [session]); // Add session as a dependency
 
   // Combine all localStorage saving effect into a single effect
   useEffect(() => {
@@ -555,8 +442,8 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
         currentActiveSpecialistId || '',
       );
       localStorage.setItem('chat-active-doc', activeDocId || '');
-      localStorage.setItem('main-ui-chat-id', mainUiChatId);
-      localStorage.setItem('global-pane-chat-id', globalPaneChatId);
+      localStorage.setItem('main-ui-chat-id', mainUiChatId || '');
+      localStorage.setItem('global-pane-chat-id', globalPaneChatId || '');
 
       // Only log in development for debugging
       if (process.env.NODE_ENV === 'development') {
@@ -579,8 +466,29 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     globalPaneChatId,
   ]);
 
+  // Add an effect to load global chats on initial render
+  // Around line 383, after the localStorage initialization effect
+  // Add initial loading of global chats
+  useEffect(() => {
+    // Check if chats have been loaded before
+    const shouldLoadChats =
+      sessionStatus === 'authenticated' &&
+      globalChats.length === 0 &&
+      !isLoadingGlobalChats;
+
+    if (shouldLoadChats) {
+      console.log('[ChatPaneContext] Initial loading of global chats');
+      loadGlobalChats();
+    }
+  }, [
+    sessionStatus,
+    globalChats.length,
+    isLoadingGlobalChats,
+    loadGlobalChats,
+  ]);
+
   const baseState = useChat({
-    id: mainUiChatId, // Use the main UI chat ID for the primary useChat instance
+    id: mainUiChatId || undefined, // Convert null to undefined for useChat
     api: '/api/brain',
     body: {
       // Always identify as Quibit orchestrator
@@ -637,11 +545,9 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       if (isFromGlobalPane) {
         backendBitContextId = GLOBAL_ORCHESTRATOR_CONTEXT_ID;
       } else if (currentActiveSpecialistId) {
-        // If specialists have their *own* distinct history and bitContextId, use it:
-        // backendBitContextId = currentActiveSpecialistId;
-        // If specialists operate *within* the Chat Bit's history, CHAT_BIT_CONTEXT_ID is correct.
-        // For now, assuming specialists operate within CHAT_BIT_CONTEXT_ID:
-        backendBitContextId = CHAT_BIT_CONTEXT_ID;
+        // If specialists have their own distinct history and bitContextId, use it:
+        backendBitContextId = currentActiveSpecialistId;
+        // No longer forcing to CHAT_BIT_CONTEXT_ID - we want specialists to have their own context
       }
 
       console.log('[ChatPaneContext] Submitting message with context:', {
@@ -742,8 +648,10 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
                 applyStreamedUpdate(data.content, targetDocId);
               }, 0);
 
-              // Show toast notification - but only once per update batch
-              toast?.info('AI is updating your document...');
+              // Replace toast with console log
+              console.log(
+                `[ChatPaneContext] AI is updating document: ${targetDocId}`,
+              );
             }
           }
         }
@@ -796,10 +704,15 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       // New properties for chat history management
       sidebarChats,
       isLoadingSidebarChats,
-      loadSidebarChats,
       globalChats,
       isLoadingGlobalChats,
       loadGlobalChats,
+
+      // Add the new refresh function
+      refreshHistory,
+
+      // New properties for specialist grouped chats
+      specialistGroupedChats,
     }),
     [
       baseState,
@@ -821,10 +734,15 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       // New dependencies
       sidebarChats,
       isLoadingSidebarChats,
-      loadSidebarChats,
       globalChats,
       isLoadingGlobalChats,
       loadGlobalChats,
+
+      // Add the new refresh function
+      refreshHistory,
+
+      // New properties for specialist grouped chats
+      specialistGroupedChats,
     ],
   );
 
