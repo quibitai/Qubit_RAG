@@ -40,6 +40,7 @@ const SpecialistSelector = memo(
     currentActiveSpecialistId,
     setCurrentActiveSpecialistId,
     availableSpecialists,
+    isNewChat,
   }: {
     currentActiveSpecialistId: string | null;
     setCurrentActiveSpecialistId: (id: string | null) => void;
@@ -48,79 +49,25 @@ const SpecialistSelector = memo(
       name: string;
       description: string;
     }>;
+    isNewChat: boolean;
   }) => (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="h-8 gap-1">
+      <DropdownMenuTrigger asChild disabled={!isNewChat}>
+        <Button
+          variant="outline"
+          size="sm"
+          className={`h-8 gap-1 ${!isNewChat ? 'opacity-80 cursor-not-allowed' : ''}`}
+        >
           {currentActiveSpecialistId
             ? availableSpecialists.find(
                 (s) => s.id === currentActiveSpecialistId,
               )?.name || 'Echo Tango'
             : 'General Chat'}
-          <ChevronDown className="h-3 w-3" />
+          {isNewChat && <ChevronDown className="h-3 w-3" />}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[200px]">
-        {availableSpecialists.map((specialist) => (
-          <DropdownMenuItem
-            key={specialist.id || 'general'}
-            onClick={() => setCurrentActiveSpecialistId(specialist.id)}
-            className="flex items-center justify-between"
-          >
-            <div className="flex flex-col">
-              <span>{specialist.name}</span>
-              <span className="text-xs text-muted-foreground">
-                {specialist.description}
-              </span>
-            </div>
-            {currentActiveSpecialistId === specialist.id && (
-              <CheckIcon className="h-4 w-4" />
-            )}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  ),
-);
-SpecialistSelector.displayName = 'SpecialistSelector';
-
-// Memoize the mobile selector component
-const MobileSpecialistSelector = memo(
-  ({
-    currentActiveSpecialistId,
-    setCurrentActiveSpecialistId,
-    availableSpecialists,
-  }: {
-    currentActiveSpecialistId: string | null;
-    setCurrentActiveSpecialistId: (id: string | null) => void;
-    availableSpecialists: Array<{
-      id: string | null;
-      name: string;
-      description: string;
-    }>;
-  }) => (
-    <div className="flex md:hidden">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="outline"
-            className="justify-between items-center w-full text-left"
-            size="sm"
-          >
-            <span className="truncate">
-              {currentActiveSpecialistId
-                ? availableSpecialists.find(
-                    (s) => s.id === currentActiveSpecialistId,
-                  )?.name || 'Echo Tango'
-                : 'General Chat'}
-            </span>
-            <ChevronDown className="h-4 w-4 opacity-50" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="w-[200px] max-h-[400px] overflow-y-auto"
-        >
+      {isNewChat && (
+        <DropdownMenuContent align="start" className="w-[200px]">
           {availableSpecialists.map((specialist) => (
             <DropdownMenuItem
               key={specialist.id || 'general'}
@@ -139,6 +86,71 @@ const MobileSpecialistSelector = memo(
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
+      )}
+    </DropdownMenu>
+  ),
+);
+SpecialistSelector.displayName = 'SpecialistSelector';
+
+// Memoize the mobile selector component
+const MobileSpecialistSelector = memo(
+  ({
+    currentActiveSpecialistId,
+    setCurrentActiveSpecialistId,
+    availableSpecialists,
+    isNewChat,
+  }: {
+    currentActiveSpecialistId: string | null;
+    setCurrentActiveSpecialistId: (id: string | null) => void;
+    availableSpecialists: Array<{
+      id: string | null;
+      name: string;
+      description: string;
+    }>;
+    isNewChat: boolean;
+  }) => (
+    <div className="flex md:hidden">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild disabled={!isNewChat}>
+          <Button
+            variant="outline"
+            className={`justify-between items-center w-full text-left ${!isNewChat ? 'opacity-80 cursor-not-allowed' : ''}`}
+            size="sm"
+          >
+            <span className="truncate">
+              {currentActiveSpecialistId
+                ? availableSpecialists.find(
+                    (s) => s.id === currentActiveSpecialistId,
+                  )?.name || 'Echo Tango'
+                : 'General Chat'}
+            </span>
+            {isNewChat && <ChevronDown className="h-4 w-4 opacity-50" />}
+          </Button>
+        </DropdownMenuTrigger>
+        {isNewChat && (
+          <DropdownMenuContent
+            align="end"
+            className="w-[200px] max-h-[400px] overflow-y-auto"
+          >
+            {availableSpecialists.map((specialist) => (
+              <DropdownMenuItem
+                key={specialist.id || 'general'}
+                onClick={() => setCurrentActiveSpecialistId(specialist.id)}
+                className="flex items-center justify-between"
+              >
+                <div className="flex flex-col">
+                  <span>{specialist.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {specialist.description}
+                  </span>
+                </div>
+                {currentActiveSpecialistId === specialist.id && (
+                  <CheckIcon className="h-4 w-4" />
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        )}
       </DropdownMenu>
     </div>
   ),
@@ -158,7 +170,7 @@ function PureChatHeader({
 }) {
   const router = useRouter();
   const { open } = useSidebar();
-  const { currentActiveSpecialistId, setCurrentActiveSpecialistId } =
+  const { currentActiveSpecialistId, setCurrentActiveSpecialistId, isNewChat } =
     useChatPane();
 
   const { width: windowWidth } = useWindowSize();
@@ -218,6 +230,7 @@ function PureChatHeader({
         currentActiveSpecialistId={currentActiveSpecialistId}
         setCurrentActiveSpecialistId={setCurrentActiveSpecialistId}
         availableSpecialists={availableSpecialists}
+        isNewChat={isNewChat}
       />
 
       {/* Desktop specialist selector */}
@@ -226,6 +239,7 @@ function PureChatHeader({
           currentActiveSpecialistId={currentActiveSpecialistId}
           setCurrentActiveSpecialistId={setCurrentActiveSpecialistId}
           availableSpecialists={availableSpecialists}
+          isNewChat={isNewChat}
         />
       )}
 

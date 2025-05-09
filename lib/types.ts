@@ -120,4 +120,5 @@ export interface ChatPaneState {
   activeDocId: string | null;
   mainUiChatId: string | null;
   globalPaneChatId: string | null;
+  isNewChat: boolean; // Tracks if the current chat is new (no messages persisted yet)
 }

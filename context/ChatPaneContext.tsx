@@ -67,6 +67,8 @@ export interface ChatPaneContextType {
     description: string;
     chats: ChatSummary[];
   }>;
+  isNewChat: boolean;
+  setIsNewChat: (isNew: boolean) => void;
 }
 
 export const ChatPaneContext = createContext<ChatPaneContextType | undefined>(
@@ -120,6 +122,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       activeDocId: null,
       mainUiChatId: generateUUID(),
       globalPaneChatId: generateUUID(),
+      isNewChat: true,
     };
   });
 
@@ -128,13 +131,29 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     setChatPaneState((prev) => ({ ...prev, isPaneOpen: isOpen }));
   }, []);
 
-  const setCurrentActiveSpecialistId = useCallback((id: string | null) => {
-    console.log(
-      '[ChatPaneContext] setCurrentActiveSpecialistId called with:',
-      id,
-    );
-    setChatPaneState((prev) => ({ ...prev, currentActiveSpecialistId: id }));
-  }, []);
+  const setCurrentActiveSpecialistId = useCallback(
+    (id: string | null) => {
+      console.log(
+        '[ChatPaneContext] setCurrentActiveSpecialistId called with:',
+        id,
+      );
+      if (chatPaneState.isNewChat) {
+        console.log(
+          '[ChatPaneContext] Setting currentActiveSpecialistId for new chat to:',
+          id,
+        );
+        setChatPaneState((prev) => ({
+          ...prev,
+          currentActiveSpecialistId: id,
+        }));
+      } else {
+        console.warn(
+          '[ChatPaneContext] Attempted to change specialist for an existing chat. Denied.',
+        );
+      }
+    },
+    [chatPaneState.isNewChat],
+  );
 
   const setActiveDocId = useCallback((id: string | null) => {
     setChatPaneState((prev) => ({ ...prev, activeDocId: id }));
@@ -155,6 +174,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     activeDocId,
     mainUiChatId,
     globalPaneChatId,
+    isNewChat,
   } = chatPaneState;
 
   // State for chat history
@@ -418,6 +438,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
             globalPaneChatId: isValidUuid(storedGlobalPaneChatId)
               ? storedGlobalPaneChatId || prev.globalPaneChatId
               : prev.globalPaneChatId,
+            isNewChat: true,
           };
 
           console.log(
@@ -564,70 +585,11 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     },
   });
 
-  // Create custom submitMessage function to ensure context is always included
-  const submitMessage = useCallback(
-    async (options?: {
-      message?: any;
-      data?: Record<string, any>;
-    }) => {
-      // Use data from options to determine if this is for main UI or global pane
-      const isFromGlobalPane = options?.data?.isFromGlobalPane === true;
-
-      // Use the appropriate chat ID based on source
-      const chatId = isFromGlobalPane ? globalPaneChatId : mainUiChatId;
-
-      // Determine the correct bitContextId for the backend
-      let backendBitContextId = CHAT_BIT_CONTEXT_ID; // Default for main chat UI
-      if (isFromGlobalPane) {
-        backendBitContextId = GLOBAL_ORCHESTRATOR_CONTEXT_ID;
-      } else if (currentActiveSpecialistId) {
-        // If specialists have their own distinct history and bitContextId, use it:
-        backendBitContextId = currentActiveSpecialistId;
-        // No longer forcing to CHAT_BIT_CONTEXT_ID - we want specialists to have their own context
-      }
-
-      console.log('[ChatPaneContext] Submitting message with context:', {
-        currentActiveSpecialistId,
-        activeDocId,
-        chatId,
-        isFromGlobalPane,
-        resolvedBackendBitContextId: backendBitContextId, // Log the resolved ID
-      });
-
-      // Prepare the body with context information
-      const bodyPayload = {
-        // Always identify as Quibit to the backend
-        selectedChatModel: 'global-orchestrator',
-        // Use the resolved ID instead of currentActiveSpecialistId directly
-        activeBitContextId: backendBitContextId,
-        currentActiveSpecialistId: currentActiveSpecialistId, // Keep for compatibility
-        activeDocId,
-        // Ensure a valid chatId is always sent
-        id: chatId,
-        // For global pane messages, also include the main UI chat ID as reference
-        ...(isFromGlobalPane && { referencedChatId: mainUiChatId }),
-        // Include any other data from options?.data
-        ...(options?.data || {}),
-      };
-
-      console.log(
-        '[ChatPaneContext] Sending request to /api/brain with body:',
-        bodyPayload,
-      );
-
-      // Call the original handleSubmit with our enhanced body
-      return baseState.handleSubmit(options?.message, {
-        body: bodyPayload,
-      });
-    },
-    [
-      baseState.handleSubmit,
-      currentActiveSpecialistId,
-      activeDocId,
-      mainUiChatId,
-      globalPaneChatId,
-    ],
-  );
+  // Add setIsNewChat function before submitMessage
+  const setIsNewChat = useCallback((isNew: boolean) => {
+    console.log('[ChatPaneContext] Setting isNewChat to:', isNew);
+    setChatPaneState((prev) => ({ ...prev, isNewChat: isNew }));
+  }, []);
 
   // Reset the chatPersistedRef when starting a new chat
   useEffect(() => {
@@ -636,14 +598,96 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [baseState.messages.length]);
 
-  // Combine baseState with our custom submit function
-  const chatState = useMemo(
-    () => ({
-      ...baseState,
-      // Override the handleSubmit with our custom function
-      handleSubmit: submitMessage,
-    }),
-    [baseState, submitMessage],
+  // Create custom submitMessage function to ensure context is always included
+  const submitMessage = useCallback(
+    async (options?: {
+      message?: any;
+      data?: Record<string, any>;
+    }) => {
+      // Use data from options to determine if this is for main UI or global pane
+      const isFromGlobalPane = options?.data?.isFromGlobalPane === true;
+      const chatId = isFromGlobalPane ? globalPaneChatId : mainUiChatId;
+
+      // Skip if no chatId is set
+      if (!chatId) {
+        console.error(
+          '[ChatPaneContext] No chat ID set for message submission',
+        );
+        return;
+      }
+
+      try {
+        console.log(
+          '[ChatPaneContext] Submitting message with options:',
+          options,
+        );
+
+        // For the main UI chat
+        if (chatId === mainUiChatId) {
+          console.log('[ChatPaneContext] Submitting to main UI chat');
+
+          // If this is a new chat, we need to capture the current specialist ID
+          // and include it in the payload
+          const effectiveSpecialistId =
+            currentActiveSpecialistId || CHAT_BIT_CONTEXT_ID;
+
+          // Set isNewChat to false after the first message is sent
+          if (isNewChat) {
+            console.log(
+              `[ChatPaneContext] First message in chat ${mainUiChatId}. Locking specialist to: ${effectiveSpecialistId}`,
+            );
+            setIsNewChat(false);
+          }
+
+          // Fix the type issue with handleSubmit by using the correct parameters
+          await baseState.handleSubmit(options?.message || '', {
+            data: {
+              ...(options?.data || {}),
+              id: chatId,
+              selectedChatModel: 'global-orchestrator',
+              // Include the specialist ID as activeBitContextId for this chat
+              activeBitContextId: effectiveSpecialistId,
+              currentActiveSpecialistId: effectiveSpecialistId,
+              activeDocId,
+              isFromGlobalPane: false,
+              mainUiChatId: mainUiChatId,
+              referencedGlobalPaneChatId: globalPaneChatId,
+            },
+          });
+        }
+        // For the global pane chat
+        else if (chatId === globalPaneChatId) {
+          console.log('[ChatPaneContext] Submitting to global pane chat');
+          // Fix the type issue with handleSubmit by using the correct parameters
+          await baseState.handleSubmit(options?.message || '', {
+            data: {
+              ...(options?.data || {}),
+              id: chatId,
+              selectedChatModel: 'global-orchestrator',
+              // Global pane always uses the global orchestrator context ID
+              activeBitContextId: GLOBAL_ORCHESTRATOR_CONTEXT_ID,
+              currentActiveSpecialistId: GLOBAL_ORCHESTRATOR_CONTEXT_ID,
+              activeDocId,
+              isFromGlobalPane: true,
+              referencedChatId: mainUiChatId,
+            },
+          });
+        }
+      } catch (error) {
+        console.error('[ChatPaneContext] Error submitting message:', error);
+      }
+    },
+    [
+      baseState,
+      mainUiChatId,
+      globalPaneChatId,
+      currentActiveSpecialistId,
+      activeDocId,
+      isNewChat,
+      setIsNewChat,
+      CHAT_BIT_CONTEXT_ID,
+      GLOBAL_ORCHESTRATOR_CONTEXT_ID,
+    ],
   );
 
   // Add a useEffect to detect document updates in chat messages
@@ -715,9 +759,17 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [activeDocId, streamedContentMap]);
 
-  // Return memoized context value to prevent unnecessary re-renders
-  const contextValue = useMemo(
-    () => ({
+  // When mainUiChatId changes, reset isNewChat to true
+  useEffect(() => {
+    console.log(
+      '[ChatPaneContext] mainUiChatId changed, resetting isNewChat to true',
+    );
+    setIsNewChat(true);
+  }, [mainUiChatId, setIsNewChat]);
+
+  // Fix the contextValue to properly structure chatState
+  const contextValue = useMemo(() => {
+    return {
       chatState: {
         ...baseState,
         handleSubmit: submitMessage,
@@ -736,51 +788,42 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       globalPaneChatId,
       setGlobalPaneChatId,
       ensureValidChatId,
-
-      // New properties for chat history management
       sidebarChats,
       isLoadingSidebarChats,
       globalChats,
       isLoadingGlobalChats,
       loadGlobalChats,
-
-      // Add the new refresh function
       refreshHistory,
-
-      // New properties for specialist grouped chats
       specialistGroupedChats,
-    }),
-    [
-      baseState,
-      submitMessage,
-      isPaneOpen,
-      setIsPaneOpen,
-      currentActiveSpecialistId,
-      setCurrentActiveSpecialistId,
-      activeDocId,
-      setActiveDocId,
-      streamedContentMap,
-      lastStreamUpdateTs,
-      mainUiChatId,
-      setMainUiChatId,
-      globalPaneChatId,
-      setGlobalPaneChatId,
-      ensureValidChatId,
-
-      // New dependencies
-      sidebarChats,
-      isLoadingSidebarChats,
-      globalChats,
-      isLoadingGlobalChats,
-      loadGlobalChats,
-
-      // Add the new refresh function
-      refreshHistory,
-
-      // New properties for specialist grouped chats
-      specialistGroupedChats,
-    ],
-  );
+      isNewChat,
+      setIsNewChat,
+    };
+  }, [
+    baseState,
+    isPaneOpen,
+    setIsPaneOpen,
+    currentActiveSpecialistId,
+    setCurrentActiveSpecialistId,
+    activeDocId,
+    setActiveDocId,
+    submitMessage,
+    streamedContentMap,
+    lastStreamUpdateTs,
+    mainUiChatId,
+    setMainUiChatId,
+    globalPaneChatId,
+    setGlobalPaneChatId,
+    ensureValidChatId,
+    sidebarChats,
+    isLoadingSidebarChats,
+    globalChats,
+    isLoadingGlobalChats,
+    loadGlobalChats,
+    refreshHistory,
+    specialistGroupedChats,
+    isNewChat,
+    setIsNewChat,
+  ]);
 
   return (
     <ChatPaneContext.Provider value={contextValue}>

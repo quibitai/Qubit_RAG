@@ -100,6 +100,10 @@ export function Chat({
     currentActiveSpecialistId,
     globalPaneChatId,
     refreshHistory,
+    chatState,
+    submitMessage,
+    isNewChat,
+    setIsNewChat,
   } = useChatPane();
 
   // When a chat with a specific ID is loaded, update the shared context
