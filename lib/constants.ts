@@ -6,6 +6,9 @@ export const isTestEnvironment = Boolean(
     process.env.CI_PLAYWRIGHT,
 );
 
+// --- Bit Context IDs ---
+// Used to differentiate chat histories and contexts across the application.
+
 /**
  * Represents chats specifically handled by the global Quibit orchestrator.
  * These chats will appear in the GlobalChatHistoryDropdown.
@@ -26,8 +29,15 @@ export const CHAT_BIT_CONTEXT_ID = 'chat-model';
  */
 export const ECHO_TANGO_SPECIALIST_ID = 'echo-tango-specialist';
 
-// If you plan to have distinct, separate chat history lists for individual specialists
-// in the sidebar, you could add them here too, e.g.:
+// --- Add more specialist context IDs here as they are created ---
 // export const SPECIALIST_CODER_CONTEXT_ID = 'specialist-coder';
 // export const SPECIALIST_RESEARCHER_CONTEXT_ID = 'specialist-researcher';
-// For now, we'll assume specialists operate within the CHAT_BIT_CONTEXT_ID.
+
+/**
+ * Alias for CHAT_BIT_CONTEXT_ID for backward compatibility and clarity.
+ * Represents the default context for the main Chat Bit UI when no specific specialist is active.
+ */
+export const CHAT_BIT_GENERAL_CONTEXT_ID = CHAT_BIT_CONTEXT_ID;
+
+// --- Add IDs for new "Bits" (major feature areas) if they have their own distinct chat histories ---
+// export const NEW_BIT_ABC_CONTEXT_ID = 'new-bit-abc';
