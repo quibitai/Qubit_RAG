@@ -19,6 +19,10 @@ import { generateUUID } from '@/lib/utils';
 import { createChatAndSaveFirstMessages } from '@/app/(chat)/actions';
 import type { ChatPaneState, ChatSummary } from '@/lib/types';
 import { useSession } from 'next-auth/react';
+import {
+  GLOBAL_ORCHESTRATOR_CONTEXT_ID,
+  CHAT_BIT_CONTEXT_ID,
+} from '@/lib/constants';
 
 console.log('[ChatPaneContext] actions:', {
   createChatAndSaveFirstMessages,
@@ -250,7 +254,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       );
 
       // Add unmissable log statement
-      const sidebarContextId = bitContextId || 'chat-model';
+      const sidebarContextId = bitContextId || CHAT_BIT_CONTEXT_ID;
       console.error(
         `!!! ATTEMPTING SIDEBAR FETCH !!! Type: sidebar, ContextID: ${sidebarContextId}, Timestamp: ${new Date().toISOString()}`,
       );
@@ -417,106 +421,46 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   // Initialize chat history when provider mounts
   useEffect(() => {
-    console.log(
-      '[ChatPaneContext] Provider mounted. Triggering initial loadGlobalChats.',
-    );
-    loadGlobalChats();
-    // If sidebar should load initially too (e.g., for default bit), call it here
-    // loadSidebarChats(activeBitContextId); // Pass initial context if available
-  }, [loadGlobalChats]); // Only depends on the stable load function
+    if (sessionStatus === 'authenticated') {
+      console.log(
+        '[ChatPaneContext] Provider mounted & authenticated. Triggering initial loadGlobalChats.',
+      );
+      loadGlobalChats();
+    } else if (sessionStatus === 'loading') {
+      console.log(
+        '[ChatPaneContext] Session loading, deferring initial global chat load.',
+      );
+    } else {
+      console.log(
+        '[ChatPaneContext] Session not authenticated, skipping initial global chat load.',
+      );
+    }
+  }, [sessionStatus, loadGlobalChats]); // Primary dependencies
 
   // Load sidebar chats when the active specialist changes
   useEffect(() => {
-    // Skip if session is not ready yet
-    if (sessionStatus === 'loading') {
+    if (sessionStatus === 'authenticated') {
+      // Determine the context ID for the sidebar.
+      // If a specialist is active, use its ID, otherwise default to the general Chat Bit context.
+      // If specialists are meant to have entirely separate history lists, currentActiveSpecialistId would be their specific ID.
+      // If specialists operate within the Chat Bit's history, CHAT_BIT_CONTEXT_ID is always appropriate here.
+      const contextIdForSidebar =
+        currentActiveSpecialistId || CHAT_BIT_CONTEXT_ID;
+
       console.log(
-        '[ChatPaneContext] Session still loading, deferring sidebar fetch',
+        `[ChatPaneContext] Sidebar useEffect: session authenticated. Will load sidebar chats for contextId: ${contextIdForSidebar}`,
       );
-      return;
-    }
-
-    console.log(
-      '[ChatPaneContext] Sidebar useEffect, currentActiveSpecialistId:',
-      currentActiveSpecialistId,
-    );
-    console.log(
-      '[ChatPaneContext] Reading from localStorage, specialistId:',
-      localStorage.getItem('current-active-specialist'),
-    );
-    console.log(`[ChatPaneContext] Current session status: ${sessionStatus}`);
-
-    console.log(
-      `[DEBUG] Sidebar useEffect Trigger Check: Session Status='${sessionStatus}', currentActiveSpecialistId='${currentActiveSpecialistId}', isLoadingSidebarChats='${isLoadingSidebarChats}'`,
-    );
-
-    // Skip fetching if not authenticated
-    if (sessionStatus !== 'authenticated') {
+      loadSidebarChats(contextIdForSidebar);
+    } else if (sessionStatus === 'loading') {
       console.log(
-        '[ChatPaneContext] Not authenticated yet, skipping sidebar fetch until session is ready',
+        '[ChatPaneContext] Session loading, deferring sidebar chat load.',
       );
-      return;
-    }
-
-    // Always load sidebar chats, defaulting to 'chat-model' if no specialist is selected
-    const contextId = currentActiveSpecialistId || 'chat-model';
-
-    // Store the current specialist ID in localStorage for SWR key generation in other components
-    try {
-      localStorage.setItem('current-active-specialist', contextId);
+    } else {
       console.log(
-        `[ChatPaneContext] Stored current-active-specialist in localStorage: ${contextId}`,
-      );
-    } catch (error) {
-      console.error(
-        '[ChatPaneContext] Error storing specialist ID in localStorage:',
-        error,
+        '[ChatPaneContext] Session not authenticated, skipping sidebar chat load.',
       );
     }
-
-    console.log(
-      `[ChatPaneContext] useEffect calling loadSidebarChats with contextId: ${contextId}`,
-    );
-    console.error(
-      `!!! SIDEBAR USEEFFECT IN CHATPANECONTEXT TRIGGERED !!! Will call loadSidebarChats with ContextID: ${contextId}, CurrentActiveSpecialistId: ${currentActiveSpecialistId}, Timestamp: ${new Date().toISOString()}`,
-    );
-
-    // Add useEffect execution tracking counter to localStorage to monitor how often this runs
-    try {
-      const execCount = Number.parseInt(
-        localStorage.getItem('sidebar-effect-exec-count') || '0',
-        10,
-      );
-      localStorage.setItem(
-        'sidebar-effect-exec-count',
-        (execCount + 1).toString(),
-      );
-      console.log(
-        `[TRACKING] Sidebar useEffect execution count: ${execCount + 1}`,
-      );
-    } catch (e) {}
-
-    // Re-enable the call now that we've fixed the dependencies
-    loadSidebarChats(contextId);
-
-    // For debugging: log the current state after a short delay
-    const timerId = setTimeout(() => {
-      console.log('[ChatPaneContext] Sidebar state after loading attempt:', {
-        sidebarChats: sidebarChats?.length || 0,
-        isLoading: isLoadingSidebarChats,
-        contextId,
-        currentActiveSpecialistIdState: currentActiveSpecialistId,
-        sessionStatus,
-      });
-    }, 2000);
-
-    return () => clearTimeout(timerId);
-  }, [
-    currentActiveSpecialistId,
-    loadSidebarChats,
-    sessionStatus,
-    isLoadingSidebarChats,
-    sidebarChats?.length,
-  ]); // Added all dependencies used in the effect
+  }, [currentActiveSpecialistId, sessionStatus, loadSidebarChats]); // Primary dependencies
 
   // Track if the current chat has been persisted to avoid duplicate saves
   const chatPersistedRef = useRef<boolean>(false);
@@ -688,20 +632,33 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       // Use the appropriate chat ID based on source
       const chatId = isFromGlobalPane ? globalPaneChatId : mainUiChatId;
 
+      // Determine the correct bitContextId for the backend
+      let backendBitContextId = CHAT_BIT_CONTEXT_ID; // Default for main chat UI
+      if (isFromGlobalPane) {
+        backendBitContextId = GLOBAL_ORCHESTRATOR_CONTEXT_ID;
+      } else if (currentActiveSpecialistId) {
+        // If specialists have their *own* distinct history and bitContextId, use it:
+        // backendBitContextId = currentActiveSpecialistId;
+        // If specialists operate *within* the Chat Bit's history, CHAT_BIT_CONTEXT_ID is correct.
+        // For now, assuming specialists operate within CHAT_BIT_CONTEXT_ID:
+        backendBitContextId = CHAT_BIT_CONTEXT_ID;
+      }
+
       console.log('[ChatPaneContext] Submitting message with context:', {
         currentActiveSpecialistId,
         activeDocId,
         chatId,
         isFromGlobalPane,
+        resolvedBackendBitContextId: backendBitContextId, // Log the resolved ID
       });
 
       // Prepare the body with context information
       const bodyPayload = {
         // Always identify as Quibit to the backend
         selectedChatModel: 'global-orchestrator',
-        // Include only currentActiveSpecialistId and activeDocId
-        activeBitContextId: currentActiveSpecialistId,
-        currentActiveSpecialistId: currentActiveSpecialistId, // Include both for compatibility
+        // Use the resolved ID instead of currentActiveSpecialistId directly
+        activeBitContextId: backendBitContextId,
+        currentActiveSpecialistId: currentActiveSpecialistId, // Keep for compatibility
         activeDocId,
         // Ensure a valid chatId is always sent
         id: chatId,
@@ -711,7 +668,10 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
         ...(options?.data || {}),
       };
 
-      console.log('[ChatPaneContext] Sending request with body:', bodyPayload);
+      console.log(
+        '[ChatPaneContext] Sending request to /api/brain with body:',
+        bodyPayload,
+      );
 
       // Call the original handleSubmit with our enhanced body
       return baseState.handleSubmit(options?.message, {
