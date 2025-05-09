@@ -113,10 +113,10 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
   // Use a single chatPaneState object to hold state
   // This prevents cascading re-renders when multiple states change
   const [chatPaneState, setChatPaneState] = useState<ChatPaneState>(() => {
-    // Initialize with default values
+    // Initialize with Echo Tango as the default specialist
     return {
       isPaneOpen: true,
-      currentActiveSpecialistId: null,
+      currentActiveSpecialistId: ECHO_TANGO_SPECIALIST_ID,
       activeDocId: null,
       mainUiChatId: generateUUID(),
       globalPaneChatId: generateUUID(),
@@ -378,7 +378,16 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
           `[ChatPaneContext] Client ID from session: ${clientId || 'undefined'}`,
         );
 
-        if (clientId === 'echo-tango' && !effectiveSpecialistId) {
+        // If no specialist ID is set, default to Echo Tango
+        if (!effectiveSpecialistId) {
+          console.log(
+            '[ChatPaneContext] No specialist ID found in localStorage - defaulting to Echo Tango specialist',
+          );
+          effectiveSpecialistId = ECHO_TANGO_SPECIALIST_ID;
+        }
+
+        // Override with client-specific specialist if available
+        if (clientId === 'echo-tango' && !storedSpecialistId) {
           console.log(
             '[ChatPaneContext] Detected Echo Tango client - setting specialist ID to echo-tango-specialist',
           );
@@ -497,12 +506,8 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     );
 
     if (sessionStatus === 'authenticated') {
-      // If defaulting to Echo Tango (from Issue 4), currentActiveSpecialistId should reflect this.
-      // Otherwise, default to CHAT_BIT_CONTEXT_ID for general chat bit history.
-      const contextIdToLoad = currentActiveSpecialistId || CHAT_BIT_CONTEXT_ID;
-
       console.log(
-        `[ChatPaneContext] Sidebar useEffect: session is authenticated. Attempting to load specialist chats for contextId: ${contextIdToLoad}`,
+        `[ChatPaneContext] Sidebar useEffect: session is authenticated. Loading specialist chats.`,
       );
 
       // Use loadAllSpecialistChats to ensure the sidebar is properly populated

@@ -27,7 +27,7 @@ import { GLOBAL_ORCHESTRATOR_CONTEXT_ID } from '@/lib/constants';
 export function GlobalChatHistoryDropdown() {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState('');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(''); // Add search state for filtering
   const {
     globalPaneChatId,
     setGlobalPaneChatId,
@@ -37,6 +37,7 @@ export function GlobalChatHistoryDropdown() {
   } = useChatPane();
   const { mutate: globalMutate } = useSWRConfig();
 
+  // Set the current chat ID as the selected value when the component mounts
   useEffect(() => {
     if (globalPaneChatId) {
       setValue(globalPaneChatId);
@@ -69,23 +70,31 @@ export function GlobalChatHistoryDropdown() {
     }
   }, [globalChats]);
 
-  // Filter global chats by orchestrator context
+  // Updated filtering logic to use GLOBAL_ORCHESTRATOR_CONTEXT_ID
   const filteredChats = globalChats.filter((chat) => {
+    // Option A: Strict filtering by GLOBAL_ORCHESTRATOR_CONTEXT_ID
     const isStrictGlobalChat =
       chat.bitContextId === GLOBAL_ORCHESTRATOR_CONTEXT_ID ||
-      (chat.bitContextId === null && GLOBAL_ORCHESTRATOR_CONTEXT_ID === null);
-    const isDerivedGlobalChat = chat.isGlobal === true;
-    return isStrictGlobalChat || isDerivedGlobalChat;
-  });
+      (chat.bitContextId === null && GLOBAL_ORCHESTRATOR_CONTEXT_ID === null); // Handle if null is used for global
 
-  // Filter chats by search input (case-insensitive, by title)
-  const chatOptions = useMemo(() => {
-    if (!search) return filteredChats;
-    return filteredChats.filter((chat) => {
-      const title = chat.title || 'Untitled Chat';
-      return title.toLowerCase().includes(search.toLowerCase());
-    });
-  }, [filteredChats, search]);
+    // Option B: Using the `isGlobal` flag (if reliably derived in getChatSummaries)
+    const isDerivedGlobalChat = chat.isGlobal === true;
+
+    // Combine both approaches for more robust filtering
+    const isGlobalChat = isStrictGlobalChat || isDerivedGlobalChat;
+
+    if (isGlobalChat && process.env.NODE_ENV === 'development') {
+      console.log(
+        `[GlobalChatHistoryDropdown] Including global chat: "${chat.title}", ID: ${chat.id}, bitContextId: ${chat.bitContextId}, isGlobal: ${chat.isGlobal}`,
+      );
+    } else if (process.env.NODE_ENV === 'development') {
+      console.log(
+        `[GlobalChatHistoryDropdown] Excluding non-global chat: "${chat.title}", ID: ${chat.id}, bitContextId: ${chat.bitContextId}, isGlobal: ${chat.isGlobal}`,
+      );
+    }
+
+    return isGlobalChat;
+  });
 
   // Debug filtered orchestrator chats
   useEffect(() => {
@@ -197,7 +206,7 @@ export function GlobalChatHistoryDropdown() {
               aria-label="View chat history"
             >
               <History className="h-4 w-4" />
-              {filteredChats.length > 0 && (
+              {chatOptions.length > 0 && (
                 <span className="absolute top-0 right-0 h-2 w-2 rounded-full bg-blue-500" />
               )}
             </Button>
@@ -209,17 +218,12 @@ export function GlobalChatHistoryDropdown() {
       </Tooltip>
       <PopoverContent className="w-[300px] p-0">
         <Command>
-          <CommandInput
-            placeholder="Search chat history..."
-            className="h-9"
-            value={search}
-            onValueChange={setSearch}
-          />
+          <CommandInput placeholder="Search chat history..." className="h-9" />
           <CommandList>
             <CommandEmpty>
               {isLoadingGlobalChats
                 ? 'Loading Quibit history...'
-                : 'No matching conversations found.'}
+                : 'No Quibit chat history found.'}
             </CommandEmpty>
             <CommandGroup heading="Recent Quibit Conversations">
               {isLoadingGlobalChats && globalChats.length === 0 ? (
@@ -228,15 +232,13 @@ export function GlobalChatHistoryDropdown() {
                 </div>
               ) : chatOptions.length === 0 && !isLoadingGlobalChats ? (
                 <div className="py-2 px-2 text-xs text-muted-foreground">
-                  {search
-                    ? 'No matching conversations found'
-                    : 'No Quibit conversations found'}
+                  No Quibit conversations found
                 </div>
               ) : (
                 chatOptions.map((chat) => (
                   <CommandItem
                     key={chat.id}
-                    value={chat.title || 'Untitled Chat'}
+                    value={chat.id}
                     onSelect={() => selectChat(chat.id)}
                   >
                     <div className="flex flex-col">

@@ -240,21 +240,21 @@ const PurePreviewMessage = ({
   );
 };
 
-// Temporarily disable memoization to improve streaming performance
-// export const PreviewMessage = memo(
-//   PurePreviewMessage,
-//   (prevProps, nextProps) => {
-//     if (prevProps.isLoading !== nextProps.isLoading) return false;
-//     if (prevProps.message.id !== nextProps.message.id) return false;
-//     if (!equal(prevProps.message.parts, nextProps.message.parts)) return false;
-//     if (!equal(prevProps.vote, nextProps.vote)) return false;
-//
-//     return true;
-//   },
-// );
-
-// Use non-memoized version for better streaming responsiveness
-export const PreviewMessage = PurePreviewMessage;
+// Re-enable memoization for PreviewMessage with deep comparison
+export const PreviewMessage = memo(
+  PurePreviewMessage,
+  (prevProps, nextProps) => {
+    if (prevProps.isLoading !== nextProps.isLoading) return false;
+    if (prevProps.message.id !== nextProps.message.id) return false;
+    // Crucial for streaming: if content of the current message changes, re-render
+    if (prevProps.message.content !== nextProps.message.content) return false;
+    // Also check parts if they are used for rendering more than content
+    if (!equal(prevProps.message.parts, nextProps.message.parts)) return false;
+    if (!equal(prevProps.vote, nextProps.vote)) return false;
+    if (prevProps.isReadonly !== nextProps.isReadonly) return false;
+    return true; // Props are equal, don't re-render
+  },
+);
 
 export const ThinkingMessage = () => {
   const role = 'assistant';

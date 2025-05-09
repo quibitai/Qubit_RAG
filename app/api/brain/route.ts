@@ -24,10 +24,7 @@ let normalizedChatId = ''; // Will be reassigned in POST
 let effectiveClientId = ''; // Will be reassigned in POST
 
 // Import tools and utilities
-import {
-  orchestratorSystemPrompt,
-  getSpecialistPrompt,
-} from '@/lib/ai/prompts';
+import { orchestratorPrompt, getSpecialistPromptById } from '@/lib/ai/prompts';
 import { loadPrompt } from '@/lib/ai/prompts/loader';
 import { specialistRegistry } from '@/lib/ai/prompts/specialists';
 import { modelMapping } from '@/lib/ai/models';
@@ -49,6 +46,12 @@ import { randomUUID } from 'node:crypto';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { RunnableSequence } from '@langchain/core/runnables';
 import { ChatRepository } from '@/lib/db/repositories/chatRepository';
+
+// Add GLOBAL_ORCHESTRATOR_CONTEXT_ID to imports at the top
+import {
+  GLOBAL_ORCHESTRATOR_CONTEXT_ID,
+  CHAT_BIT_CONTEXT_ID,
+} from '@/lib/constants';
 
 // Helper function to create a custom LangChain streaming handler
 function createLangChainStreamHandler({
@@ -1341,7 +1344,18 @@ export async function POST(req: NextRequest) {
     } = reqBody;
 
     // Use currentActiveSpecialistId if provided, otherwise fall back to activeBitContextId
-    const effectiveContextId = currentActiveSpecialistId || activeBitContextId;
+    // But override with GLOBAL_ORCHESTRATOR_CONTEXT_ID if this is from the global pane
+    const effectiveContextId = isFromGlobalPane
+      ? GLOBAL_ORCHESTRATOR_CONTEXT_ID
+      : currentActiveSpecialistId || activeBitContextId || CHAT_BIT_CONTEXT_ID;
+
+    // Log the effectiveContextId to help with debugging
+    console.log(
+      `[Brain API] Determined effectiveContextId: ${effectiveContextId}`,
+    );
+    console.log(
+      `[Brain API] Source: isFromGlobalPane=${isFromGlobalPane}, currentActiveSpecialistId=${currentActiveSpecialistId}, activeBitContextId=${activeBitContextId}`,
+    );
 
     // Set up the global CURRENT_REQUEST_BODY for cross-UI context sharing
     // This is used by tools like getMessagesFromOtherChatTool to maintain context between UIs
@@ -1516,7 +1530,7 @@ export async function POST(req: NextRequest) {
           safeMessages[safeMessages.length - 1]?.content?.substring(0, 100) ||
           'New Chat';
 
-        // Insert chat with direct SQL
+        // Insert chat with direct SQL - now including bitContextId
         await sql`
           INSERT INTO "Chat" (
             id, 
@@ -1524,20 +1538,22 @@ export async function POST(req: NextRequest) {
             title, 
             "createdAt", 
             visibility,
-            client_id
+            client_id,
+            "bitContextId"
           ) VALUES (
             ${normalizedChatId}, 
             ${effectiveUserId}, 
             ${initialTitle}, 
             ${new Date().toISOString()}, 
             'private',
-            ${effectiveClientId}
+            ${effectiveClientId},
+            ${effectiveContextId}
           )
           ON CONFLICT (id) DO NOTHING
         `;
 
         console.log(
-          `[Brain API Debug] Successfully created chat ${normalizedChatId} using direct SQL`,
+          `[Brain API Debug] Successfully created chat ${normalizedChatId} using direct SQL with bitContextId: ${effectiveContextId}`,
         );
       } else {
         console.log(
@@ -2173,8 +2189,8 @@ ${extractedText}
                 );
                 controller.enqueue(encoded);
 
-                // Reduced delay for faster streaming but still smooth
-                await new Promise((resolve) => setTimeout(resolve, 2));
+                // Removed delay for maximum streaming speed
+                // await new Promise((resolve) => setTimeout(resolve, 2));
               }
             } else if (
               chunk.toolCalls &&

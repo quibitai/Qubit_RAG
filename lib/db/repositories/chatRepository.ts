@@ -22,6 +22,7 @@ export class ChatRepository {
       title: string;
       createdAt: Date;
       visibility?: 'public' | 'private';
+      bitContextId?: string | null;
     },
     messageData: Array<{
       id: string;
@@ -37,7 +38,7 @@ export class ChatRepository {
       // Execute as a transaction to ensure atomicity
       const result = await db.transaction(async (tx) => {
         console.log(
-          `[ChatRepository] Creating chat ${chatData.id} for user ${chatData.userId}`,
+          `[ChatRepository] Creating chat ${chatData.id} for user ${chatData.userId} with bitContextId ${chatData.bitContextId || 'null'}`,
         );
 
         // Insert chat record with required fields
@@ -47,6 +48,7 @@ export class ChatRepository {
           title: chatData.title,
           createdAt: chatData.createdAt,
           visibility: chatData.visibility || 'private',
+          bitContextId: chatData.bitContextId,
         });
 
         // Insert message records with all required fields

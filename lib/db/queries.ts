@@ -877,11 +877,16 @@ export async function getChatSummaries({
           SELECT MAX(m."createdAt")
           FROM ${message} m
           WHERE m."chatId" = ${chat.id}
-        )`.as('last_message_timestamp'),
+        )`,
       })
       .from(chat)
       .where(and(...conditions))
-      .orderBy(desc(sql`COALESCE(last_message_timestamp, ${chat.updatedAt})`)) // Sort by last message or chat update time
+      .orderBy(
+        desc(sql`COALESCE(
+        (SELECT MAX(m."createdAt") FROM ${message} m WHERE m."chatId" = ${chat.id}), 
+        ${chat.updatedAt}
+      )`),
+      ) // Repeat the subquery in the ORDER BY clause instead of using the alias
       .limit(limit)
       .offset(offset);
 
@@ -950,6 +955,110 @@ export async function getChatSummaries({
     );
     throw new Error(
       `Failed to fetch chat summaries: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    );
+  }
+}
+
+/**
+ * Fetch chat summaries from all specialists at once
+ * This allows displaying chats from different specialists in separate sections
+ */
+export async function getAllSpecialistChatSummaries({
+  userId,
+  clientId,
+  specialistIds,
+  page,
+  limit,
+}: {
+  userId: string;
+  clientId: string;
+  specialistIds: string[];
+  page: number;
+  limit: number;
+}): Promise<Record<string, ChatSummary[]>> {
+  console.log(
+    `[DB getAllSpecialistChatSummaries] Params: userId=${userId}, clientId=${clientId}, specialists=${specialistIds.join(',')}, page=${page}, limit=${limit}`,
+  );
+
+  try {
+    // Create a map to store results by specialist ID
+    const resultsBySpecialist: Record<string, ChatSummary[]> = {};
+
+    // Define base conditions common to all queries
+    const baseConditions = [
+      eq(chat.userId, userId),
+      eq(chat.clientId, clientId),
+    ];
+
+    // Loop through each specialist ID and fetch its chats
+    for (const specialistId of specialistIds) {
+      console.log(
+        `[DB getAllSpecialistChatSummaries] Fetching chats for specialist: ${specialistId}`,
+      );
+
+      // Create conditions specific to this specialist
+      const conditions = [
+        ...baseConditions,
+        eq(chat.bitContextId, specialistId),
+      ];
+
+      // Fetch chats for this specialist
+      const specialistChats = await db
+        .select({
+          id: chat.id,
+          title: chat.title,
+          createdAt: chat.createdAt,
+          updatedAt: chat.updatedAt,
+          bitContextId: chat.bitContextId,
+          visibility: chat.visibility,
+          // Subquery to get the timestamp of the last message
+          lastMessageTimestamp: sql`(
+            SELECT MAX(m."createdAt")
+            FROM ${message} m
+            WHERE m."chatId" = ${chat.id}
+          )`,
+        })
+        .from(chat)
+        .where(and(...conditions))
+        .orderBy(
+          desc(sql`COALESCE(
+          (SELECT MAX(m."createdAt") FROM ${message} m WHERE m."chatId" = ${chat.id}), 
+          ${chat.updatedAt}
+        )`),
+        )
+        .limit(limit)
+        .offset((page - 1) * limit);
+
+      // Transform database results to ChatSummary objects
+      const chatSummaries: ChatSummary[] = specialistChats.map((chat) => ({
+        id: chat.id,
+        title: chat.title || 'Untitled Chat',
+        lastMessageTimestamp:
+          (chat.lastMessageTimestamp as Date | null) ?? chat.updatedAt,
+        lastMessageSnippet: undefined,
+        bitContextId: chat.bitContextId,
+        isGlobal: false, // These are specialist chats, not global
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt || chat.createdAt,
+        visibility: chat.visibility,
+        pinnedStatus: false,
+      }));
+
+      // Store in the results map
+      resultsBySpecialist[specialistId] = chatSummaries;
+      console.log(
+        `[DB getAllSpecialistChatSummaries] Found ${chatSummaries.length} chats for specialist ${specialistId}`,
+      );
+    }
+
+    return resultsBySpecialist;
+  } catch (error) {
+    console.error(
+      '[DB getAllSpecialistChatSummaries] Error fetching specialist chat summaries:',
+      error,
+    );
+    throw new Error(
+      `Failed to fetch specialist chat summaries: ${error instanceof Error ? error.message : 'Unknown error'}`,
     );
   }
 }

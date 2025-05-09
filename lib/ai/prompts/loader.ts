@@ -31,50 +31,62 @@ export function loadPrompt({
   contextId,
   clientConfig,
 }: LoadPromptParams): string {
-  // 1. Always return Orchestrator prompt if that model is explicitly selected
-  if (modelId === 'global-orchestrator') {
-    console.log('[PromptLoader] Loading Orchestrator prompt.');
-    return getOrchestratorPrompt();
-  }
+  console.log(
+    `[PromptLoader] Attempting to load prompt with modelId: '${modelId}', contextId: '${contextId}'`,
+  );
 
-  // 2. Check for a specific Specialist context based on contextId
+  // 1. PRIORITIZE Specialist context based on contextId
   if (contextId && specialistRegistry[contextId]) {
     console.log(
-      `[PromptLoader] Loading Specialist prompt for contextId: ${contextId}`,
+      `[PromptLoader] Valid specialist contextId '${contextId}' found. Loading specialist prompt.`,
     );
 
-    // Allow client config to override the specialist's base persona prompt
-    const specialistPersona =
-      clientConfig?.configJson?.specialistPrompts?.[contextId] || // Check client override
+    const specialistConfig = specialistRegistry[contextId];
+    // Check for client-specific override for this specialist's persona
+    const specialistBasePersona =
+      clientConfig?.configJson?.specialistPrompts?.[contextId] ||
       getSpecialistPromptById(contextId); // Fallback to default specialist prompt
 
-    if (!specialistPersona || specialistPersona.trim() === '') {
+    if (!specialistBasePersona || specialistBasePersona.trim() === '') {
       console.warn(
-        `[PromptLoader] Specialist persona text for '${contextId}' is empty or not found. Falling back to default assistant prompt.`,
+        `[PromptLoader] Specialist persona for '${contextId}' is empty or not found (checked default and client config). Falling back to default assistant prompt.`,
       );
       return defaultAssistantPrompt;
     }
 
-    // Get relevant tool instructions based on the specialist's default tools
-    const specialistConfig = specialistRegistry[contextId];
-    // Combine base tool instructions with potential client-specific instructions (if applicable later)
     const toolInstructions = getToolPromptInstructions(
       specialistConfig.defaultTools,
     );
 
-    // Add client-specific general instructions if they exist
-    const clientInstructions = clientConfig?.customInstructions || '';
-    let finalPersonaContent = specialistPersona;
-    if (clientInstructions.trim() !== '') {
-      finalPersonaContent += `\n\n# Client-Specific Guidelines\n${clientInstructions}`;
+    let finalPersonaContent = specialistBasePersona;
+    // Append general client-specific instructions if they exist
+    const generalClientInstructions = clientConfig?.customInstructions?.trim();
+    if (generalClientInstructions) {
+      // Check if the general instructions are already in the specialist prompt to avoid duplication
+      // This is a simple check; more sophisticated checks might be needed if prompts are complex.
+      if (!finalPersonaContent.includes(generalClientInstructions)) {
+        finalPersonaContent += `\n\n# Client-Specific Guidelines (General)\n${generalClientInstructions}`;
+      }
     }
 
+    console.log(
+      `[PromptLoader] Successfully composed prompt for specialist: ${contextId}`,
+    );
     return composeSpecialistPrompt(finalPersonaContent, toolInstructions);
   }
 
-  // 3. Fallback to the default assistant prompt if not Orchestrator or a known Specialist
+  // 2. If no specialist context, THEN check if the modelId indicates the orchestrator
+  //    (The 'modelId' here refers to the role, not necessarily the LLM model name like 'gpt-4')
+  if (modelId === 'global-orchestrator') {
+    console.log(
+      `[PromptLoader] No specialist context active, and modelId is 'global-orchestrator'. Loading Orchestrator prompt.`,
+    );
+    return getOrchestratorPrompt();
+  }
+
+  // 3. Fallback if not a known specialist and not the orchestrator modelId
   console.log(
-    `[PromptLoader] No specific specialist context found for model '${modelId}' and contextId '${contextId}'. Loading default assistant prompt.`,
+    `[PromptLoader] No specific specialist context and modelId ('${modelId}') is not orchestrator. Loading default assistant prompt.`,
   );
   return defaultAssistantPrompt;
 }

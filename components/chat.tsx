@@ -99,6 +99,7 @@ export function Chat({
     mainUiChatId,
     currentActiveSpecialistId,
     globalPaneChatId,
+    refreshHistory,
   } = useChatPane();
 
   // When a chat with a specific ID is loaded, update the shared context
@@ -189,6 +190,7 @@ export function Chat({
       referencedGlobalPaneChatId: globalPaneChatId,
       // Include the current active specialist ID for context
       currentActiveSpecialistId,
+      // Make sure the activeBitContextId is the same as currentActiveSpecialistId
       activeBitContextId: currentActiveSpecialistId,
     },
     initialMessages,
@@ -243,103 +245,13 @@ export function Chat({
       // properly formatted data stream that the AI SDK can understand directly
     },
     onFinish: (message) => {
-      // Define custom type that includes finish_reason
-      const extendedMessage = message as UIMessage & {
-        finish_reason?: string;
-      };
+      console.log('[Chat] onFinish callback triggered:', message);
 
-      console.log('[Chat] onFinish callback triggered with message:', {
-        id: extendedMessage.id,
-        role: extendedMessage.role,
-        contentType: typeof extendedMessage.content,
-        contentLength:
-          typeof extendedMessage.content === 'string'
-            ? extendedMessage.content.length
-            : 'N/A',
-        finish_reason: extendedMessage.finish_reason,
-      });
-
-      // Check for assistant message's content
-      if (extendedMessage.role === 'assistant') {
-        if (!extendedMessage.content && !extendedMessage.finish_reason) {
-          console.log(
-            '[Chat] WARNING: Assistant message has no content and no finish_reason',
-          );
-          return; // Early return for messages without content
-        } else if (!extendedMessage.content) {
-          console.log(
-            '[Chat] Assistant message has no content, finish_reason:',
-            extendedMessage.finish_reason,
-          );
-
-          // Add specific logging for tool_calls finish reason
-          if (extendedMessage.finish_reason === 'tool_calls') {
-            console.log(
-              '[Chat] IMPORTANT: Message has tool_calls finish_reason but no content',
-              extendedMessage,
-            );
-          }
-          return; // Early return for messages without content
-        }
-      }
-
-      // Get the most recent messages from state to ensure we use current state
-      const currentMessages = messages;
-      console.log(
-        '[Chat] Current message count in onFinish:',
-        currentMessages.length,
-      );
-
-      const lastUserMessageInState = currentMessages.findLast(
-        (m) => m.role === 'user',
-      );
-      console.log(
-        '[Chat] Last user message in state:',
-        lastUserMessageInState?.id,
-      );
-
-      const isFirstTurn = currentMessages.length <= 2;
-      console.log('[Chat] Is first turn?', isFirstTurn);
-
-      try {
-        if (isFirstTurn && lastUserMsgRef.current) {
-          console.log('[Chat] First turn detected, creating new chat...');
-
-          if (
-            !chatPersistedRef.current &&
-            !persistedChatIdsRef.current.has(id)
-          ) {
-            console.log('[Chat] Chat not yet persisted, creating now...');
-
-            // Mark this chat as being persisted to prevent duplicate calls
-            persistedChatIdsRef.current.add(id);
-            console.log(
-              '[Chat] Added to in-memory persisted chat IDs set:',
-              id,
-            );
-
-            // Note: Removed fetch to /api/chat-actions
-            // Messages are now saved directly by the Brain API
-            console.log(
-              '[Chat] Skipping manual message save - handled by Brain API',
-            );
-            chatPersistedRef.current = true;
-          }
-        } else if (lastUserMsgRef.current) {
-          console.log(
-            '[Chat] Subsequent turn detected, skipping manual message save...',
-          );
-          // Note: Removed fetch to /api/chat-actions
-          // Messages are now saved directly by the Brain API
-          console.log(
-            '[Chat] Skipping manual message save - handled by Brain API',
-          );
-        } else {
-          console.warn('[Chat] No user message reference available for saving');
-        }
-      } catch (error) {
-        console.error('[Chat] Error in handleOnFinish:', error);
-      }
+      // After a message finishes, refresh the chat history lists to show the new chat
+      // Add a small delay to allow the database to update
+      setTimeout(() => {
+        refreshHistory();
+      }, 1500);
     },
     // Add a fetch function wrapper to monitor requests
     fetch: async (input: RequestInfo | URL, init?: RequestInit) => {

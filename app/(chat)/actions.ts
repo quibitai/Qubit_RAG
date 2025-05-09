@@ -162,11 +162,14 @@ export async function createChatAndSaveFirstMessages(params: {
     attachments: unknown[];
     createdAt: Date;
   };
+  bitContextId?: string | null;
 }) {
   const logContext = '[Server Action - createChatAndSaveFirstMessages]';
-  const { chatId, userMessage, assistantMessage } = params;
+  const { chatId, userMessage, assistantMessage, bitContextId } = params;
 
-  console.log(`${logContext} Starting for chat ID: ${chatId}`);
+  console.log(
+    `${logContext} Starting for chat ID: ${chatId}, bitContextId: ${bitContextId || 'null'}`,
+  );
 
   try {
     const session = await auth();
@@ -272,10 +275,11 @@ export async function createChatAndSaveFirstMessages(params: {
             title: title,
             createdAt: new Date(),
             visibility: 'private',
+            bitContextId: bitContextId,
           });
 
           console.log(
-            `${logContext} Successfully inserted chat row for ${chatId}`,
+            `${logContext} Successfully inserted chat row for ${chatId} with bitContextId: ${bitContextId || 'null'}`,
           );
 
           // REMOVED: No longer insert user message, as it's handled by the Brain API

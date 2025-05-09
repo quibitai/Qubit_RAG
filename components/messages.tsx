@@ -108,17 +108,21 @@ function PureMessages(props: MessagesProps) {
   );
 }
 
-// Temporarily disable memoization for better streaming
-// export const Messages = memo(PureMessages, (prevProps, nextProps) => {
-//   if (prevProps.isArtifactVisible && nextProps.isArtifactVisible) return true;
-//
-//   if (prevProps.status !== nextProps.status) return false;
-//   if (prevProps.messages.length !== nextProps.messages.length) return false;
-//   if (!equal(prevProps.messages, nextProps.messages)) return false;
-//   if (!equal(prevProps.votes, nextProps.votes)) return false;
-//
-//   return true;
-// });
-
-// Use non-memoized version for more responsive streaming
-export const Messages = PureMessages;
+// Re-enable memoization for Messages with deep comparison
+export const Messages = memo(PureMessages, (prevProps, nextProps) => {
+  // Re-render if status changes (e.g., 'streaming' to 'idle')
+  if (prevProps.status !== nextProps.status) return false;
+  // Re-render if messages array instance changes or length changes
+  if (
+    prevProps.messages !== nextProps.messages ||
+    prevProps.messages.length !== nextProps.messages.length
+  ) {
+    if (prevProps.messages.length !== nextProps.messages.length) return false;
+    if (!equal(prevProps.messages, nextProps.messages)) return false;
+  }
+  // Re-render if votes change
+  if (!equal(prevProps.votes, nextProps.votes)) return false;
+  // Re-render if artifact visibility changes
+  if (prevProps.isArtifactVisible !== nextProps.isArtifactVisible) return false;
+  return true; // Props are equal, don't re-render
+});

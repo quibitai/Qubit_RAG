@@ -1,14 +1,13 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { useWindowSize } from 'usehooks-ts';
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, memo } from 'react';
 
 import { ModelSelector } from '@/components/model-selector';
 import { SidebarToggle } from '@/components/sidebar-toggle';
 import { Button } from '@/components/ui/button';
 import { PlusIcon, ChevronDown, CheckIcon } from 'lucide-react';
 import { useSidebar } from './ui/sidebar';
-import { memo } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { type VisibilityType, VisibilitySelector } from './visibility-selector';
 import {
@@ -26,6 +25,13 @@ const GENERAL_CHAT_OPTION = {
   id: null,
   name: 'General Chat',
   description: 'Standard chat without specialist persona',
+};
+
+// Echo Tango specialist option
+const ECHO_TANGO_OPTION = {
+  id: 'echo-tango-specialist',
+  name: 'Echo Tango',
+  description: 'Specialist for Echo Tango client',
 };
 
 // Memoize the SpecialistSelector component to prevent unnecessary re-renders
@@ -49,7 +55,7 @@ const SpecialistSelector = memo(
           {currentActiveSpecialistId
             ? availableSpecialists.find(
                 (s) => s.id === currentActiveSpecialistId,
-              )?.name || 'Select Specialist'
+              )?.name || 'Echo Tango'
             : 'General Chat'}
           <ChevronDown className="h-3 w-3" />
         </Button>
@@ -101,7 +107,13 @@ const MobileSpecialistSelector = memo(
             className="justify-between items-center w-full text-left"
             size="sm"
           >
-            <span className="truncate">Select Specialist</span>
+            <span className="truncate">
+              {currentActiveSpecialistId
+                ? availableSpecialists.find(
+                    (s) => s.id === currentActiveSpecialistId,
+                  )?.name || 'Echo Tango'
+                : 'General Chat'}
+            </span>
             <ChevronDown className="h-4 w-4 opacity-50" />
           </Button>
         </DropdownMenuTrigger>
@@ -188,6 +200,8 @@ function PureChatHeader({
             variant="outline"
             className="md:px-2 px-2 md:h-fit"
             onClick={() => {
+              // When creating a new chat, set Echo Tango as the default specialist
+              setCurrentActiveSpecialistId(ECHO_TANGO_OPTION.id);
               router.push('/');
               router.refresh();
             }}

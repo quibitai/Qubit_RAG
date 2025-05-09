@@ -118,6 +118,6 @@ export interface ChatPaneState {
   isPaneOpen: boolean;
   currentActiveSpecialistId: string | null;
   activeDocId: string | null;
-  mainUiChatId: string;
-  globalPaneChatId: string;
+  mainUiChatId: string | null;
+  globalPaneChatId: string | null;
 }
