@@ -80,15 +80,13 @@ export function GlobalChatPane({
     body: {
       id: globalPaneChatId || '',
       selectedChatModel: 'global-orchestrator',
-      // Include the shared context from the main UI
       activeBitContextId: currentActiveSpecialistId,
       currentActiveSpecialistId: currentActiveSpecialistId,
-      // Flag this as coming from the global pane
       isFromGlobalPane: true,
-      // Include a reference to the main UI's chat ID
       referencedChatId: mainUiChatId,
     },
-    experimental_throttle: 100,
+    experimental_throttle: 50,
+    streamProtocol: 'data',
     sendExtraMessageFields: true,
     generateId: generateUUID, // Ensure message IDs are valid UUIDs
   });

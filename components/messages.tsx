@@ -23,6 +23,14 @@ function PureMessages(props: MessagesProps) {
   const { chatId, status, votes, messages, setMessages, reload, isReadonly } =
     props;
 
+  // Add a log to see when PureMessages itself re-renders
+  console.log(
+    '[PureMessages] Rendering. Message count:',
+    props.messages.length,
+    'Status:',
+    props.status,
+  );
+
   // Add logging when messages array changes
   useEffect(() => {
     console.log(
@@ -110,19 +118,42 @@ function PureMessages(props: MessagesProps) {
 
 // Re-enable memoization for Messages with deep comparison
 export const Messages = memo(PureMessages, (prevProps, nextProps) => {
-  // Re-render if status changes (e.g., 'streaming' to 'idle')
-  if (prevProps.status !== nextProps.status) return false;
-  // Re-render if messages array instance changes or length changes
-  if (
-    prevProps.messages !== nextProps.messages ||
-    prevProps.messages.length !== nextProps.messages.length
+  let reasonForRerender = '';
+
+  if (prevProps.status !== nextProps.status) reasonForRerender += 'status ';
+  if (prevProps.isReadonly !== nextProps.isReadonly)
+    reasonForRerender += 'isReadonly ';
+  if (prevProps.isArtifactVisible !== nextProps.isArtifactVisible)
+    reasonForRerender += 'isArtifactVisible ';
+
+  if (prevProps.messages.length !== nextProps.messages.length) {
+    reasonForRerender += 'messages.length ';
+  } else if (
+    prevProps.messages.length > 0 &&
+    nextProps.messages.length > 0 &&
+    prevProps.messages[prevProps.messages.length - 1] !==
+      nextProps.messages[nextProps.messages.length - 1]
   ) {
-    if (prevProps.messages.length !== nextProps.messages.length) return false;
-    if (!equal(prevProps.messages, nextProps.messages)) return false;
+    if (!equal(prevProps.messages, nextProps.messages)) {
+      reasonForRerender += 'messages_deep_equal ';
+    }
+  } else if (
+    prevProps.messages.length === 0 &&
+    nextProps.messages.length === 0
+  ) {
+    // Both empty, no change
+  } else {
+    if (!equal(prevProps.messages, nextProps.messages)) {
+      reasonForRerender += 'messages_deep_equal ';
+    }
   }
-  // Re-render if votes change
-  if (!equal(prevProps.votes, nextProps.votes)) return false;
-  // Re-render if artifact visibility changes
-  if (prevProps.isArtifactVisible !== nextProps.isArtifactVisible) return false;
-  return true; // Props are equal, don't re-render
+
+  if (!equal(prevProps.votes, nextProps.votes)) reasonForRerender += 'votes ';
+
+  if (reasonForRerender) {
+    console.log('[Messages.memo] Re-rendering because:', reasonForRerender);
+    return false; // Props are different, re-render
+  }
+  console.log('[Messages.memo] Props are equal, skipping re-render.');
+  return true; // Props are equal, prevent re-render
 });

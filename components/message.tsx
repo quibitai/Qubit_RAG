@@ -40,6 +40,11 @@ const PurePreviewMessage = ({
 }) => {
   const [mode, setMode] = useState<'view' | 'edit'>('view');
 
+  // Add a log to see when PurePreviewMessage itself re-renders
+  console.log(
+    `[PurePreviewMessage ${message.id?.substring(0, 5)}] Rendering. isLoading: ${isLoading}, Content: "${typeof message.content === 'string' ? message.content.substring(0, 30) : 'N/A'}"`,
+  );
+
   return (
     <AnimatePresence>
       <motion.div
@@ -240,19 +245,34 @@ const PurePreviewMessage = ({
   );
 };
 
-// Re-enable memoization for PreviewMessage with deep comparison
 export const PreviewMessage = memo(
   PurePreviewMessage,
   (prevProps, nextProps) => {
-    if (prevProps.isLoading !== nextProps.isLoading) return false;
-    if (prevProps.message.id !== nextProps.message.id) return false;
-    // Crucial for streaming: if content of the current message changes, re-render
-    if (prevProps.message.content !== nextProps.message.content) return false;
-    // Also check parts if they are used for rendering more than content
-    if (!equal(prevProps.message.parts, nextProps.message.parts)) return false;
-    if (!equal(prevProps.vote, nextProps.vote)) return false;
-    if (prevProps.isReadonly !== nextProps.isReadonly) return false;
-    return true; // Props are equal, don't re-render
+    let reasonForRerender = '';
+
+    if (prevProps.isLoading !== nextProps.isLoading)
+      reasonForRerender += 'isLoading ';
+    if (prevProps.message.id !== nextProps.message.id)
+      reasonForRerender += 'message.id ';
+    if (prevProps.message.content !== nextProps.message.content)
+      reasonForRerender += 'message.content ';
+    if (!equal(prevProps.message.parts, nextProps.message.parts))
+      reasonForRerender += 'message.parts ';
+    if (!equal(prevProps.vote, nextProps.vote)) reasonForRerender += 'vote ';
+    if (prevProps.isReadonly !== nextProps.isReadonly)
+      reasonForRerender += 'isReadonly ';
+
+    if (reasonForRerender) {
+      console.log(
+        `[PreviewMessage.memo ${prevProps.message.id?.substring(0, 5)}] Re-rendering because:`,
+        reasonForRerender,
+      );
+      return false; // Props are different
+    }
+    console.log(
+      `[PreviewMessage.memo ${prevProps.message.id?.substring(0, 5)}] Props are equal, skipping re-render.`,
+    );
+    return true; // Props are equal
   },
 );
 

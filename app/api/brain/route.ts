@@ -2175,42 +2175,44 @@ ${extractedText}
 
           // Process each chunk from the stream
           for await (const chunk of streamResult) {
+            // --- START MODIFICATION ---
             if (chunk.output && typeof chunk.output === 'string') {
-              // Split long chunks into smaller pieces for more granular streaming
-              const text = chunk.output;
-              const chunkSize = 1; // Stream character by character for best effect
-
-              // Process the text in smaller chunks to improve streaming responsiveness
-              for (let i = 0; i < text.length; i += chunkSize) {
-                const subChunk = text.slice(i, i + chunkSize);
-                // Format using the AI SDK data stream format for text chunks
-                const encoded = encoder.encode(
-                  `0:${JSON.stringify(subChunk)}\n`,
-                );
-                controller.enqueue(encoded);
-
-                // Removed delay for maximum streaming speed
-                // await new Promise((resolve) => setTimeout(resolve, 2));
-              }
+              // Send the entire text output of this agent stream chunk as one data part
+              // This chunk.output is what the agent yields at each step (thought, part of final answer, etc.)
+              console.log(
+                `[Brain API] Enqueuing agent output chunk (type 0): "${chunk.output.substring(0, 50)}..."`,
+              );
+              const encoded = encoder.encode(
+                `0:${JSON.stringify(chunk.output)}\n`, // Vercel AI SDK text chunk
+              );
+              controller.enqueue(encoded);
+              // No per-character loop or setTimeout here. We are now sending the agent's natural chunks.
             } else if (
               chunk.toolCalls &&
               Array.isArray(chunk.toolCalls) &&
               chunk.toolCalls.length > 0
             ) {
-              // Debug information about tool calls - use type 2 for data
+              console.log(
+                `[Brain API] Enqueuing tool calls (type 2):`,
+                chunk.toolCalls,
+              );
               const encoded = encoder.encode(
-                `2:${JSON.stringify(chunk.toolCalls)}\n`,
+                `2:${JSON.stringify(chunk.toolCalls)}\n`, // Vercel AI SDK data/tool_calls chunk
               );
               controller.enqueue(encoded);
             }
-
-            // Process intermediateSteps if they exist
-            if (chunk.intermediateSteps && chunk.intermediateSteps.length > 0) {
-              console.log(
-                '[Brain API] Processing agent steps:',
-                chunk.intermediateSteps.length,
-              );
-            }
+            // TODO: Consider if other chunk types from LangChain need specific handling (e.g., intermediateSteps for reasoning)
+            // If you want to stream intermediate steps or specific reasoning, you would add more `else if` blocks here
+            // to handle those chunk structures and send them with appropriate prefixes (e.g., `8:...` for custom data).
+            // For example:
+            // else if (chunk.intermediateSteps && chunk.intermediateSteps.length > 0) {
+            //   console.log('[Brain API] Enqueuing intermediate steps (type 8 - custom):', chunk.intermediateSteps);
+            //   const encoded = encoder.encode(
+            //     `8:${JSON.stringify({ type: 'reasoning_steps', data: chunk.intermediateSteps })}\n`,
+            //   );
+            //   controller.enqueue(encoded);
+            // }
+            // --- END MODIFICATION ---
           }
 
           // Send a finish message part at the end

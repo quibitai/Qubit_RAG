@@ -182,19 +182,14 @@ export function Chat({
     body: {
       id,
       selectedChatModel: selectedChatModel,
-      // Flag this as coming from the main UI (not the global pane)
       isFromGlobalPane: false,
-      // Pass the main UI chat ID (should match this component's ID) for reference
       mainUiChatId: id,
-      // NEW: Include reference to the global pane chat ID to enable bi-directional awareness
       referencedGlobalPaneChatId: globalPaneChatId,
-      // Include the current active specialist ID for context
       currentActiveSpecialistId,
-      // Make sure the activeBitContextId is the same as currentActiveSpecialistId
       activeBitContextId: currentActiveSpecialistId,
     },
     initialMessages,
-    experimental_throttle: 0,
+    experimental_throttle: 50,
     streamProtocol: 'data',
     sendExtraMessageFields: true,
     generateId: generateUUID,
@@ -254,8 +249,11 @@ export function Chat({
       }, 1500);
     },
     // Add a fetch function wrapper to monitor requests
-    fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input.toString();
+    fetch: async (inputReqInfo: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof inputReqInfo === 'string'
+          ? inputReqInfo
+          : inputReqInfo.toString();
       console.log('[Chat] AI SDK making fetch request to:', url);
       console.log('[Chat] Request method:', init?.method);
 
@@ -289,7 +287,7 @@ export function Chat({
       }
 
       // Make the actual fetch request
-      return fetch(input, init);
+      return fetch(inputReqInfo, init);
     },
   });
 
