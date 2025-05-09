@@ -85,10 +85,14 @@ export function GlobalChatPane({
       isFromGlobalPane: true,
       referencedChatId: mainUiChatId,
     },
-    experimental_throttle: 50,
-    streamProtocol: 'data',
+    experimental_throttle: 50, // Lower value for smoother streaming
+    streamProtocol: 'data', // Explicitly set for Vercel AI SDK
     sendExtraMessageFields: true,
     generateId: generateUUID, // Ensure message IDs are valid UUIDs
+    onError: (err) => console.error('[GlobalPane useChat Error]', err), // Simplified error
+    // onResponse: (response) => { console.log('[GlobalPane onResponse]', response.status); }, // Temporarily disabled
+    // onFinish: (message) => { console.log('[GlobalPane onFinish]', message.role, message.content?.substring(0,30)); }, // Temporarily disabled
+    // fetch: async (input, init) => { console.log('[GlobalPane fetch]', input); return fetch(input, init); }, // Temporarily disabled
   });
 
   const [messagesContainerRef, messagesEndRef] =

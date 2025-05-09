@@ -189,106 +189,14 @@ export function Chat({
       activeBitContextId: currentActiveSpecialistId,
     },
     initialMessages,
-    experimental_throttle: 50,
-    streamProtocol: 'data',
+    experimental_throttle: 50, // Lower value for smoother streaming
+    streamProtocol: 'data', // Explicitly set for Vercel AI SDK
     sendExtraMessageFields: true,
     generateId: generateUUID,
-    onError: (error: any) => {
-      console.error('[Chat] useChat onError callback triggered:', error);
-      // Log more details about the error if available
-      if (error instanceof Error) {
-        console.error('[Chat] Error name:', error.name);
-        console.error('[Chat] Error message:', error.message);
-        console.error('[Chat] Error stack:', error.stack);
-      }
-
-      // Check for response errors
-      if ('response' in error && error.response) {
-        const response = error.response as Response;
-        console.error('[Chat] Response status:', response.status);
-        console.error('[Chat] Response statusText:', response.statusText);
-
-        // Try to get more details from the response
-        response
-          .text()
-          .then((text: string) => {
-            console.error('[Chat] Response body:', text);
-            try {
-              const json = JSON.parse(text);
-              console.error('[Chat] Response JSON:', json);
-            } catch (e) {
-              // Not JSON, which is fine
-            }
-          })
-          .catch((e: Error) => {
-            console.error('[Chat] Could not read response body:', e);
-          });
-      }
-
-      // Don't show error toasts during development to avoid confusion
-      if (process.env.NODE_ENV === 'production') {
-        toast.error('An error occurred. Please try again.');
-      }
-    },
-    onResponse: (response) => {
-      // Log basic response information
-      console.log(
-        `[Chat] Received response from API, status: ${response.status}`,
-      );
-
-      // No need for custom transformation anymore since the server now sends
-      // properly formatted data stream that the AI SDK can understand directly
-    },
-    onFinish: (message) => {
-      console.log('[Chat] onFinish callback triggered:', message);
-
-      // After a message finishes, refresh the chat history lists to show the new chat
-      // Add a small delay to allow the database to update
-      setTimeout(() => {
-        refreshHistory();
-      }, 1500);
-    },
-    // Add a fetch function wrapper to monitor requests
-    fetch: async (inputReqInfo: RequestInfo | URL, init?: RequestInit) => {
-      const url =
-        typeof inputReqInfo === 'string'
-          ? inputReqInfo
-          : inputReqInfo.toString();
-      console.log('[Chat] AI SDK making fetch request to:', url);
-      console.log('[Chat] Request method:', init?.method);
-
-      // Only log body for POST requests to avoid logging sensitive data in URLs
-      if (init?.method === 'POST' && init?.body) {
-        try {
-          // Try to parse and log the request body
-          const body = JSON.parse(init.body as string);
-          console.log(
-            '[Chat Client] Sending messages to /api/brain:',
-            JSON.stringify(body.messages, null, 2),
-          );
-          console.log('[Chat Client] Messages count:', body.messages.length);
-
-          // Check for any potential problematic message formats
-          body.messages.forEach((msg: any, i: number) => {
-            if (typeof msg.content !== 'string' && msg.content !== null) {
-              console.warn(
-                `[Chat Client] WARNING: Message ${i} has non-string content type: ${typeof msg.content}`,
-              );
-            }
-            if (msg.role === 'tool' && typeof msg.content === 'object') {
-              console.warn(
-                `[Chat Client] Tool message with object content detected at index ${i}`,
-              );
-            }
-          });
-        } catch (e) {
-          console.error('[Chat] Error parsing request body:', e);
-        }
-      }
-
-      // Make the actual fetch request
-      return fetch(inputReqInfo, init);
-    },
+    onError: (err) => console.error('[ChatBit UI useChat Error]', err), // Simplified error
+    // onResponse: (response) => { console.log('[ChatBit UI onResponse]', response.status); }, // Temporarily disabled
+    // onFinish: (message) => { console.log('[ChatBit UI onFinish]', message.role, message.content?.substring(0,30)); }, // Temporarily disabled
+    // fetch: async (input, init) => { console.log('[ChatBit UI fetch]', input); return fetch(input, init); }, // Temporarily disabled
   });
 
   const { data: votes } = useSWR<Array<Vote>>(

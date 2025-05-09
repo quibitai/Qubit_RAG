@@ -40,7 +40,7 @@ const PurePreviewMessage = ({
 }) => {
   const [mode, setMode] = useState<'view' | 'edit'>('view');
 
-  // Add a log to see when PurePreviewMessage itself re-renders
+  // Add a clear log to see when PurePreviewMessage renders and with what props
   console.log(
     `[PurePreviewMessage ${message.id?.substring(0, 5)}] Rendering. isLoading: ${isLoading}, Content: "${typeof message.content === 'string' ? message.content.substring(0, 30) : 'N/A'}"`,
   );
@@ -248,30 +248,32 @@ const PurePreviewMessage = ({
 export const PreviewMessage = memo(
   PurePreviewMessage,
   (prevProps, nextProps) => {
-    let reasonForRerender = '';
-
-    if (prevProps.isLoading !== nextProps.isLoading)
-      reasonForRerender += 'isLoading ';
-    if (prevProps.message.id !== nextProps.message.id)
-      reasonForRerender += 'message.id ';
-    if (prevProps.message.content !== nextProps.message.content)
-      reasonForRerender += 'message.content ';
-    if (!equal(prevProps.message.parts, nextProps.message.parts))
-      reasonForRerender += 'message.parts ';
-    if (!equal(prevProps.vote, nextProps.vote)) reasonForRerender += 'vote ';
-    if (prevProps.isReadonly !== nextProps.isReadonly)
-      reasonForRerender += 'isReadonly ';
-
-    if (reasonForRerender) {
-      console.log(
-        `[PreviewMessage.memo ${prevProps.message.id?.substring(0, 5)}] Re-rendering because:`,
-        reasonForRerender,
-      );
-      return false; // Props are different
+    // Only re-render if streaming state or content changes, or if message id changes
+    if (prevProps.isLoading !== nextProps.isLoading) {
+      // console.log(`[PreviewMessage.memo ${prevProps.message.id.substring(0,5)}] RERENDER because isLoading changed`);
+      return false;
     }
-    console.log(
-      `[PreviewMessage.memo ${prevProps.message.id?.substring(0, 5)}] Props are equal, skipping re-render.`,
-    );
+    if (prevProps.message.id !== nextProps.message.id) {
+      // console.log(`[PreviewMessage.memo ${prevProps.message.id.substring(0,5)}] RERENDER because message.id changed`);
+      return false;
+    }
+    if (prevProps.message.content !== nextProps.message.content) {
+      // console.log(`[PreviewMessage.memo ${prevProps.message.id.substring(0,5)}] RERENDER because message.content changed`);
+      return false;
+    }
+    if (!equal(prevProps.message.parts, nextProps.message.parts)) {
+      // console.log(`[PreviewMessage.memo ${prevProps.message.id.substring(0,5)}] RERENDER because message.parts changed`);
+      return false;
+    }
+    if (!equal(prevProps.vote, nextProps.vote)) {
+      // console.log(`[PreviewMessage.memo ${prevProps.message.id.substring(0,5)}] RERENDER because vote changed`);
+      return false;
+    }
+    if (prevProps.isReadonly !== nextProps.isReadonly) {
+      // console.log(`[PreviewMessage.memo ${prevProps.message.id.substring(0,5)}] RERENDER because isReadonly changed`);
+      return false;
+    }
+    // console.log(`[PreviewMessage.memo ${prevProps.message.id.substring(0,5)}] Props ARE equal, skipping re-render.`);
     return true; // Props are equal
   },
 );
