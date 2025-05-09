@@ -23,6 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { unstable_serialize } from 'swr/infinite';
 import { getChatHistoryPaginationKey } from './sidebar-history';
 import { toast } from 'sonner';
+import { GLOBAL_ORCHESTRATOR_CONTEXT_ID } from '@/lib/constants';
 
 export function GlobalChatHistoryDropdown() {
   const [open, setOpen] = useState(false);
@@ -57,35 +58,6 @@ export function GlobalChatHistoryDropdown() {
     }
   }, [globalChats]);
 
-  // Ensure global chats are loaded
-  useEffect(() => {
-    // Add debouncing to prevent multiple calls in quick succession
-    const lastLoadTime = localStorage.getItem('global-chats-last-load-time');
-    const now = Date.now();
-    const minInterval = 5000; // 5 seconds minimum between loads
-
-    if (lastLoadTime && now - Number.parseInt(lastLoadTime, 10) < minInterval) {
-      console.log(
-        `[GlobalChatHistoryDropdown] Skipping loadGlobalChats - called too recently (${now - Number.parseInt(lastLoadTime, 10)}ms ago)`,
-      );
-      return;
-    }
-
-    // Save the current timestamp to track when we last loaded
-    try {
-      localStorage.setItem('global-chats-last-load-time', now.toString());
-    } catch (e) {
-      console.error(
-        '[GlobalChatHistoryDropdown] Error storing load timestamp:',
-        e,
-      );
-    }
-
-    // Initial load of global chats
-    console.log('[GlobalChatHistoryDropdown] Calling loadGlobalChats');
-    loadGlobalChats();
-  }, [loadGlobalChats]);
-
   // Add detailed logging for incoming chats before filtering
   useEffect(() => {
     if (process.env.NODE_ENV === 'development' && globalChats.length > 0) {
@@ -98,36 +70,26 @@ export function GlobalChatHistoryDropdown() {
     }
   }, [globalChats]);
 
-  // LESS STRICT filtering for orchestrator chats
+  // Updated filtering logic to use GLOBAL_ORCHESTRATOR_CONTEXT_ID
   const chatOptions = globalChats.filter((chat) => {
-    // Log each chat we're considering for debugging
-    console.log(`[GlobalChatHistoryDropdown] Processing chat:`, {
-      id: chat.id,
-      title: chat.title,
-      bitContextId: chat.bitContextId,
-      isGlobal: chat.isGlobal,
-    });
+    // Option A: Strict filtering by GLOBAL_ORCHESTRATOR_CONTEXT_ID
+    const isStrictGlobalChat =
+      chat.bitContextId === GLOBAL_ORCHESTRATOR_CONTEXT_ID ||
+      (chat.bitContextId === null && GLOBAL_ORCHESTRATOR_CONTEXT_ID === null); // Handle if null is used for global
 
-    // NEW APPROACH: Use bitContextId and isGlobal flag instead of title-based filtering
+    // Option B: Using the `isGlobal` flag (if reliably derived in getChatSummaries)
+    const isDerivedGlobalChat = chat.isGlobal === true;
 
-    // Include chats that:
-    // 1. Have no bitContextId or empty bitContextId (global chats)
-    // 2. Have 'global-orchestrator' bitContextId
-    // 3. Have isGlobal flag set to true
+    // Combine both approaches for more robust filtering
+    const isGlobalChat = isStrictGlobalChat || isDerivedGlobalChat;
 
-    const isGlobalChat =
-      !chat.bitContextId ||
-      chat.bitContextId === '' ||
-      chat.bitContextId === 'global-orchestrator' ||
-      chat.isGlobal === true;
-
-    if (isGlobalChat) {
+    if (isGlobalChat && process.env.NODE_ENV === 'development') {
       console.log(
-        `[GlobalChatHistoryDropdown] Including global chat: "${chat.title}"`,
+        `[GlobalChatHistoryDropdown] Including global chat: "${chat.title}", ID: ${chat.id}, bitContextId: ${chat.bitContextId}, isGlobal: ${chat.isGlobal}`,
       );
-    } else {
+    } else if (process.env.NODE_ENV === 'development') {
       console.log(
-        `[GlobalChatHistoryDropdown] Excluding non-global chat: "${chat.title}"`,
+        `[GlobalChatHistoryDropdown] Excluding non-global chat: "${chat.title}", ID: ${chat.id}, bitContextId: ${chat.bitContextId}, isGlobal: ${chat.isGlobal}`,
       );
     }
 
@@ -260,40 +222,45 @@ export function GlobalChatHistoryDropdown() {
           <CommandList>
             <CommandEmpty>
               {isLoadingGlobalChats
-                ? 'Loading...'
+                ? 'Loading Quibit history...'
                 : 'No Quibit chat history found.'}
             </CommandEmpty>
             <CommandGroup heading="Recent Quibit Conversations">
-              {chatOptions.map((chat) => (
-                <CommandItem
-                  key={chat.id}
-                  value={chat.id}
-                  onSelect={() => selectChat(chat.id)}
-                >
-                  <div className="flex flex-col">
-                    <div className="truncate max-w-[230px]">
-                      {chat.title || 'Untitled Chat'}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatDate(
-                        chat.lastMessageTimestamp?.toString() ||
-                          chat.createdAt?.toString() ||
-                          new Date().toString(),
-                      )}
-                    </div>
-                  </div>
-                  <Check
-                    className={cn(
-                      'ml-auto h-4 w-4',
-                      value === chat.id ? 'opacity-100' : 'opacity-0',
-                    )}
-                  />
-                </CommandItem>
-              ))}
-              {chatOptions.length === 0 && !isLoadingGlobalChats && (
+              {isLoadingGlobalChats && globalChats.length === 0 ? (
+                <div className="py-2 px-2 text-xs text-muted-foreground">
+                  Loading Quibit history...
+                </div>
+              ) : chatOptions.length === 0 && !isLoadingGlobalChats ? (
                 <div className="py-2 px-2 text-xs text-muted-foreground">
                   No Quibit conversations found
                 </div>
+              ) : (
+                chatOptions.map((chat) => (
+                  <CommandItem
+                    key={chat.id}
+                    value={chat.id}
+                    onSelect={() => selectChat(chat.id)}
+                  >
+                    <div className="flex flex-col">
+                      <div className="truncate max-w-[230px]">
+                        {chat.title || 'Untitled Chat'}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatDate(
+                          chat.lastMessageTimestamp?.toString() ||
+                            chat.createdAt?.toString() ||
+                            new Date().toString(),
+                        )}
+                      </div>
+                    </div>
+                    <Check
+                      className={cn(
+                        'ml-auto h-4 w-4',
+                        value === chat.id ? 'opacity-100' : 'opacity-0',
+                      )}
+                    />
+                  </CommandItem>
+                ))
               )}
             </CommandGroup>
           </CommandList>
