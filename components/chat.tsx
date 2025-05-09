@@ -100,9 +100,6 @@ export function Chat({
     currentActiveSpecialistId,
     globalPaneChatId,
     refreshHistory,
-    getChatBitContextId,
-    setCurrentActiveSpecialistId,
-    setChatBitContextId,
   } = useChatPane();
 
   // When a chat with a specific ID is loaded, update the shared context
@@ -112,45 +109,8 @@ export function Chat({
       const validChatId = ensureValidChatId(id);
       console.log(`[Chat] Updating shared mainUiChatId to: ${validChatId}`);
       setMainUiChatId(validChatId);
-
-      // --- Sync dropdown with chat's bitContextId ---
-      // 1. Try to get locked bitContextId from context
-      let bitContextId = getChatBitContextId(validChatId);
-      // 2. If not found, try to get from initialMessages (for SSR or reload)
-      if (!bitContextId && initialMessages && initialMessages.length > 0) {
-        // Try to extract from message metadata if available
-        const meta =
-          (initialMessages[0] as any)?.bitContextId ||
-          (initialMessages[0] as any)?.data?.bitContextId;
-        if (typeof meta === 'string') {
-          bitContextId = meta;
-          if (
-            typeof validChatId === 'string' &&
-            typeof bitContextId === 'string'
-          ) {
-            setChatBitContextId(validChatId, bitContextId);
-          }
-        }
-      }
-      // 3. If found, update dropdown to match
-      if (
-        typeof bitContextId === 'string' &&
-        bitContextId !== currentActiveSpecialistId
-      ) {
-        setCurrentActiveSpecialistId(bitContextId);
-      }
-      // --- End sync logic ---
     }
-  }, [
-    id,
-    setMainUiChatId,
-    ensureValidChatId,
-    getChatBitContextId,
-    setCurrentActiveSpecialistId,
-    setChatBitContextId,
-    initialMessages,
-    currentActiveSpecialistId,
-  ]);
+  }, [id, setMainUiChatId, ensureValidChatId]);
 
   const { mutate, cache } = useSWRConfig();
   const [attachments, setAttachments] = useState<Array<Attachment>>([]);
