@@ -67,6 +67,9 @@ export interface ChatPaneContextType {
     description: string;
     chats: ChatSummary[];
   }>;
+  chatIdToBitContextId: Record<string, string | null>;
+  setChatBitContextId: (chatId: string, bitContextId: string | null) => void;
+  getChatBitContextId: (chatId: string) => string | null;
 }
 
 export const ChatPaneContext = createContext<ChatPaneContextType | undefined>(
@@ -564,6 +567,32 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     },
   });
 
+  // Add per-chat bitContextId locking
+  const [chatIdToBitContextId, setChatIdToBitContextId] = useState<
+    Record<string, string | null>
+  >({});
+
+  /**
+   * Sets the locked bitContextId for a chat. Used to ensure that after the first message,
+   * the bitContextId is fixed for the chat, regardless of dropdown changes.
+   */
+  const setChatBitContextId = useCallback(
+    (chatId: string, bitContextId: string | null) => {
+      setChatIdToBitContextId((prev) => ({ ...prev, [chatId]: bitContextId }));
+    },
+    [],
+  );
+
+  /**
+   * Gets the locked bitContextId for a chat, or null if not set.
+   */
+  const getChatBitContextId = useCallback(
+    (chatId: string): string | null => {
+      return chatIdToBitContextId[chatId] ?? null;
+    },
+    [chatIdToBitContextId],
+  );
+
   // Create custom submitMessage function to ensure context is always included
   const submitMessage = useCallback(
     async (options?: {
@@ -576,15 +605,26 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       // Use the appropriate chat ID based on source
       const chatId = isFromGlobalPane ? globalPaneChatId : mainUiChatId;
 
-      // Determine the correct bitContextId for the backend
-      let backendBitContextId = CHAT_BIT_CONTEXT_ID; // Default for main chat UI
-      if (isFromGlobalPane) {
-        backendBitContextId = GLOBAL_ORCHESTRATOR_CONTEXT_ID;
-      } else if (currentActiveSpecialistId) {
-        // If specialists have their own distinct history and bitContextId, use it:
-        backendBitContextId = currentActiveSpecialistId;
-        // No longer forcing to CHAT_BIT_CONTEXT_ID - we want specialists to have their own context
+      // --- Per-chat bitContextId locking logic ---
+      // If this chat already has a locked bitContextId, use it. Otherwise, use the current dropdown.
+      let backendBitContextId: string | null = null;
+      if (chatId) {
+        backendBitContextId = getChatBitContextId(chatId);
       }
+      if (!backendBitContextId) {
+        if (isFromGlobalPane) {
+          backendBitContextId = GLOBAL_ORCHESTRATOR_CONTEXT_ID;
+        } else if (currentActiveSpecialistId) {
+          backendBitContextId = currentActiveSpecialistId;
+        } else {
+          backendBitContextId = CHAT_BIT_CONTEXT_ID;
+        }
+        // Lock it for this chat if not already set
+        if (chatId) {
+          setChatBitContextId(chatId, backendBitContextId);
+        }
+      }
+      // --- End locking logic ---
 
       console.log('[ChatPaneContext] Submitting message with context:', {
         currentActiveSpecialistId,
@@ -626,6 +666,8 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       activeDocId,
       mainUiChatId,
       globalPaneChatId,
+      getChatBitContextId,
+      setChatBitContextId,
     ],
   );
 
@@ -749,6 +791,11 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
       // New properties for specialist grouped chats
       specialistGroupedChats,
+
+      // New properties for per-chat bitContextId locking
+      chatIdToBitContextId,
+      setChatBitContextId,
+      getChatBitContextId,
     }),
     [
       baseState,
@@ -779,6 +826,11 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
       // New properties for specialist grouped chats
       specialistGroupedChats,
+
+      // New properties for per-chat bitContextId locking
+      chatIdToBitContextId,
+      setChatBitContextId,
+      getChatBitContextId,
     ],
   );
 
