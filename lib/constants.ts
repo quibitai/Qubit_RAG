@@ -20,6 +20,12 @@ export const GLOBAL_ORCHESTRATOR_CONTEXT_ID = 'global-orchestrator';
  */
 export const CHAT_BIT_CONTEXT_ID = 'chat-model';
 
+/**
+ * The Echo Tango specialist ID.
+ * This is used for identifying conversations with the Echo Tango specialist.
+ */
+export const ECHO_TANGO_SPECIALIST_ID = 'echo-tango-specialist';
+
 // If you plan to have distinct, separate chat history lists for individual specialists
 // in the sidebar, you could add them here too, e.g.:
 // export const SPECIALIST_CODER_CONTEXT_ID = 'specialist-coder';

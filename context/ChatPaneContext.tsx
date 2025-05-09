@@ -22,6 +22,7 @@ import { useSession } from 'next-auth/react';
 import {
   GLOBAL_ORCHESTRATOR_CONTEXT_ID,
   CHAT_BIT_CONTEXT_ID,
+  ECHO_TANGO_SPECIALIST_ID,
 } from '@/lib/constants';
 
 console.log('[ChatPaneContext] actions:', {
@@ -486,6 +487,36 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     isLoadingGlobalChats,
     loadGlobalChats,
   ]);
+
+  // Add the new useEffect hook to load sidebar chats immediately after the session is authenticated
+  // Add this after the effect that loads global chats (around line 488)
+  // Add a new effect specifically for loading sidebar history
+  useEffect(() => {
+    console.log(
+      `[ChatPaneContext] Sidebar useEffect triggered. Session: ${sessionStatus}, SpecialistID: ${currentActiveSpecialistId}`,
+    );
+
+    if (sessionStatus === 'authenticated') {
+      // If defaulting to Echo Tango (from Issue 4), currentActiveSpecialistId should reflect this.
+      // Otherwise, default to CHAT_BIT_CONTEXT_ID for general chat bit history.
+      const contextIdToLoad = currentActiveSpecialistId || CHAT_BIT_CONTEXT_ID;
+
+      console.log(
+        `[ChatPaneContext] Sidebar useEffect: session is authenticated. Attempting to load specialist chats for contextId: ${contextIdToLoad}`,
+      );
+
+      // Use loadAllSpecialistChats to ensure the sidebar is properly populated
+      loadAllSpecialistChats();
+    } else if (sessionStatus === 'loading') {
+      console.log(
+        '[ChatPaneContext] Session is loading, will defer sidebar chat load.',
+      );
+    } else {
+      console.log(
+        `[ChatPaneContext] Session status is '${sessionStatus}', not loading sidebar chats yet.`,
+      );
+    }
+  }, [sessionStatus, currentActiveSpecialistId, loadAllSpecialistChats]);
 
   const baseState = useChat({
     id: mainUiChatId || undefined, // Convert null to undefined for useChat
