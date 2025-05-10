@@ -59,6 +59,7 @@ export function GlobalChatPane({
     ensureValidChatId,
     mainUiChatId,
     loadGlobalChats,
+    refreshHistory,
   } = useChatPane();
 
   // Create a separate useChat instance specific for the global chat pane
@@ -90,8 +91,32 @@ export function GlobalChatPane({
     sendExtraMessageFields: true,
     generateId: generateUUID, // Ensure message IDs are valid UUIDs
     onError: (err) => console.error('[GlobalPane useChat Error]', err), // Simplified error
-    // onResponse: (response) => { console.log('[GlobalPane onResponse]', response.status); }, // Temporarily disabled
-    // onFinish: (message) => { console.log('[GlobalPane onFinish]', message.role, message.content?.substring(0,30)); }, // Temporarily disabled
+    onResponse: (response) => {
+      console.log('[GlobalPane onResponse]', response.status);
+    },
+    onFinish: (message) => {
+      console.log(
+        '[GlobalPane onFinish]',
+        message.role,
+        message.content?.substring(0, 30),
+      );
+
+      // Refresh global chats after message completion to show new chat in dropdown
+      if (loadGlobalChats && message.role === 'assistant') {
+        console.log('[GlobalPane onFinish] Force refreshing global chats');
+        // Call loadGlobalChats with the correct parameters based on its signature
+        try {
+          // @ts-ignore - Ignore type error if the function signature doesn't match
+          loadGlobalChats(true); // Try with forceRefresh parameter
+        } catch (error) {
+          // Fall back to calling without parameters if it fails
+          console.log(
+            '[GlobalPane onFinish] Falling back to standard loadGlobalChats',
+          );
+          loadGlobalChats();
+        }
+      }
+    },
     // fetch: async (input, init) => { console.log('[GlobalPane fetch]', input); return fetch(input, init); }, // Temporarily disabled
   });
 
@@ -300,17 +325,21 @@ export function GlobalChatPane({
         },
       });
 
-      // After successful submission, trigger revalidation of chat history
-      globalMutate(unstable_serialize(getChatHistoryPaginationKey));
-      globalMutate('/api/history?limit=30');
-
-      // Also load global chats for the dropdown
-      if (loadGlobalChats) {
+      // After successful submission, refresh all history lists
+      if (refreshHistory) {
+        console.log('[GlobalChatPane] Refreshing all chat histories');
+        refreshHistory();
+      } else {
+        // Fallback to standard SWR refresh if refreshHistory is not available
         console.log(
-          '[GlobalChatPane] Refreshing global chat history after message submission',
+          '[GlobalChatPane] Fallback: Using SWR to refresh global history',
         );
-        loadGlobalChats();
+        globalMutate(unstable_serialize(getChatHistoryPaginationKey));
+        globalMutate('/api/history?limit=30');
       }
+
+      // Also load global chats for the dropdown - this will be handled by onFinish
+      // so we don't need to call it here to avoid duplicate refreshes
     } catch (error) {
       console.error('[GlobalChatPane] Error submitting message:', error);
       console.error('Failed to send message');
@@ -344,9 +373,17 @@ export function GlobalChatPane({
     processingMessageIdsRef.current.clear();
     lastUserMsgRef.current = null;
 
-    // Trigger revalidation of chat history
-    globalMutate(unstable_serialize(getChatHistoryPaginationKey));
-    globalMutate('/api/history?limit=30');
+    // Refresh all chat history using the shared context function
+    if (refreshHistory) {
+      console.log(
+        '[GlobalChatPane] Refreshing all chat histories after new chat',
+      );
+      refreshHistory();
+    } else {
+      // Fallback to standard SWR refresh if refreshHistory is not available
+      globalMutate(unstable_serialize(getChatHistoryPaginationKey));
+      globalMutate('/api/history?limit=30');
+    }
   };
 
   // Add a state for tracking message loading

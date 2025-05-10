@@ -23,6 +23,7 @@ import {
   GLOBAL_ORCHESTRATOR_CONTEXT_ID,
   CHAT_BIT_CONTEXT_ID,
   ECHO_TANGO_SPECIALIST_ID,
+  CHAT_BIT_GENERAL_CONTEXT_ID,
 } from '@/lib/constants';
 
 console.log('[ChatPaneContext] actions:', {
@@ -59,7 +60,7 @@ export interface ChatPaneContextType {
   isLoadingSidebarChats: boolean;
   globalChats: ChatSummary[];
   isLoadingGlobalChats: boolean;
-  loadGlobalChats: () => Promise<void>;
+  loadGlobalChats: (forceRefresh?: boolean) => Promise<void>;
   refreshHistory: () => void;
   specialistGroupedChats: Array<{
     id: string;
@@ -69,6 +70,7 @@ export interface ChatPaneContextType {
   }>;
   isNewChat: boolean;
   setIsNewChat: (isNew: boolean) => void;
+  isCurrentChatCommitted: boolean;
 }
 
 export const ChatPaneContext = createContext<ChatPaneContextType | undefined>(
@@ -115,7 +117,9 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
   // Use a single chatPaneState object to hold state
   // This prevents cascading re-renders when multiple states change
   const [chatPaneState, setChatPaneState] = useState<ChatPaneState>(() => {
-    // Initialize with Echo Tango as the default specialist
+    console.log(
+      '[ChatPaneContext] Initializing chatPaneState. Setting Echo Tango as default specialist.',
+    );
     return {
       isPaneOpen: true,
       currentActiveSpecialistId: ECHO_TANGO_SPECIALIST_ID,
@@ -125,6 +129,9 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       isNewChat: true,
     };
   });
+
+  // Track if the current chat is committed (first message sent, specialist locked)
+  const [isCurrentChatCommitted, setIsCurrentChatCommitted] = useState(false);
 
   // Create individual state setters with useCallback to prevent recreation
   const setIsPaneOpen = useCallback((isOpen: boolean) => {
@@ -250,118 +257,149 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     // In a complete implementation, this would call into DocumentContext
   }, []);
 
-  // Add loadAllSpecialistChats function
-  const loadAllSpecialistChats = useCallback(async () => {
-    console.log('[ChatPaneContext] Loading chats for ALL specialists');
-
-    // Check authentication status from NextAuth
-    if (sessionStatus !== 'authenticated') {
-      console.error(
-        '[ChatPaneContext] loadAllSpecialistChats - NOT AUTHENTICATED via NextAuth, skipping fetch',
-      );
-      return;
-    }
-
-    try {
-      // Create the correct URL for fetching all specialist chats
-      const finalUrl = `/api/history?type=all-specialists&limit=20`;
+  // Add loadAllSpecialistChats function with forceRefresh parameter
+  const loadAllSpecialistChats = useCallback(
+    async (forceRefresh = false) => {
       console.log(
-        `[ChatPaneContext] Fetching all specialist chats: ${finalUrl}`,
+        '[ChatPaneContext] Loading chats for ALL specialists. ForceRefresh:',
+        forceRefresh,
       );
 
-      const response = await fetch(finalUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch specialist chats: ${response.status} - ${response.statusText}`,
+      // Check authentication status from NextAuth
+      if (sessionStatus !== 'authenticated') {
+        console.error(
+          '[ChatPaneContext] loadAllSpecialistChats - NOT AUTHENTICATED via NextAuth, skipping fetch',
         );
+        return;
       }
 
-      const data = await response.json();
-      console.log(
-        `[ChatPaneContext] Received specialist groupings: ${data.specialists?.length || 0}`,
-      );
+      // Implement debouncing unless forceRefresh is true
+      const now = Date.now();
+      const minInterval = 3000; // 3 seconds minimum between fetches
 
-      // Set sidebar chats - combine all specialist chats for now to maintain compatibility
-      // Later we'll modify the sidebar component to handle the grouped structure
-      const allChats = data.specialists?.flatMap((s: any) => s.chats) || [];
-      setSidebarChats(allChats);
-
-      // Also store the original grouped data for the new sidebar component
-      setSpecialistGroupedChats(data.specialists || []);
-
-      setIsLoadingSidebarChats(false);
-    } catch (error) {
-      console.error(
-        '[ChatPaneContext] Error fetching all specialist chats:',
-        error,
-      );
-      setIsLoadingSidebarChats(false);
-    }
-  }, [sessionStatus, setIsLoadingSidebarChats]);
-
-  // Add loadGlobalChats function after loadAllSpecialistChats function
-  const loadGlobalChats = useCallback(async () => {
-    console.log('[ChatPaneContext] Loading global orchestrator chats');
-
-    // Check authentication status from NextAuth
-    if (sessionStatus !== 'authenticated') {
-      console.error(
-        '[ChatPaneContext] loadGlobalChats - NOT AUTHENTICATED via NextAuth, skipping fetch',
-      );
-      return;
-    }
-
-    try {
-      setIsLoadingGlobalChats(true);
-
-      // Create the correct URL for fetching global chats
-      const finalUrl = `/api/history?type=global&limit=20&bitContextId=${GLOBAL_ORCHESTRATOR_CONTEXT_ID}`;
-      console.log(`[ChatPaneContext] Fetching global chats: ${finalUrl}`);
-
-      const response = await fetch(finalUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch global chats: ${response.status} - ${response.statusText}`,
+      if (
+        !forceRefresh &&
+        now - lastSidebarFetchTimeRef.current < minInterval
+      ) {
+        console.log(
+          `[ChatPaneContext] loadAllSpecialistChats - Debounced. Last fetch was ${now - lastSidebarFetchTimeRef.current}ms ago`,
         );
+        return;
       }
 
-      const data = await response.json();
+      lastSidebarFetchTimeRef.current = now;
+
+      try {
+        setIsLoadingSidebarChats(true);
+        // Create the correct URL for fetching all specialist chats
+        const finalUrl = `/api/history?type=all-specialists&limit=20`;
+        console.log(
+          `[ChatPaneContext] Fetching all specialist chats: ${finalUrl}`,
+        );
+
+        const response = await fetch(finalUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          cache: forceRefresh ? 'no-cache' : 'default', // Skip cache if forceRefresh is true
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch specialist chats: ${response.status} - ${response.statusText}`,
+          );
+        }
+
+        const data = await response.json();
+        console.log(
+          `[ChatPaneContext] Received specialist groupings: ${data.specialists?.length || 0}`,
+        );
+
+        // Set sidebar chats - combine all specialist chats for now to maintain compatibility
+        // Later we'll modify the sidebar component to handle the grouped structure
+        const allChats = data.specialists?.flatMap((s: any) => s.chats) || [];
+        setSidebarChats(allChats);
+
+        // Also store the original grouped data for the new sidebar component
+        setSpecialistGroupedChats(data.specialists || []);
+
+        setIsLoadingSidebarChats(false);
+      } catch (error) {
+        console.error(
+          '[ChatPaneContext] Error fetching all specialist chats:',
+          error,
+        );
+        setIsLoadingSidebarChats(false);
+      }
+    },
+    [sessionStatus, setIsLoadingSidebarChats],
+  );
+
+  // Add loadGlobalChats function with forceRefresh parameter
+  const loadGlobalChats = useCallback(
+    async (forceRefresh = false) => {
       console.log(
-        `[ChatPaneContext] Received global chats: ${data.chats?.length || 0}`,
+        '[ChatPaneContext] Loading global orchestrator chats. ForceRefresh:',
+        forceRefresh,
       );
 
-      // Set global chats
-      setGlobalChats(data.chats || []);
-      setIsLoadingGlobalChats(false);
-    } catch (error) {
-      console.error('[ChatPaneContext] Error fetching global chats:', error);
-      setIsLoadingGlobalChats(false);
-    }
-  }, [sessionStatus, setIsLoadingGlobalChats, GLOBAL_ORCHESTRATOR_CONTEXT_ID]);
+      // Check authentication status from NextAuth
+      if (sessionStatus !== 'authenticated') {
+        console.error(
+          '[ChatPaneContext] loadGlobalChats - NOT AUTHENTICATED via NextAuth, skipping fetch',
+        );
+        return;
+      }
 
-  // Update the refreshHistory function to also call loadGlobalChats
+      try {
+        setIsLoadingGlobalChats(true);
+
+        // Create the correct URL for fetching global chats
+        const finalUrl = `/api/history?type=global&limit=20&bitContextId=${GLOBAL_ORCHESTRATOR_CONTEXT_ID}`;
+        console.log(`[ChatPaneContext] Fetching global chats: ${finalUrl}`);
+
+        const response = await fetch(finalUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          cache: forceRefresh ? 'no-cache' : 'default', // Skip cache if forceRefresh is true
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch global chats: ${response.status} - ${response.statusText}`,
+          );
+        }
+
+        const data = await response.json();
+        console.log(
+          `[ChatPaneContext] Received global chats: ${data.chats?.length || 0}`,
+        );
+
+        // Set global chats
+        setGlobalChats(data.chats || []);
+        setIsLoadingGlobalChats(false);
+      } catch (error) {
+        console.error('[ChatPaneContext] Error fetching global chats:', error);
+        setIsLoadingGlobalChats(false);
+      }
+    },
+    [sessionStatus, setIsLoadingGlobalChats, GLOBAL_ORCHESTRATOR_CONTEXT_ID],
+  );
+
+  // Update the refreshHistory function to use the forceRefresh parameter
   const refreshHistory = useCallback(() => {
     console.log('[ChatPaneContext] Manually refreshing chat history lists');
 
-    // Use loadAllSpecialistChats to refresh specialist chats
-    loadAllSpecialistChats();
+    // Use loadAllSpecialistChats to refresh specialist chats with forceRefresh=true
+    loadAllSpecialistChats(true);
 
-    // Load global chats
-    loadGlobalChats();
+    // Load global chats with forceRefresh=true
+    loadGlobalChats(true);
   }, [loadAllSpecialistChats, loadGlobalChats]);
 
   // Initialize from localStorage after component mounts (client-side)
@@ -545,43 +583,49 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
   }, [sessionStatus, currentActiveSpecialistId, loadAllSpecialistChats]);
 
   const baseState = useChat({
-    id: mainUiChatId || undefined, // Convert null to undefined for useChat
+    id: mainUiChatId || undefined,
     api: '/api/brain',
-    body: {
-      // Always identify as Quibit orchestrator
-      selectedChatModel: 'global-orchestrator',
-      // Include only the active specialist ID and active doc ID
-      activeBitContextId: currentActiveSpecialistId,
-      currentActiveSpecialistId: currentActiveSpecialistId, // Include both for compatibility
-      activeDocId,
-    },
     experimental_throttle: 100,
     sendExtraMessageFields: true,
-    generateId: generateUUID, // Ensure all messages get a valid UUID
-    onFinish: async (message) => {
-      // 1) Filter out non-final chunks
-      if (
-        (message as any).finish_reason !== 'stop' ||
-        !message.content?.trim()
-      ) {
-        console.log('[ChatPaneContext] skipping non-final or empty chunk');
-        return;
-      }
-
+    generateId: generateUUID,
+    onResponse: (response) => {
       console.log(
-        '[ChatPaneContext] message finished but persistence handled by Chat component',
-        {
-          messageId: message.id,
-          role: message.role,
-          contentLength:
-            typeof message.content === 'string'
-              ? message.content.length
-              : 'N/A',
-        },
+        `[ChatPaneContext] onResponse for mainUiChatId ${mainUiChatId}.`,
+      );
+      if (!isCurrentChatCommitted) {
+        setIsCurrentChatCommitted(true);
+        const lockedSpecialist = chatPaneState.currentActiveSpecialistId;
+        console.log(
+          `[ChatPaneContext] Chat ${mainUiChatId} NOW COMMITTED by onResponse. Specialist locked to: ${lockedSpecialist}. Dropdown should lock.`,
+        );
+      }
+      // ... any existing onResponse logic ...
+    },
+    onFinish: async (message) => {
+      console.log(
+        `[ChatPaneContext] onFinish for mainUiChatId (${mainUiChatId}). Message Role: ${message.role}`,
       );
 
-      // Only reset the user message ref
-      lastUserMsgRef.current = null;
+      if (!isCurrentChatCommitted) {
+        setIsCurrentChatCommitted(true);
+        const lockedSpecialist = chatPaneState.currentActiveSpecialistId;
+        console.log(
+          `[ChatPaneContext] Chat ${mainUiChatId} NOW COMMITTED by onFinish. Specialist locked to: ${lockedSpecialist}. Dropdown should lock.`,
+        );
+      }
+
+      // Refresh history after message completion to show new chat in sidebar
+      if (sessionStatus === 'authenticated' && message.role === 'assistant') {
+        const contextToRefresh = chatPaneState.currentActiveSpecialistId;
+        console.log(
+          `[ChatPaneContext] onFinish (mainUiChatId): Force refreshing sidebar for context: ${contextToRefresh}`,
+        );
+
+        // Call refreshHistory to update both specialist and global chat lists
+        refreshHistory();
+      }
+
+      // ... any existing onFinish logic ...
     },
   });
 
@@ -600,93 +644,37 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   // Create custom submitMessage function to ensure context is always included
   const submitMessage = useCallback(
-    async (options?: {
-      message?: any;
-      data?: Record<string, any>;
-    }) => {
-      // Use data from options to determine if this is for main UI or global pane
-      const isFromGlobalPane = options?.data?.isFromGlobalPane === true;
-      const chatId = isFromGlobalPane ? globalPaneChatId : mainUiChatId;
-
-      // Skip if no chatId is set
-      if (!chatId) {
-        console.error(
-          '[ChatPaneContext] No chat ID set for message submission',
-        );
-        return;
-      }
-
-      try {
-        console.log(
-          '[ChatPaneContext] Submitting message with options:',
-          options,
-        );
-
-        // For the main UI chat
-        if (chatId === mainUiChatId) {
-          console.log('[ChatPaneContext] Submitting to main UI chat');
-
-          // If this is a new chat, we need to capture the current specialist ID
-          // and include it in the payload
-          const effectiveSpecialistId =
-            currentActiveSpecialistId || CHAT_BIT_CONTEXT_ID;
-
-          // Set isNewChat to false after the first message is sent
-          if (isNewChat) {
-            console.log(
-              `[ChatPaneContext] First message in chat ${mainUiChatId}. Locking specialist to: ${effectiveSpecialistId}`,
-            );
-            setIsNewChat(false);
-          }
-
-          // Fix the type issue with handleSubmit by using the correct parameters
-          await baseState.handleSubmit(options?.message || '', {
-            data: {
-              ...(options?.data || {}),
-              id: chatId,
-              selectedChatModel: 'global-orchestrator',
-              // Include the specialist ID as activeBitContextId for this chat
-              activeBitContextId: effectiveSpecialistId,
-              currentActiveSpecialistId: effectiveSpecialistId,
-              activeDocId,
-              isFromGlobalPane: false,
-              mainUiChatId: mainUiChatId,
-              referencedGlobalPaneChatId: globalPaneChatId,
-            },
-          });
-        }
-        // For the global pane chat
-        else if (chatId === globalPaneChatId) {
-          console.log('[ChatPaneContext] Submitting to global pane chat');
-          // Fix the type issue with handleSubmit by using the correct parameters
-          await baseState.handleSubmit(options?.message || '', {
-            data: {
-              ...(options?.data || {}),
-              id: chatId,
-              selectedChatModel: 'global-orchestrator',
-              // Global pane always uses the global orchestrator context ID
-              activeBitContextId: GLOBAL_ORCHESTRATOR_CONTEXT_ID,
-              currentActiveSpecialistId: GLOBAL_ORCHESTRATOR_CONTEXT_ID,
-              activeDocId,
-              isFromGlobalPane: true,
-              referencedChatId: mainUiChatId,
-            },
-          });
-        }
-      } catch (error) {
-        console.error('[ChatPaneContext] Error submitting message:', error);
-      }
+    async (options?: { message?: any; data?: Record<string, any> }) => {
+      // Use the actual state value, which is always the dropdown's value
+      const specialistForPayload = chatPaneState.currentActiveSpecialistId;
+      console.log(
+        `[ChatPaneContext] submitMessage: currentSpecialistFromState: ${specialistForPayload} for chat ${mainUiChatId}`,
+      );
+      const bodyPayload = {
+        id: mainUiChatId,
+        selectedChatModel: 'global-orchestrator',
+        activeBitContextId: specialistForPayload, // This sends it to backend
+        currentActiveSpecialistId: specialistForPayload, // For prompt loading clarity
+        activeDocId,
+        isFromGlobalPane: false,
+        mainUiChatId: mainUiChatId,
+        referencedGlobalPaneChatId: globalPaneChatId,
+        ...(options?.data || {}),
+      };
+      console.log(
+        '[ChatPaneContext] submitMessage: Payload to API:',
+        bodyPayload,
+      );
+      return baseState.handleSubmit(options?.message as any, {
+        body: bodyPayload,
+      });
     },
     [
-      baseState,
+      baseState.handleSubmit,
       mainUiChatId,
-      globalPaneChatId,
-      currentActiveSpecialistId,
+      chatPaneState.currentActiveSpecialistId,
       activeDocId,
-      isNewChat,
-      setIsNewChat,
-      CHAT_BIT_CONTEXT_ID,
-      GLOBAL_ORCHESTRATOR_CONTEXT_ID,
+      globalPaneChatId,
     ],
   );
 
@@ -759,15 +747,28 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [activeDocId, streamedContentMap]);
 
-  // When mainUiChatId changes, reset isNewChat to true
+  // When mainUiChatId changes, reset isNewChat to true and isCurrentChatCommitted to false
   useEffect(() => {
     console.log(
-      '[ChatPaneContext] mainUiChatId changed, resetting isNewChat to true',
+      '[ChatPaneContext] mainUiChatId changed, resetting isNewChat to true and isCurrentChatCommitted to false',
     );
     setIsNewChat(true);
+    setIsCurrentChatCommitted(false);
   }, [mainUiChatId, setIsNewChat]);
 
-  // Fix the contextValue to properly structure chatState
+  // When a new chat is started, reset committed state and re-apply Echo Tango as default
+  useEffect(() => {
+    setIsCurrentChatCommitted(false);
+    setChatPaneState((prev) => ({
+      ...prev,
+      currentActiveSpecialistId: ECHO_TANGO_SPECIALIST_ID, // Re-assert default on new chat
+    }));
+    console.log(
+      `[ChatPaneContext] New chat for mainUiChatId: ${mainUiChatId}. Dropdown unlocked. Specialist defaulted to Echo Tango.`,
+    );
+  }, [mainUiChatId]);
+
+  // Fix the contextValue to properly structure chatState and include isCurrentChatCommitted
   const contextValue = useMemo(() => {
     return {
       chatState: {
@@ -797,6 +798,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       specialistGroupedChats,
       isNewChat,
       setIsNewChat,
+      isCurrentChatCommitted,
     };
   }, [
     baseState,
@@ -823,6 +825,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     specialistGroupedChats,
     isNewChat,
     setIsNewChat,
+    isCurrentChatCommitted,
   ]);
 
   return (
