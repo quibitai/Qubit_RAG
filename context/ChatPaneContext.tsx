@@ -133,6 +133,17 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
   // Track if the current chat is committed (first message sent, specialist locked)
   const [isCurrentChatCommitted, setIsCurrentChatCommitted] = useState(false);
 
+  // Use refs to always have the latest value for isCurrentChatCommitted and setIsCurrentChatCommitted
+  const isCurrentChatCommittedRef = useRef(isCurrentChatCommitted);
+  useEffect(() => {
+    isCurrentChatCommittedRef.current = isCurrentChatCommitted;
+  }, [isCurrentChatCommitted]);
+
+  const setIsCurrentChatCommittedRef = useRef(setIsCurrentChatCommitted);
+  useEffect(() => {
+    setIsCurrentChatCommittedRef.current = setIsCurrentChatCommitted;
+  }, [setIsCurrentChatCommitted]);
+
   // Create individual state setters with useCallback to prevent recreation
   const setIsPaneOpen = useCallback((isOpen: boolean) => {
     setChatPaneState((prev) => ({ ...prev, isPaneOpen: isOpen }));
@@ -582,6 +593,33 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [sessionStatus, currentActiveSpecialistId, loadAllSpecialistChats]);
 
+  // Refactored onFinish handler to always use the latest refs
+  const handleChatFinish = async (message: any) => {
+    console.log(
+      '[ChatPaneContext] handleChatFinish called. isCurrentChatCommittedRef:',
+      isCurrentChatCommittedRef.current,
+    );
+    if (!isCurrentChatCommittedRef.current) {
+      setIsCurrentChatCommittedRef.current(true);
+      console.log(
+        '[ChatPaneContext] setIsCurrentChatCommitted(true) called from handleChatFinish',
+      );
+      const lockedSpecialist = chatPaneState.currentActiveSpecialistId;
+      console.log(
+        `[ChatPaneContext] Chat ${mainUiChatId} NOW COMMITTED by handleChatFinish. Specialist locked to: ${lockedSpecialist}. Dropdown should lock.`,
+      );
+    }
+    // Refresh history after message completion to show new chat in sidebar
+    if (sessionStatus === 'authenticated' && message.role === 'assistant') {
+      const contextToRefresh = chatPaneState.currentActiveSpecialistId;
+      console.log(
+        `[ChatPaneContext] handleChatFinish: Force refreshing sidebar for context: ${contextToRefresh}`,
+      );
+      refreshHistory();
+    }
+    // ... any existing onFinish logic ...
+  };
+
   const baseState = useChat({
     id: mainUiChatId || undefined,
     api: '/api/brain',
@@ -592,41 +630,9 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       console.log(
         `[ChatPaneContext] onResponse for mainUiChatId ${mainUiChatId}.`,
       );
-      if (!isCurrentChatCommitted) {
-        setIsCurrentChatCommitted(true);
-        const lockedSpecialist = chatPaneState.currentActiveSpecialistId;
-        console.log(
-          `[ChatPaneContext] Chat ${mainUiChatId} NOW COMMITTED by onResponse. Specialist locked to: ${lockedSpecialist}. Dropdown should lock.`,
-        );
-      }
-      // ... any existing onResponse logic ...
+      // ... existing onResponse logic ...
     },
-    onFinish: async (message) => {
-      console.log(
-        `[ChatPaneContext] onFinish for mainUiChatId (${mainUiChatId}). Message Role: ${message.role}`,
-      );
-
-      if (!isCurrentChatCommitted) {
-        setIsCurrentChatCommitted(true);
-        const lockedSpecialist = chatPaneState.currentActiveSpecialistId;
-        console.log(
-          `[ChatPaneContext] Chat ${mainUiChatId} NOW COMMITTED by onFinish. Specialist locked to: ${lockedSpecialist}. Dropdown should lock.`,
-        );
-      }
-
-      // Refresh history after message completion to show new chat in sidebar
-      if (sessionStatus === 'authenticated' && message.role === 'assistant') {
-        const contextToRefresh = chatPaneState.currentActiveSpecialistId;
-        console.log(
-          `[ChatPaneContext] onFinish (mainUiChatId): Force refreshing sidebar for context: ${contextToRefresh}`,
-        );
-
-        // Call refreshHistory to update both specialist and global chat lists
-        refreshHistory();
-      }
-
-      // ... any existing onFinish logic ...
-    },
+    onFinish: handleChatFinish,
   });
 
   // Add setIsNewChat function before submitMessage
