@@ -19,13 +19,15 @@ import { auth } from '@/app/(auth)/auth';
 
 // State variables to track between requests/handler invocations
 // These fix "Cannot find name" TypeScript errors
-let assistantMessageSaved = false;
-let normalizedChatId = ''; // Will be reassigned in POST
-let effectiveClientId = ''; // Will be reassigned in POST
-
 // Import tools and utilities
-import { orchestratorPrompt, getSpecialistPromptById } from '@/lib/ai/prompts';
+// import { orchestratorPrompt, getSpecialistPromptById } from '@/lib/ai/prompts'; // Unused
 import { loadPrompt } from '@/lib/ai/prompts/loader';
+
+// State variables to track between requests/handler invocations
+// These fix "Cannot find name" TypeScript errors
+const assistantMessageSaved = false;
+const normalizedChatId = ''; // Will be reassigned in POST
+const effectiveClientId = ''; // Will be reassigned in POST
 import { specialistRegistry } from '@/lib/ai/prompts/specialists';
 import { modelMapping } from '@/lib/ai/models';
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
@@ -36,22 +38,65 @@ import { rawToMessage, type RawMessage } from '@/lib/langchainHelpers';
 import { availableTools } from '@/lib/ai/tools/index';
 
 // Import database functions and types
-import { db } from '@/lib/db';
+// import { db } from '@/lib/db'; // Unused
 import { sql } from '@/lib/db/client';
-import { chat, message } from '@/lib/db/schema';
-import { saveMessages, getClientConfig } from '@/lib/db/queries';
+import { getClientConfig } from '@/lib/db/queries';
 import type { DBMessage } from '@/lib/db/schema';
 import type { ClientConfig } from '@/lib/db/queries';
 import { randomUUID } from 'node:crypto';
-import { StringOutputParser } from '@langchain/core/output_parsers';
-import { RunnableSequence } from '@langchain/core/runnables';
-import { ChatRepository } from '@/lib/db/repositories/chatRepository';
 
 // Add GLOBAL_ORCHESTRATOR_CONTEXT_ID to imports at the top
 import {
   GLOBAL_ORCHESTRATOR_CONTEXT_ID,
   CHAT_BIT_CONTEXT_ID,
 } from '@/lib/constants';
+
+// Add at the top:
+import { DateTime } from 'luxon';
+
+// Add a simple logging utility at the top of the file (after imports)
+/**
+ * Simple logging utility to control log verbosity
+ * Only logs errors by default unless debug mode is enabled
+ */
+const LOG_LEVEL = {
+  ERROR: 0,
+  WARN: 1,
+  INFO: 2,
+  DEBUG: 3,
+};
+
+// Set the current log level - can be controlled via environment variable
+// Default to ERROR only in production, INFO in development
+const CURRENT_LOG_LEVEL = process.env.LOG_LEVEL
+  ? Number.parseInt(process.env.LOG_LEVEL, 10)
+  : process.env.NODE_ENV === 'production'
+    ? LOG_LEVEL.ERROR
+    : LOG_LEVEL.INFO;
+
+// Simple logger that respects the current log level
+const logger = {
+  error: (message: string, ...args: any[]) => {
+    if (CURRENT_LOG_LEVEL >= LOG_LEVEL.ERROR) {
+      console.error(`[Brain API ERROR] ${message}`, ...args);
+    }
+  },
+  warn: (message: string, ...args: any[]) => {
+    if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
+      console.warn(`[Brain API WARN] ${message}`, ...args);
+    }
+  },
+  info: (message: string, ...args: any[]) => {
+    if (CURRENT_LOG_LEVEL >= LOG_LEVEL.INFO) {
+      console.log(`[Brain API] ${message}`, ...args);
+    }
+  },
+  debug: (message: string, ...args: any[]) => {
+    if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
+      console.log(`[Brain API DEBUG] ${message}`, ...args);
+    }
+  },
+};
 
 // Helper function to create a custom LangChain streaming handler
 function createLangChainStreamHandler({
@@ -65,6 +110,8 @@ function createLangChainStreamHandler({
 } = {}) {
   // Track the complete response for onCompletion callback
   let completeResponse = '';
+  // Use let for assistantMessageSaved so it can be reassigned
+  let assistantMessageSaved = false;
 
   // Create a custom handler that extends BaseCallbackHandler
   class CompletionCallbackHandler extends BaseCallbackHandler {
@@ -77,21 +124,18 @@ function createLangChainStreamHandler({
     handleLLMEnd() {
       if (onCompletion) {
         onCompletion(completeResponse).catch((err) => {
-          console.error(
-            '[LangChainStream] Error in onCompletion callback:',
-            err,
-          );
+          logger.error('Error in onCompletion callback:', err);
         });
       }
     }
 
     // Add the custom callbacks as methods on the BaseCallbackHandler class
     async handleStart() {
-      console.log(
-        `[Brain API] >> Stream started, setting assistantMessageSaved flag to false`,
+      logger.debug(
+        'Stream started, setting assistantMessageSaved flag to false',
       );
       // Reset the flag at the start of streaming to ensure we save exactly one message
-      assistantMessageSaved = false;
+      assistantMessageSaved = false; // Use let, not redeclare
 
       if (onStart) {
         await onStart();
@@ -106,50 +150,42 @@ function createLangChainStreamHandler({
 
     async handleCompletion(fullResponse: string) {
       // Skip if response is empty or just whitespace
-      console.log('[Brain API] ON_COMPLETION_HANDLER TRIGGERED');
+      logger.debug('ON_COMPLETION_HANDLER TRIGGERED');
 
       if (!fullResponse || !fullResponse.trim()) {
-        console.log(`[Brain API] Skipping empty response in onCompletion`);
+        logger.debug('Skipping empty response in onCompletion');
         return;
       }
 
       // Add detailed logging to help debug duplicate saves
-      console.log(`[Brain API] >> onCompletion Handler Triggered <<`);
-      console.log(
-        `[Brain API]    Flag 'assistantMessageSaved': ${assistantMessageSaved}`,
-      );
-      console.log(
-        `[Brain API]    Response Length: ${fullResponse?.length || 0}`,
-      );
-      console.log(
-        `[Brain API]    Response Snippet: ${(fullResponse || '').substring(0, 100)}...`,
+      logger.debug('>> onCompletion Handler Triggered <<');
+      logger.debug(`Flag 'assistantMessageSaved': ${assistantMessageSaved}`);
+      logger.debug(`Response Length: ${fullResponse?.length || 0}`);
+      logger.debug(
+        `Response Snippet: ${(fullResponse || '').substring(0, 100)}...`,
       );
 
       // Check if message is already saved
       if (assistantMessageSaved) {
-        console.log(
-          '[Brain API] onCompletion: Assistant message already saved, skipping duplicate save.',
+        logger.debug(
+          'onCompletion: Assistant message already saved, skipping duplicate save.',
         );
         return;
       }
 
       // Set flag to prevent duplicate saves
-      assistantMessageSaved = true;
+      assistantMessageSaved = true; // Now valid, since let is used
 
       // This code runs AFTER the entire response has been streamed
-      console.log(
-        '[Brain API] Stream completed. Saving final assistant message.',
-      );
+      logger.info('Stream completed. Saving final assistant message.');
 
       try {
         // Format the assistant message for the database
         const assistantId = randomUUID(); // Generate a new unique ID for the assistant message
-        console.log(
-          `[Brain API] Generated assistant message UUID: ${assistantId}`,
-        );
+        logger.debug(`Generated assistant message UUID: ${assistantId}`);
 
-        console.log(
-          `[Brain API] Assistant UUID validation: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assistantId)}`,
+        logger.debug(
+          `Assistant UUID validation: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assistantId)}`,
         );
 
         const assistantMessageToSave = {
@@ -170,8 +206,8 @@ function createLangChainStreamHandler({
             assistantId,
           )
         ) {
-          console.error(
-            `[Brain API] Invalid UUID generated for assistant message, attempting to regenerate`,
+          logger.error(
+            'Invalid UUID generated for assistant message, attempting to regenerate',
           );
           // If by some chance the UUID is invalid, generate a new one
           const regeneratedId = randomUUID();
@@ -184,14 +220,12 @@ function createLangChainStreamHandler({
               'Failed to generate a valid UUID for assistant message',
             );
           }
-          console.log(
-            `[Brain API] Successfully regenerated UUID: ${regeneratedId}`,
-          );
+          logger.info(`Successfully regenerated UUID: ${regeneratedId}`);
           assistantMessageToSave.id = regeneratedId;
         }
 
-        console.log(
-          `[Brain API] Saving assistant message ${assistantMessageToSave.id} for chat ${normalizedChatId}`,
+        logger.debug(
+          `Saving assistant message ${assistantMessageToSave.id} for chat ${normalizedChatId}`,
         );
 
         // First, check if there's an existing message with the same ID pattern but empty content
@@ -210,14 +244,14 @@ function createLangChainStreamHandler({
           `;
 
           if (existingEmptyMessages && existingEmptyMessages.length > 0) {
-            console.log(
-              `[Brain API] Found ${existingEmptyMessages.length} empty assistant messages for this chat, will update one instead of creating new`,
+            logger.info(
+              `Found ${existingEmptyMessages.length} empty assistant messages for this chat, will update one instead of creating new`,
             );
 
             // Use the first empty message ID instead of creating a new one
             const emptyMsgId = existingEmptyMessages[0].id;
-            console.log(
-              `[Brain API] Updating empty message ${emptyMsgId} with content instead of creating new`,
+            logger.info(
+              `Updating empty message ${emptyMsgId} with content instead of creating new`,
             );
 
             // Update the existing empty message with our content
@@ -227,17 +261,15 @@ function createLangChainStreamHandler({
               WHERE id = ${emptyMsgId} AND "chatId" = ${normalizedChatId}
             `;
 
-            console.log(
-              `[Brain API] Successfully updated empty message ${emptyMsgId} with content`,
+            logger.info(
+              `Successfully updated empty message ${emptyMsgId} with content`,
             );
             return;
           } else {
-            console.log(
-              `[Brain API] No empty messages found, creating new message`,
-            );
+            logger.debug(`No empty messages found, creating new message`);
           }
         } catch (err) {
-          console.error(`[Brain API] Error checking for empty messages:`, err);
+          logger.error(`Error checking for empty messages:`, err);
           // Continue with normal message creation since checking failed
         }
 
@@ -262,22 +294,18 @@ function createLangChainStreamHandler({
           )
         `;
 
-        console.log(
-          `[Brain API] Successfully saved assistant message ${assistantMessageToSave.id}`,
+        logger.info(
+          `Successfully saved assistant message ${assistantMessageToSave.id}`,
         );
       } catch (dbError: any) {
-        console.error(`[Brain API] FAILED to save assistant message:`, dbError);
-        console.error(`[Brain API] Assistant message save error details:`, {
+        logger.error(`FAILED to save assistant message:`, dbError);
+        logger.error(`Assistant message save error details:`, {
           message: dbError?.message,
           name: dbError?.name,
           stack: dbError?.stack?.split('\n').slice(0, 3),
         });
         // Log error, but don't block response as stream already finished
         // Do not reset assistantMessageSaved flag here to prevent duplicate save attempts
-      }
-
-      if (onCompletion) {
-        await onCompletion(fullResponse);
       }
     }
   }
@@ -327,7 +355,7 @@ class DebugCallbackHandler extends BaseCallbackHandler {
     metadata?: Record<string, unknown>,
     runName?: string,
   ): void | Promise<void> {
-    console.log(`[Callback] handleLLMStart: ${runId}`, {
+    logger.debug(`[Callback] handleLLMStart: ${runId}`, {
       llm: llm.id || llm.name || 'unknown',
       prompts,
     });
@@ -343,10 +371,10 @@ class DebugCallbackHandler extends BaseCallbackHandler {
     metadata?: Record<string, unknown>,
     runName?: string,
   ): void | Promise<void> {
-    console.log(`[Callback] handleChatModelStart: ${runId}`, {
+    logger.debug(`[Callback] handleChatModelStart: ${runId}`, {
       llm: llm.id || llm.name || 'unknown',
     });
-    console.log(
+    logger.debug(
       '[Callback] Messages sent to LLM:',
       JSON.stringify(messages, null, 2),
     );
@@ -357,7 +385,7 @@ class DebugCallbackHandler extends BaseCallbackHandler {
         for (const msg of msgGroup) {
           const contentType = typeof msg.content;
           if (contentType === 'object') {
-            console.log(
+            logger.debug(
               '[Callback ALERT] Found message with object content:',
               msg,
             );
@@ -369,7 +397,7 @@ class DebugCallbackHandler extends BaseCallbackHandler {
             msg.name ||
             (msg as any).type === 'tool'
           ) {
-            console.log('[Callback ALERT] Found tool message:', {
+            logger.debug('[Callback ALERT] Found tool message:', {
               contentType,
               name: msg.name,
               toolCallId: msg.additional_kwargs?.tool_call_id,
@@ -379,12 +407,12 @@ class DebugCallbackHandler extends BaseCallbackHandler {
         }
       }
     } catch (e) {
-      console.error('[Callback] Error checking messages:', e);
+      logger.error('[Callback] Error checking messages:', e);
     }
   }
 
   handleLLMEnd(output: LLMResult, runId: string): void | Promise<void> {
-    console.log(`[Callback] handleLLMEnd: ${runId}`, { output });
+    logger.debug(`[Callback] handleLLMEnd: ${runId}`, { output });
 
     // Check if output contains tool calls
     try {
@@ -393,7 +421,7 @@ class DebugCallbackHandler extends BaseCallbackHandler {
         genList.forEach((gen, j) => {
           const genMessage = gen as any;
           if (genMessage.message?.additional_kwargs?.tool_calls) {
-            console.log(
+            logger.debug(
               `[Callback] Tool calls found in generation [${i}][${j}]:`,
               genMessage.message.additional_kwargs.tool_calls,
             );
@@ -401,7 +429,7 @@ class DebugCallbackHandler extends BaseCallbackHandler {
 
           // Log generation completion reason
           if (genMessage.message?.additional_kwargs?.finish_reason) {
-            console.log(
+            logger.debug(
               `[Callback] Generation [${i}][${j}] finish_reason:`,
               genMessage.message.additional_kwargs.finish_reason,
             );
@@ -409,15 +437,15 @@ class DebugCallbackHandler extends BaseCallbackHandler {
         });
       });
     } catch (e) {
-      console.error('[Callback] Error checking LLM output for tool calls:', e);
+      logger.error('[Callback] Error checking LLM output for tool calls:', e);
     }
   }
 
   handleLLMError(err: Error, runId: string): void | Promise<void> {
-    console.error(`[Callback] handleLLMError: ${runId}`, { err });
-    console.error(`[Callback] LLM Error Message: ${err.message}`);
-    console.error(`[Callback] LLM Error Name: ${err.name}`);
-    console.error(`[Callback] LLM Error Stack: ${err.stack}`);
+    logger.error(`[Callback] handleLLMError: ${runId}`, { err });
+    logger.error(`[Callback] LLM Error Message: ${err.message}`);
+    logger.error(`[Callback] LLM Error Name: ${err.name}`);
+    logger.error(`[Callback] LLM Error Stack: ${err.stack}`);
 
     // Enhanced error classification
     const errorMap = {
@@ -449,12 +477,12 @@ class DebugCallbackHandler extends BaseCallbackHandler {
     );
 
     if (errorType) {
-      console.error(`[Callback] DETECTED ERROR CATEGORY: ${errorType[0]}`);
+      logger.error(`[Callback] DETECTED ERROR CATEGORY: ${errorType[0]}`);
     }
 
     // Special handling for tool-related errors
     if (err.message.includes('tool') || err.message.includes('function')) {
-      console.error(
+      logger.error(
         `[Callback] PROBABLE TOOL ERROR - Check tool definitions and usage`,
       );
     }
@@ -470,7 +498,7 @@ class DebugCallbackHandler extends BaseCallbackHandler {
     runType?: string,
     runName?: string,
   ): void | Promise<void> {
-    console.log(
+    logger.debug(
       `[Callback] handleChainStart: ${chain.id || chain.name || 'unknown'} (${runId})`,
       {
         inputs,
@@ -479,14 +507,14 @@ class DebugCallbackHandler extends BaseCallbackHandler {
   }
 
   handleChainEnd(outputs: ChainValues, runId: string): void | Promise<void> {
-    console.log(`[Callback] handleChainEnd: ${runId}`, { outputs });
+    logger.debug(`[Callback] handleChainEnd: ${runId}`, { outputs });
   }
 
   handleChainError(err: Error, runId: string): void | Promise<void> {
-    console.error(`[Callback] handleChainError: ${runId}`, { err });
-    console.error(`[Callback] Chain Error Message: ${err.message}`);
-    console.error(`[Callback] Chain Error Name: ${err.name}`);
-    console.error(`[Callback] Chain Error Stack: ${err.stack}`);
+    logger.error(`[Callback] handleChainError: ${runId}`, { err });
+    logger.error(`[Callback] Chain Error Message: ${err.message}`);
+    logger.error(`[Callback] Chain Error Name: ${err.name}`);
+    logger.error(`[Callback] Chain Error Stack: ${err.stack}`);
 
     // More specific error pattern detection for chains
     const chainErrorPatterns = {
@@ -512,7 +540,7 @@ class DebugCallbackHandler extends BaseCallbackHandler {
             err.stack?.toLowerCase().includes(pattern.toLowerCase()),
         )
       ) {
-        console.error(`[Callback] DETECTED CHAIN ERROR TYPE: ${errorType}`);
+        logger.error(`[Callback] DETECTED CHAIN ERROR TYPE: ${errorType}`);
       }
     });
 
@@ -521,7 +549,7 @@ class DebugCallbackHandler extends BaseCallbackHandler {
       err.message.toLowerCase().includes('message') ||
       err.message.toLowerCase().includes('content')
     ) {
-      console.error(`[Callback] POSSIBLE MESSAGE FORMAT ERROR IN CHAIN`);
+      logger.error(`[Callback] POSSIBLE MESSAGE FORMAT ERROR IN CHAIN`);
 
       // Extract specific function names from stack trace for more context
       if (err.stack) {
@@ -535,7 +563,7 @@ class DebugCallbackHandler extends BaseCallbackHandler {
 
         relevantFrames.forEach((frame) => {
           if (err.stack?.includes(frame)) {
-            console.error(`[Callback] Error appears in function: ${frame}`);
+            logger.error(`[Callback] Error appears in function: ${frame}`);
           }
         });
       }
@@ -704,8 +732,8 @@ function initializeLLM(bitId?: string) {
     throw new Error('Missing OPENAI_API_KEY environment variable');
   }
 
-  console.log(
-    `[Brain API] Initializing LLM with model: ${selectedModel} for bitId: ${bitId || 'unknown'}`,
+  logger.info(
+    `Initializing LLM with model: ${selectedModel} for bitId: ${bitId || 'unknown'}`,
   );
 
   // Initialize OpenAI Chat model
@@ -736,7 +764,7 @@ function stringifyContent(content: any): string {
     try {
       return JSON.stringify(content);
     } catch (e) {
-      console.error('[Brain API] Error stringifying object content:', e);
+      logger.error('Error stringifying object content:', e);
       return '[Object content could not be stringified]';
     }
   }
@@ -784,12 +812,9 @@ function convertToLangChainMessage(msg: any): HumanMessage | AIMessage | null {
         response_metadata: sanitized.response_metadata,
         additional_kwargs: sanitized.additional_kwargs,
       });
-      console.log(
-        '[DEBUG] HumanMessage prototype:',
-        Object.getPrototypeOf(instance),
-      );
-      console.log(
-        '[DEBUG] instanceof HumanMessage:',
+      logger.debug('HumanMessage prototype:', Object.getPrototypeOf(instance));
+      logger.debug(
+        'instanceof HumanMessage:',
         instance instanceof HumanMessage,
       );
       return instance;
@@ -808,47 +833,28 @@ function convertToLangChainMessage(msg: any): HumanMessage | AIMessage | null {
         tool_calls: sanitized.tool_calls,
         invalid_tool_calls: sanitized.invalid_tool_calls,
       });
-      console.log(
-        '[DEBUG] AIMessage prototype:',
-        Object.getPrototypeOf(instance),
-      );
-      console.log(
-        '[DEBUG] instanceof AIMessage:',
-        instance instanceof AIMessage,
-      );
+      logger.debug('AIMessage prototype:', Object.getPrototypeOf(instance));
+      logger.debug('instanceof AIMessage:', instance instanceof AIMessage);
       return instance;
     }
     if (sanitized.role === 'user' || sanitized.role === 'human') {
       const instance = new HumanMessage({ content: stringContent });
-      console.log(
-        '[DEBUG] HumanMessage prototype:',
-        Object.getPrototypeOf(instance),
-      );
-      console.log(
-        '[DEBUG] instanceof HumanMessage:',
+      logger.debug('HumanMessage prototype:', Object.getPrototypeOf(instance));
+      logger.debug(
+        'instanceof HumanMessage:',
         instance instanceof HumanMessage,
       );
       return instance;
     }
     if (sanitized.role === 'assistant' || sanitized.role === 'ai') {
       const instance = new AIMessage({ content: stringContent });
-      console.log(
-        '[DEBUG] AIMessage prototype:',
-        Object.getPrototypeOf(instance),
-      );
-      console.log(
-        '[DEBUG] instanceof AIMessage:',
-        instance instanceof AIMessage,
-      );
+      logger.debug('AIMessage prototype:', Object.getPrototypeOf(instance));
+      logger.debug('instanceof AIMessage:', instance instanceof AIMessage);
       return instance;
     }
     return null;
   } catch (err) {
-    console.error(
-      '[convertToLangChainMessage] Failed to convert message:',
-      msg,
-      err,
-    );
+    logger.error('Failed to convert message:', msg, err);
     return null;
   }
 }
@@ -1312,13 +1318,14 @@ export async function POST(req: NextRequest) {
       referencedChatId?: string | null;
       mainUiChatId?: string | null;
       referencedGlobalPaneChatId?: string | null;
+      userTimezone?: string;
       [key: string]: any;
     };
 
     try {
       reqBody = await req.json();
     } catch (parseError) {
-      console.error('[Brain API] Error parsing request body:', parseError);
+      logger.error('Error parsing request body:', parseError);
       return NextResponse.json(
         { error: 'Failed to parse request body' },
         { status: 400 },
@@ -1341,6 +1348,7 @@ export async function POST(req: NextRequest) {
       referencedChatId = null,
       mainUiChatId = null,
       referencedGlobalPaneChatId = null,
+      userTimezone = 'UTC',
     } = reqBody;
 
     // Use currentActiveSpecialistId if provided, otherwise fall back to activeBitContextId
@@ -1350,11 +1358,9 @@ export async function POST(req: NextRequest) {
       : currentActiveSpecialistId || activeBitContextId || CHAT_BIT_CONTEXT_ID;
 
     // Log the effectiveContextId to help with debugging
-    console.log(
-      `[Brain API] Determined effectiveContextId: ${effectiveContextId}`,
-    );
-    console.log(
-      `[Brain API] Source: isFromGlobalPane=${isFromGlobalPane}, currentActiveSpecialistId=${currentActiveSpecialistId}, activeBitContextId=${activeBitContextId}`,
+    logger.info(`Determined effectiveContextId: ${effectiveContextId}`);
+    logger.debug(
+      `Source: isFromGlobalPane=${isFromGlobalPane}, currentActiveSpecialistId=${currentActiveSpecialistId}, activeBitContextId=${activeBitContextId}`,
     );
 
     // Set up the global CURRENT_REQUEST_BODY for cross-UI context sharing
@@ -1372,7 +1378,7 @@ export async function POST(req: NextRequest) {
       isFromGlobalPane,
     };
 
-    console.log('[Brain API] Set up request context:', {
+    logger.debug('Set up request context:', {
       referencedChatId: global.CURRENT_REQUEST_BODY.referencedChatId,
       referencedGlobalPaneChatId:
         global.CURRENT_REQUEST_BODY.referencedGlobalPaneChatId,
@@ -1383,7 +1389,7 @@ export async function POST(req: NextRequest) {
 
     // Validate chatId
     if (!chatId) {
-      console.error('[Brain API] Chat ID is missing!');
+      logger.error('Chat ID is missing!');
       return NextResponse.json(
         { error: 'Missing required parameter: chatId' },
         { status: 400 },
@@ -1391,16 +1397,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Add detailed logging of request body
-    console.log(
-      '[Brain API] Received request. Body keys:',
-      Object.keys(reqBody),
-    );
-    console.log(
-      `[Brain API] Raw messages received (count: ${messages?.length || 0}):`,
+    logger.debug('Received request. Body keys:', Object.keys(reqBody));
+    logger.debug(
+      `Raw messages received (count: ${messages?.length || 0}):`,
       JSON.stringify(messages, null, 2),
     );
-    console.log(
-      `[Brain API] Chat ID: ${chatId}, Selected Model: ${selectedChatModel}, Active Context: ${effectiveContextId}, Active Persona: ${activeBitPersona}, Active Doc: ${activeDocId}`,
+    logger.debug(
+      `Chat ID: ${chatId}, Selected Model: ${selectedChatModel}, Active Context: ${effectiveContextId}, Active Persona: ${activeBitPersona}, Active Doc: ${activeDocId}`,
     );
 
     // Add this line to process tool messages right after parsing
@@ -1434,10 +1437,10 @@ export async function POST(req: NextRequest) {
     const clientId = (authSession?.user as any)?.clientId;
 
     if (!userId) {
-      console.error('[Brain API] User ID not found in session!');
+      logger.error('User ID not found in session!');
       // Using development bypass for testing
       if (BYPASS_AUTH_FOR_TESTING) {
-        console.log('[Brain API] Auth bypass enabled, using test user ID');
+        logger.info('Auth bypass enabled, using test user ID');
         // Continue with test user
       } else {
         return NextResponse.json(
@@ -1448,12 +1451,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (!clientId) {
-      console.error('[Brain API] Client ID not found in session!');
+      logger.warn('Client ID not found in session!');
       // Log warning but continue with default client ID if testing enabled
       if (BYPASS_AUTH_FOR_TESTING) {
-        console.log('[Brain API] Auth bypass enabled, using default client ID');
+        logger.info('Auth bypass enabled, using default client ID');
       } else {
-        console.warn('[Brain API] Missing clientId - will use default');
+        logger.warn('Missing clientId - will use default');
       }
     }
 
@@ -1461,8 +1464,8 @@ export async function POST(req: NextRequest) {
     const effectiveUserId = userId || 'test-user-id';
     const effectiveClientId = clientId || 'default';
 
-    console.log(
-      `[Brain API] Using User ID: ${effectiveUserId}, Client ID: ${effectiveClientId}`,
+    logger.info(
+      `Using User ID: ${effectiveUserId}, Client ID: ${effectiveClientId}`,
     );
 
     // Fetch client configuration
@@ -1470,16 +1473,16 @@ export async function POST(req: NextRequest) {
     try {
       clientConfig = await getClientConfig(effectiveClientId);
       if (clientConfig) {
-        console.log(
+        logger.info(
           `[Brain API] Loaded config for client: ${clientConfig.name}`,
         );
       } else {
-        console.warn(
+        logger.warn(
           `[Brain API] Could not load configuration for client: ${effectiveClientId}. Using defaults.`,
         );
       }
     } catch (configError) {
-      console.error(`[Brain API] Error fetching client config:`, configError);
+      logger.error(`[Brain API] Error fetching client config:`, configError);
       // Continue without client config - we'll use defaults
     }
 
@@ -1489,7 +1492,7 @@ export async function POST(req: NextRequest) {
     const uuidPattern =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidPattern.test(chatId)) {
-      console.log(
+      logger.warn(
         `[Brain API Debug] The provided chatId '${chatId}' is not in standard UUID format`,
       );
 
@@ -1498,17 +1501,17 @@ export async function POST(req: NextRequest) {
       try {
         // Generate a deterministic UUID v5 using the non-standard ID as a namespace
         normalizedChatId = randomUUID();
-        console.log(
+        logger.info(
           `[Brain API Debug] Generated normalized UUID ${normalizedChatId} for non-standard ID ${chatId}`,
         );
       } catch (error) {
-        console.error(`[Brain API Debug] Error normalizing chatId:`, error);
+        logger.error(`[Brain API Debug] Error normalizing chatId:`, error);
       }
     }
 
     // Skip Drizzle and use direct SQL to check if chat exists
     try {
-      console.log(
+      logger.info(
         `[Brain API Debug] Checking chat existence using direct SQL for chatId: ${normalizedChatId}`,
       );
 
@@ -1518,12 +1521,12 @@ export async function POST(req: NextRequest) {
       `;
 
       const chatExists = existingChats.length > 0;
-      console.log(
+      logger.info(
         `[Brain API Debug] Chat existence check result: ${chatExists ? 'Found' : 'Not found'}`,
       );
 
       if (!chatExists) {
-        console.log(
+        logger.info(
           `[Brain API Debug] Chat ${normalizedChatId} not found. Creating with direct SQL...`,
         );
         const initialTitle =
@@ -1552,32 +1555,32 @@ export async function POST(req: NextRequest) {
           ON CONFLICT (id) DO NOTHING
         `;
 
-        console.log(
+        logger.info(
           `[Brain API Debug] Successfully created chat ${normalizedChatId} using direct SQL with bitContextId: ${effectiveContextId}`,
         );
       } else {
-        console.log(
+        logger.info(
           `[Brain API Debug] Chat ${normalizedChatId} already exists, skipping creation`,
         );
       }
 
       // Proceed with message handling, bypassing the ChatRepository
-      console.log(
+      logger.info(
         `[Brain API Debug] Proceeding to process messages for chat ${normalizedChatId}`,
       );
     } catch (dbError: any) {
-      console.error(
+      logger.error(
         `[Brain API Debug] Database error during chat check/creation:`,
         dbError,
       );
-      console.error(`[Brain API Debug] Error details:`, {
+      logger.error(`[Brain API Debug] Error details:`, {
         message: dbError?.message,
         name: dbError?.name,
         stack: dbError?.stack?.split('\n').slice(0, 3),
       });
 
       // Instead of failing, let's try to continue - the DB might still accept the messages
-      console.log(
+      logger.info(
         `[Brain API Debug] Will attempt to continue despite DB error`,
       );
     }
@@ -1600,12 +1603,12 @@ export async function POST(req: NextRequest) {
     } else {
       // Generate a new UUID if missing or invalid format
       userMessageId = randomUUID();
-      console.log(
+      logger.info(
         `[Brain API] Generated new UUID for user message: ${userMessageId}`,
       );
     }
 
-    console.log(`[Brain API] User message ID check:`, {
+    logger.info(`[Brain API] User message ID check:`, {
       originalId: lastMessage.id,
       idType: typeof lastMessage.id,
       finalId: userMessageId,
@@ -1629,10 +1632,10 @@ export async function POST(req: NextRequest) {
     };
 
     try {
-      console.log(
+      logger.info(
         `[Brain API] Saving user message ${userMessageToSave.id} for chat ${normalizedChatId}`,
       );
-      console.log(
+      logger.info(
         `[Brain API] User message UUID validation: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userMessageToSave.id)}`,
       );
 
@@ -1656,15 +1659,15 @@ export async function POST(req: NextRequest) {
         )
       `;
 
-      console.log(
+      logger.info(
         `[Brain API] Successfully saved user message ${userMessageToSave.id}`,
       );
     } catch (dbError: any) {
-      console.error(
+      logger.error(
         `[Brain API] FAILED to save user message ${userMessageToSave.id}:`,
         dbError,
       );
-      console.error(`[Brain API] Message save error details:`, {
+      logger.error(`[Brain API] Message save error details:`, {
         message: dbError?.message,
         name: dbError?.name,
         stack: dbError?.stack?.split('\n').slice(0, 3),
@@ -1677,14 +1680,14 @@ export async function POST(req: NextRequest) {
     const history = safeMessages.slice(0, -1);
 
     // Log raw history before formatting
-    console.log(
+    logger.debug(
       `[Brain API] Raw history being passed to formatChatHistory (count: ${history?.length || 0}):`,
       JSON.stringify(history, null, 2),
     );
 
     // Always use 'global-orchestrator' ID regardless of the selected model
     const quibitModelId = 'global-orchestrator';
-    console.log(
+    logger.info(
       `[Brain API] Using Quibit orchestrator (${quibitModelId}) regardless of selected model`,
     );
 
@@ -1696,7 +1699,7 @@ export async function POST(req: NextRequest) {
 
     // Determine active context ID (prioritize persona)
     const contextId = activeBitPersona || effectiveContextId;
-    console.log(
+    logger.info(
       `[Brain API] Determined contextId for prompt loading: ${contextId}`,
     );
 
@@ -1714,14 +1717,32 @@ export async function POST(req: NextRequest) {
         clientConfig: clientConfig,
       });
 
-      console.log(`[Brain API] Loaded prompt type: Orchestrator`);
+      // *** BEGIN DATE/TIME INJECTION ***
+      // Use user's timezone if provided, else fallback to UTC
+      const userTimezone = reqBody.userTimezone || 'UTC';
+      let now = DateTime.now().setZone(userTimezone);
+      // If the timezone is invalid, fallback to UTC
+      if (!now.isValid) {
+        now = DateTime.now().setZone('UTC');
+      }
+      const currentDateAndTimeISO = now.toISO();
+      const userFriendlyDate = now.toLocaleString(DateTime.DATE_FULL); // e.g., May 10, 2025
+      const userFriendlyTime = now.toLocaleString(DateTime.TIME_SIMPLE); // e.g., 6:04 PM
+      const dateTimeInjectionString = `IMPORTANT CONTEXT: The current date is ${userFriendlyDate} (ISO: ${currentDateAndTimeISO?.split('T')[0]}), and the current time is ${userFriendlyTime} (ISO: ${currentDateAndTimeISO?.split('T')[1]?.replace('Z', '')} ${userTimezone}). You MUST use this information for any queries that are time-sensitive, refer to "today," "now," or require knowledge of the current date or time. Do not rely on your internal knowledge for the current date and time.`;
+      finalSystemPrompt = `${dateTimeInjectionString}\n\n${finalSystemPrompt}`;
+      logger.info(
+        `[Brain API] Injected current date/time into system prompt. User-friendly: ${userFriendlyDate} ${userFriendlyTime} (${userTimezone}), ISO: ${currentDateAndTimeISO}`,
+      );
+      // *** END DATE/TIME INJECTION ***
 
       // For debugging, show a truncated version of the final prompt
       const truncatedPrompt =
-        finalSystemPrompt.length > 150
-          ? `${finalSystemPrompt.substring(0, 150)}... [${finalSystemPrompt.length} chars total]`
+        finalSystemPrompt.length > 250
+          ? `${finalSystemPrompt.substring(0, 250)}... [${finalSystemPrompt.length} chars total]`
           : finalSystemPrompt;
-      console.log(`[Brain API] Final system prompt: ${truncatedPrompt}`);
+      logger.info(
+        `[Brain API] Final system prompt with date/time: ${truncatedPrompt}`,
+      );
 
       // Get specialist config for tool filtering if context ID is provided
       // Note: We're using contextId for tool filtering but not for prompt type
@@ -1735,12 +1756,12 @@ export async function POST(req: NextRequest) {
         currentTools = tools.filter((tool) =>
           activeSpecialistConfig.defaultTools.includes(tool.name),
         );
-        console.log(
+        logger.info(
           `[Brain API] Using ${currentTools.length} tools specific to specialist: ${contextId}`,
           currentTools.map((t) => t.name),
         );
       } else {
-        console.log(
+        logger.info(
           `[Brain API] Using all ${currentTools.length} available tools for Orchestrator or default context.`,
         );
       }
@@ -1753,7 +1774,7 @@ export async function POST(req: NextRequest) {
       ]);
 
       // Create the agent
-      console.log(
+      logger.info(
         `[Brain API] Creating Quibit orchestrator agent with ${currentTools.length} tools`,
       );
 
@@ -1774,9 +1795,9 @@ export async function POST(req: NextRequest) {
         verbose: true,
       });
 
-      console.log('[Brain API] Agent executor created');
+      logger.info('[Brain API] Agent executor created');
     } catch (error) {
-      console.error(
+      logger.error(
         '[Brain API] Error loading prompt or creating agent:',
         error,
       );
@@ -1788,10 +1809,10 @@ export async function POST(req: NextRequest) {
     try {
       // Use your existing formatting function
       formattedHistory = formatChatHistory(history);
-      console.log('[Brain API] Chat history formatted successfully');
+      logger.info('[Brain API] Chat history formatted successfully');
     } catch (formatError) {
-      console.error('[Brain API] Error formatting chat history:', formatError);
-      console.log('[Brain API] Using empty history due to formatting error');
+      logger.error('[Brain API] Error formatting chat history:', formatError);
+      logger.info('[Brain API] Using empty history due to formatting error');
       formattedHistory = [];
     }
 
@@ -1830,7 +1851,7 @@ export async function POST(req: NextRequest) {
       const properInstance = rawToMessage(rawMessage);
 
       if (!properInstance) {
-        console.error(
+        logger.error(
           '[Brain API] Failed to create proper message instance:',
           msg,
         );
@@ -1854,7 +1875,7 @@ export async function POST(req: NextRequest) {
     if (fileContext?.extractedText) {
       // Extract the text content from the nested object structure
       let extractedText = '';
-      console.log(
+      logger.debug(
         '[Brain API] File context structure:',
         JSON.stringify(fileContext, null, 2),
       );
@@ -1876,7 +1897,7 @@ export async function POST(req: NextRequest) {
         } else if (extractedObj?.extractedContent) {
           // Handle fallback extraction structure
           extractedText = extractedObj.extractedContent;
-          console.log('[Brain API] Using extracted content property');
+          logger.info('[Brain API] Using extracted content property');
         } else {
           // Fallback to stringify the object if we can't find the text
           extractedText = JSON.stringify(fileContext.extractedText);
@@ -1887,11 +1908,11 @@ export async function POST(req: NextRequest) {
         const isMicrosoftFormat = extractedObj?.isMicrosoftFormat === true;
 
         if (isFallbackExtraction) {
-          console.log('[Brain API] Using fallback LLM extraction mode');
+          logger.info('[Brain API] Using fallback LLM extraction mode');
 
           // Special handling for Microsoft Office documents
           if (isMicrosoftFormat) {
-            console.log(
+            logger.info(
               '[Brain API] Document is Microsoft Office format that LLM can process directly',
             );
             extractedText = `${extractedText}
@@ -1924,8 +1945,8 @@ ${extractedText}
 ### END FILE CONTEXT ###
 
 `;
-      console.log('[Brain API] Including fileContext in LLM prompt.');
-      console.log(`[Brain API] Extracted text length: ${extractedText.length}`);
+      logger.info('[Brain API] Including fileContext in LLM prompt.');
+      logger.info(`[Brain API] Extracted text length: ${extractedText.length}`);
     }
 
     const attachmentContext = processAttachments(lastMessage);
@@ -1944,7 +1965,7 @@ ${extractedText}
     // TASK 0.4: Prepend the context prefix to the user's message
     if (contextPrefix) {
       combinedMessage = `${contextPrefix}${combinedMessage}`;
-      console.log(`[Brain API] Added context prefix: "${contextPrefix}"`);
+      logger.info(`[Brain API] Added context prefix: "${contextPrefix}"`);
     }
 
     // Create a file context instruction for the LLM if file context is present
@@ -1961,11 +1982,11 @@ ${extractedText}
     // Set up LangChainStream with onCompletion handler for message saving
     const streamHandler = createLangChainStreamHandler({
       onStart: async () => {
-        console.log(
+        logger.info(
           `[Brain API] >> Stream started, setting assistantMessageSaved flag to false`,
         );
         // Reset the flag at the start of streaming to ensure we save exactly one message
-        assistantMessageSaved = false;
+        assistantMessageSaved = false; // Use let, not redeclare
       },
       onToken: async (token: string) => {
         // Don't do anything special here, just let tokens stream
@@ -1973,49 +1994,49 @@ ${extractedText}
       },
       onCompletion: async (fullResponse: string) => {
         // Skip if response is empty or just whitespace
-        console.log('[Brain API] ON_COMPLETION_HANDLER TRIGGERED');
+        logger.info('[Brain API] ON_COMPLETION_HANDLER TRIGGERED');
 
         if (!fullResponse || !fullResponse.trim()) {
-          console.log(`[Brain API] Skipping empty response in onCompletion`);
+          logger.info(`[Brain API] Skipping empty response in onCompletion`);
           return;
         }
 
         // Add detailed logging to help debug duplicate saves
-        console.log(`[Brain API] >> onCompletion Handler Triggered <<`);
-        console.log(
+        logger.info(`[Brain API] >> onCompletion Handler Triggered <<`);
+        logger.info(
           `[Brain API]    Flag 'assistantMessageSaved': ${assistantMessageSaved}`,
         );
-        console.log(
+        logger.info(
           `[Brain API]    Response Length: ${fullResponse?.length || 0}`,
         );
-        console.log(
+        logger.info(
           `[Brain API]    Response Snippet: ${(fullResponse || '').substring(0, 100)}...`,
         );
 
         // Check if message is already saved
         if (assistantMessageSaved) {
-          console.log(
+          logger.info(
             '[Brain API] onCompletion: Assistant message already saved, skipping duplicate save.',
           );
           return;
         }
 
         // Set flag to prevent duplicate saves
-        assistantMessageSaved = true;
+        assistantMessageSaved = true; // Now valid, since let is used
 
         // This code runs AFTER the entire response has been streamed
-        console.log(
+        logger.info(
           '[Brain API] Stream completed. Saving final assistant message.',
         );
 
         try {
           // Format the assistant message for the database
           const assistantId = randomUUID(); // Generate a new unique ID for the assistant message
-          console.log(
+          logger.info(
             `[Brain API] Generated assistant message UUID: ${assistantId}`,
           );
 
-          console.log(
+          logger.info(
             `[Brain API] Assistant UUID validation: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assistantId)}`,
           );
 
@@ -2037,7 +2058,7 @@ ${extractedText}
               assistantId,
             )
           ) {
-            console.error(
+            logger.error(
               `[Brain API] Invalid UUID generated for assistant message, attempting to regenerate`,
             );
             // If by some chance the UUID is invalid, generate a new one
@@ -2051,13 +2072,13 @@ ${extractedText}
                 'Failed to generate a valid UUID for assistant message',
               );
             }
-            console.log(
+            logger.info(
               `[Brain API] Successfully regenerated UUID: ${regeneratedId}`,
             );
             assistantMessageToSave.id = regeneratedId;
           }
 
-          console.log(
+          logger.info(
             `[Brain API] Saving assistant message ${assistantMessageToSave.id} for chat ${normalizedChatId}`,
           );
 
@@ -2079,13 +2100,13 @@ ${extractedText}
             `;
 
             if (existingEmptyMessages && existingEmptyMessages.length > 0) {
-              console.log(
+              logger.info(
                 `[Brain API] Found ${existingEmptyMessages.length} empty assistant messages for this chat, will update one instead of creating new`,
               );
 
               // Use the first empty message ID instead of creating a new one
               const emptyMsgId = existingEmptyMessages[0].id;
-              console.log(
+              logger.info(
                 `[Brain API] Updating empty message ${emptyMsgId} with content instead of creating new`,
               );
 
@@ -2096,20 +2117,17 @@ ${extractedText}
                 WHERE id = ${emptyMsgId} AND "chatId" = ${normalizedChatId}
               `;
 
-              console.log(
+              logger.info(
                 `[Brain API] Successfully updated empty message ${emptyMsgId} with content`,
               );
               return;
             } else {
-              console.log(
+              logger.info(
                 `[Brain API] No empty messages found, creating new message`,
               );
             }
           } catch (err) {
-            console.error(
-              `[Brain API] Error checking for empty messages:`,
-              err,
-            );
+            logger.error(`[Brain API] Error checking for empty messages:`, err);
             // Continue with normal message creation since checking failed
           }
 
@@ -2134,15 +2152,15 @@ ${extractedText}
             )
           `;
 
-          console.log(
+          logger.info(
             `[Brain API] Successfully saved assistant message ${assistantMessageToSave.id}`,
           );
         } catch (dbError: any) {
-          console.error(
+          logger.error(
             `[Brain API] FAILED to save assistant message:`,
             dbError,
           );
-          console.error(`[Brain API] Assistant message save error details:`, {
+          logger.error(`[Brain API] Assistant message save error details:`, {
             message: dbError?.message,
             name: dbError?.name,
             stack: dbError?.stack?.split('\n').slice(0, 3),
@@ -2163,7 +2181,7 @@ ${extractedText}
       async start(controller) {
         try {
           // SINGLE AGENT EXECUTION: This is now the only call to agentExecutor.stream
-          console.log('[Brain API] SINGLE AGENT EXECUTION STARTING');
+          logger.info('[Brain API] SINGLE AGENT EXECUTION STARTING');
           const streamResult = await agentExecutor.stream(
             {
               input: combinedMessage,
@@ -2198,7 +2216,7 @@ ${extractedText}
               Array.isArray(chunk.toolCalls) &&
               chunk.toolCalls.length > 0
             ) {
-              console.log(
+              logger.info(
                 `[Brain API] Enqueuing tool calls (type 2):`,
                 chunk.toolCalls,
               );
@@ -2219,7 +2237,7 @@ ${extractedText}
           // Close the stream when done
           controller.close();
         } catch (error) {
-          console.error('[Brain API] Error streaming agent result:', error);
+          logger.error('[Brain API] Error streaming agent result:', error);
           controller.error(error);
         }
       },
@@ -2237,7 +2255,7 @@ ${extractedText}
       },
     });
   } catch (error: any) {
-    console.error('[Brain API Error]', error);
+    logger.error('[Brain API Error]', error);
 
     return NextResponse.json(
       { error: `An internal error occurred: ${error.message}` },
