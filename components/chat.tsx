@@ -167,6 +167,7 @@ export function Chat({
     createdAt: Date;
   } | null>(null);
 
+  const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const {
     messages,
     input,
@@ -191,6 +192,7 @@ export function Chat({
       referencedGlobalPaneChatId: globalPaneChatId,
       currentActiveSpecialistId,
       activeBitContextId: currentActiveSpecialistId,
+      userTimezone,
     },
     initialMessages,
     experimental_throttle: 50, // Lower value for smoother streaming

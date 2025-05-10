@@ -62,6 +62,7 @@ export function GlobalChatPane({
     refreshHistory,
   } = useChatPane();
 
+  const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   // Create a separate useChat instance specific for the global chat pane
   const {
     messages,
@@ -85,6 +86,7 @@ export function GlobalChatPane({
       currentActiveSpecialistId: currentActiveSpecialistId,
       isFromGlobalPane: true,
       referencedChatId: mainUiChatId,
+      userTimezone,
     },
     experimental_throttle: 50, // Lower value for smoother streaming
     streamProtocol: 'data', // Explicitly set for Vercel AI SDK
@@ -524,19 +526,17 @@ export function GlobalChatPane({
         </div>
         <div className="flex gap-2 items-center">
           <GlobalChatHistoryDropdown />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <Plus className="h-4 w-4" />
-                <span className="sr-only">New chat</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={startNewChat}>
-                New chat
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={startNewChat}
+            aria-label="New chat"
+            title="New chat"
+          >
+            <Plus className="h-4 w-4" />
+            <span className="sr-only">New chat</span>
+          </Button>
         </div>
       </div>
 
