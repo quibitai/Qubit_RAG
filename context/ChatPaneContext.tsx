@@ -47,7 +47,6 @@ export interface ChatPaneContextType {
   currentActiveSpecialistId: string | null;
   setCurrentActiveSpecialistId: (id: string | null) => void;
   activeDocId: string | null;
-  setActiveDocId: (id: string | null) => void;
   submitMessage: (options?: MessageOptions) => Promise<void>;
   streamedContentMap: Record<string, string>;
   lastStreamUpdateTs: number;
@@ -172,18 +171,6 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     },
     [chatPaneState.isNewChat],
   );
-
-  const setActiveDocId = useCallback((id: string | null) => {
-    setChatPaneState((prev) => ({ ...prev, activeDocId: id }));
-  }, []);
-
-  const setMainUiChatId = useCallback((id: string | null) => {
-    setChatPaneState((prev) => ({ ...prev, mainUiChatId: id }));
-  }, []);
-
-  const setGlobalPaneChatId = useCallback((id: string | null) => {
-    setChatPaneState((prev) => ({ ...prev, globalPaneChatId: id }));
-  }, []);
 
   // Use destructuring for easier access to states for the rest of the component
   const {
@@ -773,6 +760,15 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     );
   }, [mainUiChatId]);
 
+  // These were moved from after the contextValue to before it
+  const setMainUiChatId = useCallback((id: string | null) => {
+    setChatPaneState((prev) => ({ ...prev, mainUiChatId: id }));
+  }, []);
+
+  const setGlobalPaneChatId = useCallback((id: string | null) => {
+    setChatPaneState((prev) => ({ ...prev, globalPaneChatId: id }));
+  }, []);
+
   // Fix the contextValue to properly structure chatState and include isCurrentChatCommitted
   const contextValue = useMemo(() => {
     return {
@@ -785,7 +781,6 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       currentActiveSpecialistId,
       setCurrentActiveSpecialistId,
       activeDocId,
-      setActiveDocId,
       submitMessage,
       streamedContentMap,
       lastStreamUpdateTs,
@@ -812,7 +807,6 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     currentActiveSpecialistId,
     setCurrentActiveSpecialistId,
     activeDocId,
-    setActiveDocId,
     submitMessage,
     streamedContentMap,
     lastStreamUpdateTs,

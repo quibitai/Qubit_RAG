@@ -51,11 +51,7 @@ export default function DashboardPage() {
     setMessages([]);
 
     // Navigate to the appropriate interface based on model ID
-    if (modelId === 'document-editor') {
-      router.push('/editor/new');
-    } else {
-      router.push('/');
-    }
+    router.push('/');
   };
 
   // Function to get an icon based on the model ID
@@ -76,12 +72,6 @@ export default function DashboardPage() {
       name: 'Chat Bit',
       description: 'Versatile AI assistant for chat and reasoning',
       specialization: 'general-purpose chat and reasoning capabilities',
-    },
-    {
-      id: 'document-editor',
-      name: 'Document Bit',
-      description: 'AI-assisted document writing and editing.',
-      specialization: 'document creation and editing',
     },
   ];
 

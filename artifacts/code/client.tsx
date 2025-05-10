@@ -12,8 +12,8 @@ import { toast } from 'sonner';
 import { generateUUID } from '@/lib/utils';
 import {
   Console,
-  type ConsoleOutput,
-  type ConsoleOutputContent,
+  ConsoleOutput,
+  ConsoleOutputContent,
 } from '@/components/console';
 
 const OUTPUT_HANDLERS = {

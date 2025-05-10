@@ -12,11 +12,6 @@ export const chatModels: Array<ChatModel> = [
     name: 'Chat Bit',
     description: 'Versatile AI assistant for chat and reasoning',
   },
-  {
-    id: 'document-editor',
-    name: 'Document Bit',
-    description: 'AI-assisted document writing and editing.',
-  },
   // Note: The Quibit orchestrator (global-orchestrator) is intentionally not listed here
   // as it's not meant to be a user-selectable Bit on the dashboard
 ];
