@@ -593,32 +593,8 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [sessionStatus, currentActiveSpecialistId, loadAllSpecialistChats]);
 
-  // Refactored onFinish handler to always use the latest refs
-  const handleChatFinish = async (message: any) => {
-    console.log(
-      '[ChatPaneContext] handleChatFinish called. isCurrentChatCommittedRef:',
-      isCurrentChatCommittedRef.current,
-    );
-    if (!isCurrentChatCommittedRef.current) {
-      setIsCurrentChatCommittedRef.current(true);
-      console.log(
-        '[ChatPaneContext] setIsCurrentChatCommitted(true) called from handleChatFinish',
-      );
-      const lockedSpecialist = chatPaneState.currentActiveSpecialistId;
-      console.log(
-        `[ChatPaneContext] Chat ${mainUiChatId} NOW COMMITTED by handleChatFinish. Specialist locked to: ${lockedSpecialist}. Dropdown should lock.`,
-      );
-    }
-    // Refresh history after message completion to show new chat in sidebar
-    if (sessionStatus === 'authenticated' && message.role === 'assistant') {
-      const contextToRefresh = chatPaneState.currentActiveSpecialistId;
-      console.log(
-        `[ChatPaneContext] handleChatFinish: Force refreshing sidebar for context: ${contextToRefresh}`,
-      );
-      refreshHistory();
-    }
-    // ... any existing onFinish logic ...
-  };
+  // Cleaned-up message watcher: lock dropdown and refresh sidebar on assistant reply
+  const prevMessageCount = useRef(0);
 
   const baseState = useChat({
     id: mainUiChatId || undefined,
@@ -632,8 +608,31 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       );
       // ... existing onResponse logic ...
     },
-    onFinish: handleChatFinish,
+    // onFinish: handleChatFinish, // disabled—no longer reliable
   });
+
+  const { messages } = baseState;
+
+  // Cleaned-up message watcher: lock dropdown and refresh sidebar on assistant reply
+  useEffect(() => {
+    const currCount = messages.length;
+    if (currCount > prevMessageCount.current) {
+      const last = messages[currCount - 1];
+      if (last && last.role === 'assistant') {
+        if (!isCurrentChatCommitted) {
+          setIsCurrentChatCommitted(true);
+        }
+        refreshHistory();
+      }
+      prevMessageCount.current = currCount;
+    }
+  }, [messages, isCurrentChatCommitted, refreshHistory]);
+
+  // Reset watcher and commit flag on chat ID change
+  useEffect(() => {
+    prevMessageCount.current = 0;
+    setIsCurrentChatCommitted(false);
+  }, [mainUiChatId]);
 
   // Add setIsNewChat function before submitMessage
   const setIsNewChat = useCallback((isNew: boolean) => {
