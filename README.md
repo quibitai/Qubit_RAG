@@ -2,7 +2,7 @@
 
 A modular, enterprise-grade Retrieval-Augmented Generation (RAG) system with native file handling, Google Drive integration, and a modern Vercel-hosted chatbot interface.
 
-![Version](https://img.shields.io/badge/version-1.8.0-blue)
+![Version](https://img.shields.io/badge/version-2.0.0-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-15.3.0-black)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-green)
 ![LangChain](https://img.shields.io/badge/LangChain-0.3.24-yellow)
@@ -143,10 +143,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 MIT
 
-## 📚 Documentation
+## �� Documentation
 
+- [Prompt Architecture & Configuration Guide](./Prompt%20Architecture%20and%20Configuration%20Guide.md)
 - [Architecture Overview](./ARCHITECTURE.md)
-- [Prompt System](./docs/PROMPT_SYSTEM.md)
+- [Prompt System (legacy)](./docs/PROMPT_SYSTEM.md)
 - [Model Selection](./docs/MODEL_SELECTION.md)
 - [Bit & Persona Selection](./docs/Bit-Selection-Implementation.md)
 - [Message Handling](./docs/MESSAGE_HANDLING.md)

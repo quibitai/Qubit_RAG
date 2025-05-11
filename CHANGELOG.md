@@ -5,6 +5,22 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2024-07-23
+
+### Added
+- Comprehensive "Prompt Architecture and Configuration Guide" documenting the new modular, multi-layered prompt system and client configuration strategy
+- Centralized documentation for onboarding new clients, Bits, and tools
+- Cross-linked all documentation for easier navigation
+
+### Changed
+- Refactored prompt system to use a hierarchical, client-driven configuration (see new guide)
+- Updated all documentation to reflect v2.0.0 architecture and best practices
+- Marked previous prompt system documentation as legacy
+- Updated version numbers and badges
+
+### Fixed
+- Cleaned up outdated documentation and removed references to deprecated features
+
 ## [1.8.0] - 2024-07-23
 
 ### Added

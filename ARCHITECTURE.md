@@ -1,6 +1,6 @@
-# Quibit RAG System Architecture (v1.7.9)
+# Quibit RAG System Architecture (v2.0.0)
 
-This document describes the architecture of the Quibit RAG system as of v1.7.9, reflecting its modular, streaming, and multi-tenant design.
+This document describes the architecture of the Quibit RAG system as of v2.0.0, reflecting its modular, streaming, and multi-tenant design. For a detailed explanation of the prompt system and configuration, see [Prompt Architecture and Configuration Guide](./Prompt%20Architecture%20and%20Configuration%20Guide.md).
 
 ## System Overview
 
@@ -53,7 +53,7 @@ Quibit RAG is a modular Retrieval-Augmented Generation (RAG) platform built on N
 - Modular prompt loader, orchestrator, and specialist personas
 - Dynamic prompt composition based on context, client config, and toolset
 - Tool usage notes and persona-specific instructions
-- See [`docs/PROMPT_SYSTEM.md`](./docs/PROMPT_SYSTEM.md) for details
+- See [`Prompt Architecture and Configuration Guide`](../Prompt%20Architecture%20and%20Configuration%20Guide.md) for details
 
 ### 4. Streaming & Real-Time Updates
 - SSE streaming from Brain API to frontend for chat and document updates

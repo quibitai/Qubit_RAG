@@ -1,5 +1,7 @@
 # Quibit Prompt System Documentation (v1.7.9)
 
+> **Note:** This document is now legacy. For the latest prompt system and configuration strategy, see [Prompt Architecture and Configuration Guide](../Prompt%20Architecture%20and%20Configuration%20Guide.md).
+
 ## Overview
 
 The Quibit RAG prompt system is modular, extensible, and context-aware. It supports:
