@@ -22,6 +22,8 @@ import { auth } from '@/app/(auth)/auth';
 // Import tools and utilities
 // import { orchestratorPrompt, getSpecialistPromptById } from '@/lib/ai/prompts'; // Unused
 import { loadPrompt } from '@/lib/ai/prompts/loader';
+import { processHistory } from '@/lib/contextUtils';
+import { EnhancedAgentExecutor } from '@/lib/ai/executors/EnhancedAgentExecutor';
 
 // State variables to track between requests/handler invocations
 // These fix "Cannot find name" TypeScript errors
@@ -1707,6 +1709,7 @@ export async function POST(req: NextRequest) {
     let finalSystemPrompt: string;
     let currentTools = tools; // Default to all tools
     let agentExecutor: AgentExecutor;
+    let enhancedExecutor: EnhancedAgentExecutor | undefined; // Properly typed with undefined
 
     try {
       // Load the appropriate system prompt using the new loader
@@ -1795,7 +1798,16 @@ export async function POST(req: NextRequest) {
         verbose: true,
       });
 
-      logger.info('[Brain API] Agent executor created');
+      // NEW: Enhance the agent executor with smarter tool call enforcement
+      // This will ensure calendar/task queries always trigger fresh tool calls
+      enhancedExecutor = EnhancedAgentExecutor.fromExecutor(agentExecutor, {
+        enforceToolCalls: true,
+        verbose: true,
+      });
+
+      logger.info(
+        '[Brain API] Agent executor created and enhanced with tool call enforcement',
+      );
     } catch (error) {
       logger.error(
         '[Brain API] Error loading prompt or creating agent:',
@@ -1810,8 +1822,42 @@ export async function POST(req: NextRequest) {
       // Use your existing formatting function
       formattedHistory = formatChatHistory(history);
       logger.info('[Brain API] Chat history formatted successfully');
+
+      // NEW: Process history with smart filtering and enrichment
+      // Using directly lastMessage.content for consistency (available in this scope)
+      const userQueryText = lastMessage.content || '';
+
+      // Configure history processing based on context
+      const historyOptions = {
+        maxMessages: 10, // Limiting to 10 messages for most contexts
+        detectRepeatedQueries: true,
+        // Add specific tool tags relevant to your system
+        repeatedQueryTags: [
+          'calendar',
+          'schedule',
+          'n8n',
+          'event',
+          'meeting',
+          'asana',
+          'task',
+        ],
+      };
+
+      // Apply smart history processing
+      formattedHistory = processHistory(
+        formattedHistory,
+        userQueryText,
+        historyOptions,
+      );
+
+      logger.info(
+        `[Brain API] Processed chat history with smart filtering - message count: ${formattedHistory.length}`,
+      );
     } catch (formatError) {
-      logger.error('[Brain API] Error formatting chat history:', formatError);
+      logger.error(
+        '[Brain API] Error formatting/processing chat history:',
+        formatError,
+      );
       logger.info('[Brain API] Using empty history due to formatting error');
       formattedHistory = [];
     }
@@ -2182,14 +2228,25 @@ ${extractedText}
         try {
           // SINGLE AGENT EXECUTION: This is now the only call to agentExecutor.stream
           logger.info('[Brain API] SINGLE AGENT EXECUTION STARTING');
-          const streamResult = await agentExecutor.stream(
-            {
-              input: combinedMessage,
-              chat_history: directInstances,
-              activeBitContextId: effectiveContextId || null,
-            },
-            { callbacks: streamHandler.handlers },
-          );
+
+          // Check if enhancedExecutor exists, otherwise fall back to the regular agentExecutor
+          const streamResult = enhancedExecutor
+            ? await enhancedExecutor.stream(
+                {
+                  input: combinedMessage,
+                  chat_history: directInstances,
+                  activeBitContextId: effectiveContextId || null,
+                },
+                { callbacks: streamHandler.handlers },
+              )
+            : await agentExecutor.stream(
+                {
+                  input: combinedMessage,
+                  chat_history: directInstances,
+                  activeBitContextId: effectiveContextId || null,
+                },
+                { callbacks: streamHandler.handlers },
+              );
 
           // Process each chunk from the stream
           for await (const chunk of streamResult) {

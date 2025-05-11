@@ -13,6 +13,7 @@ import { requestSuggestionsTool } from './request-suggestions';
 import { updateDocumentTool } from './update-document';
 import { tavilySearchTool } from './tavily-search';
 import { getMessagesFromOtherChatTool } from './getMessagesFromOtherChatTool';
+import { n8nMcpGatewayTool } from './n8nMcpGatewayTool';
 
 // Export all available tools
 export const availableTools = [
@@ -25,6 +26,7 @@ export const availableTools = [
   updateDocumentTool,
   tavilySearchTool,
   getMessagesFromOtherChatTool,
+  n8nMcpGatewayTool,
 ];
 
 export {
@@ -37,4 +39,5 @@ export {
   updateDocumentTool,
   tavilySearchTool,
   getMessagesFromOtherChatTool,
+  n8nMcpGatewayTool,
 };
