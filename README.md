@@ -2,7 +2,7 @@
 
 A modular, enterprise-grade Retrieval-Augmented Generation (RAG) system with native file handling, Google Drive integration, and a modern Vercel-hosted chatbot interface.
 
-![Version](https://img.shields.io/badge/version-1.7.4-blue)
+![Version](https://img.shields.io/badge/version-1.7.9-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-15.3.0-black)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-green)
 ![LangChain](https://img.shields.io/badge/LangChain-0.3.24-yellow)
@@ -49,6 +49,13 @@ Quibit RAG is an advanced AI assistant platform that combines modern language mo
 - **Message Deduplication & Cleaning:** Enhanced logic to deduplicate, clean, and format messages, eliminating garbled or repeated content in specialist responses.
 - **Chronological Sorting:** Ensures that message history is always presented in the correct order, with clear identification of the latest message.
 - **Prompt & Tooling Enhancements:** Updated orchestrator prompts and tool usage to better handle specialist context and user intent for message queries.
+
+## ✨ Key Features in v1.7.9
+
+### [PLACEHOLDER: Add highlights for v1.7.9]
+- 
+- 
+- 
 
 ## 🏗️ Architecture
 
