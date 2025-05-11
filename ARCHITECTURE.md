@@ -1,126 +1,105 @@
-# RAG System Architecture (v3.0.0)
+# Quibit RAG System Architecture (v1.7.9)
 
-This document outlines the architecture for the Langchain-based RAG system that will replace the current n8n workflow implementation.
+This document describes the architecture of the Quibit RAG system as of v1.7.9, reflecting its modular, streaming, and multi-tenant design.
 
 ## System Overview
 
-The new architecture centralizes the AI orchestration within a Brain micro-service that directly integrates with various APIs rather than relying on n8n workflows. This provides greater control, better performance, and simplified deployment.
+Quibit RAG is a modular Retrieval-Augmented Generation (RAG) platform built on Next.js, LangChain, and a robust tool registry. The system is designed for scalability, maintainability, and extensibility, supporting multi-tenant deployments and real-time streaming.
+
+### High-Level Data Flow
 
 ```
-[ Front‑end Bits ]  ──>  /api/brain  ──>  [ Brain Orchestrator (Langchain Agent) ]
-                                          │
-                                          ├─▶ tool:getFileContents  ──▶ (lib/tools/googleDrive.ts) ──▶ Google Drive API
-                                          ├─▶ tool:searchRAG         ──▶ (lib/tools/supabaseRAG.ts) ──▶ Supabase/Postgres Vector DB
-                                          ├─▶ tool:queryRows         ──▶ (lib/tools/supabaseQuery.ts)──▶ Supabase/Postgres
-                                          ├─▶ tool:listDocuments     ──▶ (lib/tools/googleDrive.ts) ──▶ Google Drive API
-                                          ├─▶ tool:searchWeb         ──▶ (lib/tools/serpapi.ts)      ──▶ SerpAPI
-                                          ├─▶ tool:googleCalendar    ──▶ (lib/tools/googleCalendar.ts)─▶ Google Calendar API
-                                          └─▶ ...other tools...
+[ Frontend (Bits, Editor, Chat) ]
+    │
+    ▼
+/api/brain (Brain API, SSE streaming)
+    │
+    ▼
+[ Brain Orchestrator (LangChain Agent) ]
+    │
+    ├─▶ [Tool Registry: Modular Tools]
+    │      ├─ getFileContentsTool (Google Drive, Supabase)
+    │      ├─ searchInternalKnowledgeBase (Supabase Vector DB)
+    │      ├─ tavilySearch (Web Search)
+    │      ├─ googleCalendar (n8n MCP)
+    │      ├─ queryDocumentRows (Supabase)
+    │      ├─ createDocument, updateDocument
+    │      └─ ...more
+    │
+    └─▶ [Prompt System: Orchestrator & Specialists]
+
+[ File Upload ]
+    │
+    ├─▶ /api/files/upload (Vercel Blob)
+    └─▶ /api/files/extract (n8n for extraction)
 ```
 
 ## Core Components
 
 ### 1. Brain API Endpoint (`/app/api/brain/route.ts`)
-- Central orchestration layer
-- Handles authentication and permissions
-- Initializes the LLM with appropriate model
-- Creates and executes the Langchain agent
-- Manages conversation history and context
-- Supports file attachments and streaming responses
+- Central orchestration layer for all AI and tool interactions
+- Handles authentication, permissions, and multi-tenancy
+- Initializes LangChain agent with dynamic toolset and prompt
+- Manages conversation history, context, and streaming SSE responses
+- Supports file attachments and Bit/persona context
 
 ### 2. Tool Registry (`/lib/ai/tools/`)
-- Modular implementation of tool functions
-- Direct API integrations instead of n8n workflows
+- Modular, self-contained tool implementations
+- Direct API integrations (Google Drive, Supabase, Tavily, n8n, etc.)
 - Unified error handling and logging
-- Dynamic tool selection based on Bit context
+- Dynamic tool selection based on Bit/persona context and permissions
 
 ### 3. Prompt System (`/lib/ai/prompts/`)
-The AI prompt system is modular, located in `lib/ai/prompts/`. It distinguishes between a central Orchestrator and various Specialist personas. A `PromptLoader` service dynamically composes system prompts based on the current context (Orchestrator, specific Specialist, or Default Assistant), incorporating base instructions, persona-specific details, and relevant tool usage guidelines. This design allows for clear separation of concerns and easier management of AI behaviors. For detailed information, see [`docs/PROMPT_SYSTEM.md`](./docs/PROMPT_SYSTEM.md).
+- Modular prompt loader, orchestrator, and specialist personas
+- Dynamic prompt composition based on context, client config, and toolset
+- Tool usage notes and persona-specific instructions
+- See [`docs/PROMPT_SYSTEM.md`](./docs/PROMPT_SYSTEM.md) for details
 
-The key components include:
-- **Core prompts**: Base templates and the Orchestrator persona
-- **Specialists**: Configurable specialist personas with dedicated prompts and tool sets
-- **Tool instructions**: Concise usage guidelines for various tool categories
-- **Prompt loader**: Dynamic prompt composition based on context
+### 4. Streaming & Real-Time Updates
+- SSE streaming from Brain API to frontend for chat and document updates
+- Real-time document editor sync and chat streaming
+- Custom event types for navigation, file upload, and document deltas
 
-### 4. Front-end Integration
-- Bit components call the Brain API
-- Handles streaming responses and file uploads
-- Displays structured data and citations
+### 5. Multi-Tenancy & Permissions
+- NextAuth-based authentication
+- Row-level security (RLS) in Supabase/Postgres
+- Client-aware prompt, tool, and data access
 
-## Migration Path from n8n Workflows
-
-### Current n8n Workflow Structure
-1. **Internal Knowledge Base Search Tool**: n8n workflow for semantic search using PostgreSQL vector database
-2. **Web Search Tool**: n8n workflow using SerpAPI
-3. **Document Management Tools**: n8n workflows for listing and retrieving documents
-4. **Google Drive Integration**: n8n workflow for monitoring and processing files
-5. **Google Calendar Integration**: n8n workflow for calendar operations
-6. **File Extraction Service**: n8n workflow for processing uploaded files
-
-### Migration Strategy
-1. **Parallel Implementation**: Build the Langchain tools alongside existing n8n workflows
-2. **Gradual Transition**: Test each tool individually before switching the front-end to use it
-3. **Validation**: Compare results between n8n and direct implementation to ensure consistency
-4. **Feature Parity**: Ensure all existing capabilities are maintained or enhanced
-
-### Implementation Priority
-1. First tool: Document listing (simplest to implement)
-2. Second tool: RAG search (core functionality)
-3. Third tool: File content retrieval (dependency for other features)
-4. Remaining tools in order of complexity and dependency
+### 6. Data Layer
+- PostgreSQL (Supabase) for structured and vector data
+- Vercel Blob for file storage
+- n8n for file extraction and MCP integrations (where direct API is not used)
 
 ## Directory Structure
 
 ```
 /app
   /api
-    /brain
-      /route.ts             # Main brain API endpoint
-    /chat                   # Legacy chat API (to be deprecated)
+    /brain/route.ts         # Main Brain API endpoint
+    /files/upload/route.ts  # File upload (Vercel Blob)
+    /files/extract/route.ts # File extraction (n8n)
 /lib
   /ai
-    /tools                  # Tool implementations
-      /googleDrive.ts       # Google Drive tools
-      /supabaseRAG.ts       # Vector search tools
-      /supabaseQuery.ts     # SQL query tools
-      /serpapi.ts           # Web search tools
-      /googleCalendar.ts    # Calendar tools
-      /index.ts             # Tool registry and exports
-    /prompts                # Modular prompt system
-      /core                 # Base prompts and orchestrator
-      /specialists          # Specialist personas
-      /tools                # Tool-specific instructions
-      /loader.ts            # Dynamic prompt composition
-    /models.ts              # LLM initialization logic
-  /db                       # Database utilities
-/components                 # UI components
+    /tools/                 # Modular tool implementations
+    /prompts/               # Prompt system (core, specialists, tools)
+    /models.ts              # Model selection logic
+  /db/
+    schema.ts               # Database schema (Supabase/Postgres)
+/components/                # UI components (Bits, Editor, Chat)
 ```
 
-## Authentication and Permissions
+## Authentication & Security
+- All API endpoints require authentication via NextAuth
+- Permissions enforced at API and DB level
+- Tool access and prompt composition are client-aware
 
-The Brain API will handle authentication and permission checks before processing requests:
+## Performance & Best Practices
+- SSE streaming for responsiveness
+- Caching and parallel tool execution where possible
+- Robust error handling and logging
+- Modular codebase, <200 lines per file, clear docstrings
 
-1. Verify user session using NextAuth
-2. Check if the user has permission to access the requested Bit
-3. Determine which tools should be available based on user permissions
-4. Enforce security boundaries during tool execution
-
-## Performance Considerations
-
-1. **Streaming Responses**: Implement streaming to improve perceived responsiveness
-2. **Caching**: Cache frequently used data (e.g., document listings)
-3. **Parallel Execution**: Allow multiple tools to execute concurrently when possible
-4. **Error Handling**: Robust error recovery to prevent complete request failure
-
-## Migration Checklist
-
-- [ ] Set up Langchain packages and dependencies
-- [ ] Create the Brain API route skeleton
-- [ ] Implement the first tool (document listing)
-- [ ] Test direct API calls
-- [ ] Update front-end to call Brain API
-- [ ] Add remaining tools one by one
-- [ ] Implement streaming responses
-- [ ] Add file attachment support
-- [ ] Deprecate legacy endpoints 
+## Deprecated/Legacy
+- n8n is now only used for file extraction and some MCP integrations
+- All other orchestration is handled by the Brain API and modular tools
+- Legacy n8n workflow documentation is retained for reference only 

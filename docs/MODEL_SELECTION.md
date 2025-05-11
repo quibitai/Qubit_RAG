@@ -1,57 +1,40 @@
-# Model Selection Architecture
+# Model Selection Architecture (v1.7.9)
 
-This document explains the model selection architecture implemented in version 3.1.0, which provides a flexible way to use different OpenAI models based on the context of the request.
+This document describes the model selection logic for Quibit RAG as of v1.7.9.
 
 ## Overview
 
-The model selection architecture dynamically chooses which OpenAI model to use based on the following priority:
+Model selection is dynamic and context-aware. The system chooses the OpenAI model based on:
+1. **Bit/Persona Context**: If a Bit or persona is specified and mapped, use its model.
+2. **Environment Variable**: If no mapping, use `DEFAULT_MODEL_NAME` from environment.
+3. **Default Fallback**: If neither, use the default model in `lib/ai/models.ts`.
 
-1. **Bit ID Mapping**: If a Bit ID is provided and there's a mapping for it, that model is used
-2. **Environment Variable**: If no mapping is found, falls back to the `DEFAULT_MODEL_NAME` environment variable
-3. **Default Model**: If neither of the above is available, uses the default model specified in the mapping
+## Implementation
 
-## Implementation Details
+- Model mapping is defined in `lib/ai/models.ts`:
+  ```typescript
+  export const modelMapping: Record<string, string> = {
+    'chat-model': 'gpt-4.1-mini',
+    'chat-model-reasoning': 'gpt-4.1-mini',
+    default: 'gpt-4.1',
+  };
+  ```
+- The Brain API (`/api/brain/route.ts`) uses this mapping to select the model for each request.
+- Bit/persona context is passed in the API payload and determines the model.
+- If no mapping is found, the environment variable is used.
 
-### Model Mapping Configuration
+## Extensibility
+- Add new Bit/persona IDs and models to `modelMapping` as needed.
+- Update the UI and tests to support new models.
 
-The model mapping is defined in `lib/ai/models.ts`:
+## Best Practices
+- Keep model mapping centralized in `lib/ai/models.ts`.
+- Use environment variables for deployment-specific defaults.
+- Test model selection logic for all Bit/persona scenarios.
 
-```typescript
-export const modelMapping: Record<string, string> = {
-  'chat-model': 'gpt-4.1-mini',       // Echo Tango Bit uses gpt-4.1-mini
-  'chat-model-reasoning': 'gpt-4.1-mini', // Orchestrator uses gpt-4.1-mini
-  default: 'gpt-4.1',                 // All other Bits use gpt-4.1 by default
-};
-```
-
-### Selection Logic
-
-The model selection happens in the `initializeLLM` function in `app/api/brain/route.ts`:
-
-```typescript
-function initializeLLM(bitId?: string) {
-  // Use the model mapping to determine the correct model based on bitId
-  // Fall back to environment variable or default model
-  let selectedModel: string;
-
-  if (bitId && modelMapping[bitId]) {
-    selectedModel = modelMapping[bitId];
-  } else {
-    selectedModel = process.env.DEFAULT_MODEL_NAME || modelMapping.default;
-  }
-
-  console.log(
-    `[Brain API] Initializing LLM with model: ${selectedModel} for bitId: ${bitId || 'unknown'}`,
-  );
-
-  // Initialize OpenAI Chat model
-  return new ChatOpenAI({
-    modelName: selectedModel,
-    temperature: 0.7,
-    apiKey: process.env.OPENAI_API_KEY,
-  });
-}
-```
+## References
+- See `ARCHITECTURE.md` for system overview.
+- See `lib/ai/models.ts` and `/api/brain/route.ts` for implementation.
 
 ## Configuration Options
 

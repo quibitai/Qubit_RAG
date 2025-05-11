@@ -1,45 +1,40 @@
-# Quibit Prompt System Documentation (v2)
+# Quibit Prompt System Documentation (v1.7.9)
 
 ## Overview
 
-The Quibit RAG system utilizes a modular prompt architecture designed for clarity, maintainability, and precise control over AI behavior. It clearly separates the functionality and identity of:
-1.  **The Quibit Orchestrator:** The central AI that manages conversations, utilizes tools, and coordinates with specialists.
-2.  **Specialist Personas:** Specialized AIs with distinct roles, knowledge, voices, and default toolsets (e.g., Echo Tango).
-3.  **Tool-Specific Instructions:** Concise guidelines on how the AI should use specific tools or interpret their outputs.
-
-This modularity allows for easier updates, additions of new specialists, and consistent AI behavior.
+The Quibit RAG prompt system is modular, extensible, and context-aware. It supports:
+- **Orchestrator Persona**: The central AI agent that manages conversations and coordinates tools and specialists.
+- **Specialist Personas**: Configurable AIs with distinct roles, voices, and toolsets (e.g., Echo Tango).
+- **Tool-Specific Instructions**: Concise, context-driven guidelines for tool usage.
 
 ## System Architecture & Key Components
 
-The core of the prompt system resides in `lib/ai/prompts/`:
-
-* **`loader.ts`**: This is the primary entry point for obtaining a system prompt. The `loadPrompt()` function dynamically determines and composes the correct prompt based on:
-    * `modelId`: Identifies if the request is for the 'global-orchestrator'.
-    * `contextId`: The ID of the active specialist persona (e.g., 'echo-tango-specialist') or `null`.
-    * `clientConfig`: Allows for client-specific overrides or additions to prompts.
-
-* **`core/base.ts`**: Defines base prompt sections (like core capabilities, response guidelines) and the `composeSpecialistPrompt()` function which combines these base elements with a specialist's specific persona. It also defines `defaultAssistantPrompt` for general interactions when no specialist is active and it's not the orchestrator.
-
-* **`core/orchestrator.ts`**: Contains the detailed system prompt for the Quibit Orchestrator (`orchestratorPrompt`) and the `getOrchestratorPrompt()` function. This prompt heavily emphasizes identity preservation.
-
-* **`specialists/`**: This directory houses individual specialist definitions.
-    * `template.ts`: Defines the `SpecialistConfig` interface (id, name, description, persona, defaultTools).
-    * `[specialist-name].ts` (e.g., `echo-tango.ts`): Implements `SpecialistConfig` for a specific specialist, including their detailed persona prompt.
-    * `index.ts`: Contains the `specialistRegistry` (mapping IDs to `SpecialistConfig` objects) and `promptRegistry` (mapping IDs to persona strings). It also provides helper functions like `getSpecialistPromptById()` and `getAvailableSpecialists()`.
-
-* **`tools/`**: This directory contains tool-specific usage instructions.
-    * `[tool-category].ts` (e.g., `knowledge.ts`, `web-search.ts`): Defines instruction strings for categories of tools.
-    * `index.ts`: Contains the `toolInstructionMap` (mapping tool names to instruction strings) and the `getToolPromptInstructions()` function, which compiles relevant instructions based on the tools available to the current agent (Orchestrator or Specialist).
+Located in `lib/ai/prompts/`:
+- `loader.ts`: Main entry point. `loadPrompt()` dynamically composes the system prompt based on orchestrator/specialist context, client config, and active tools.
+- `core/`: Base prompt sections and orchestrator persona.
+- `specialists/`: Specialist persona definitions, registry, and template interface.
+- `tools/`: Tool usage instructions, mapped to tool names.
 
 ## Prompt Composition Flow
 
-1.  The `app/api/brain/route.ts` (or relevant agent initialization logic) calls `loadPrompt()`.
-2.  `loadPrompt()` determines if it's an Orchestrator, a specific Specialist, or a Default Assistant context.
-3.  If Specialist:
-    * It retrieves the specialist's persona string (via `getSpecialistPromptById`) and default tools (via `specialistRegistry`).
-    * It fetches relevant tool instructions (via `getToolPromptInstructions`).
-    * It composes the final prompt using `composeSpecialistPrompt(persona, toolInstructions)`.
-4.  The resulting system prompt is then used to initialize the AI agent.
+1. The Brain API calls `loadPrompt()` with context (orchestrator, specialist, client config).
+2. The loader selects the correct persona and toolset.
+3. Tool usage notes are included for all active tools.
+4. The composed prompt is used to initialize the LangChain agent.
+
+## Extensibility
+- Add new specialists by creating a config in `specialists/` and registering it.
+- Add new tool instructions in `tools/` and map them in `tools/index.ts`.
+- Client-specific prompt overrides are supported via config.
+
+## Best Practices
+- Keep persona and tool instructions modular and under 200 lines per file.
+- Use clear docstrings and rationale for each persona/tool.
+- Test new prompts and tool instructions in isolation before production use.
+
+## References
+- See `ARCHITECTURE.md` for system overview.
+- See `lib/ai/prompts/` for implementation details.
 
 ## Adding a New Specialist
 
