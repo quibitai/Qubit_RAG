@@ -94,6 +94,7 @@ export function DocumentPreview({
           id: artifact.documentId,
           createdAt: new Date(),
           userId: 'noop',
+          clientId: 'noop-client',
         }
       : null;
 

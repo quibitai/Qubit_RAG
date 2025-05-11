@@ -1,6 +1,8 @@
 'use server';
 
-console.log('[actions.ts] loaded by Next.js');
+import { logger } from '@/lib/logger';
+
+logger.debug('ServerActions', 'actions.ts loaded by Next.js');
 
 import { generateText, type Message } from 'ai';
 import { cookies } from 'next/headers';

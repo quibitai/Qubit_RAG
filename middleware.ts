@@ -1,20 +1,25 @@
-console.log('[Middleware File Execution] Middleware file top-level log.');
-console.log('[Middleware] Checking environment variables...');
+import { logger } from './lib/logger';
+
+logger.debug('Middleware', 'Middleware file execution');
+logger.debug('Middleware', 'Checking environment variables');
 
 // Debug: Check for NEXTAUTH_SECRET/AUTH_SECRET
 if (process.env.NEXTAUTH_SECRET) {
-  console.log('[Middleware] NEXTAUTH_SECRET is defined');
+  logger.debug('Middleware', 'NEXTAUTH_SECRET is defined');
 } else if (process.env.AUTH_SECRET) {
-  console.log(
-    '[Middleware] AUTH_SECRET is defined, but NEXTAUTH_SECRET is missing',
+  logger.debug(
+    'Middleware',
+    'AUTH_SECRET is defined, but NEXTAUTH_SECRET is missing',
   );
   // NextAuth v5 looks for NEXTAUTH_SECRET, so let's report this issue
-  console.log(
-    '[Middleware] Note: NextAuth v5 specifically requires NEXTAUTH_SECRET. AUTH_SECRET might not be recognized.',
+  logger.warn(
+    'Middleware',
+    'NextAuth v5 specifically requires NEXTAUTH_SECRET. AUTH_SECRET might not be recognized.',
   );
 } else {
-  console.log(
-    '[Middleware] WARNING: Neither NEXTAUTH_SECRET nor AUTH_SECRET environment variables are defined',
+  logger.warn(
+    'Middleware',
+    'Neither NEXTAUTH_SECRET nor AUTH_SECRET environment variables are defined',
   );
 }
 
