@@ -11,28 +11,22 @@ A modular, enterprise-grade Retrieval-Augmented Generation (RAG) system with nat
 
 Quibit RAG is a modular, multi-tenant AI assistant platform that combines modern language models with retrieval techniques and a robust tool registry. It is built on Next.js, LangChain, and Supabase, and is designed for extensibility, maintainability, and real-time streaming.
 
-- **Modular Tool Registry**: Easily add, remove, or update tools for document search, file handling, calendar, web search, and more
-- **Streaming Responses**: Real-time chat and document updates via SSE
-- **Multi-Tenancy**: Client-aware context, permissions, and data isolation
-- **Modern UI**: Responsive, real-time interface with file upload and document editing
-- **Direct API Integrations**: Google Drive, Supabase, Tavily, Google Calendar (via n8n MCP), and more
-- **Prompt System**: Modular, context-aware prompt composition for orchestrator and specialist personas
+- **Client-Aware Configuration:** Each client receives a unique, context-aware experience, with custom prompts, tool access, and specialist personas driven by database configuration.
+- **General Chat Specialist:** A dedicated, client-contextualized "General Chat" specialist provides a helpful, conversational AI experience for standard chat contexts.
+- **Modular Tool Registry:** Easily add, remove, or update tools for document search, file handling, calendar, web search, and more.
+- **Streaming Responses:** Real-time chat and document updates via SSE.
+- **Multi-Tenancy:** Client-aware context, permissions, and data isolation.
+- **Modern UI:** Responsive, real-time interface with file upload and document editing.
+- **Direct API Integrations:** Google Drive, Supabase, Tavily, Google Calendar (via n8n MCP), and more.
+- **Prompt System:** Modular, context-aware prompt composition for orchestrator and specialist personas.
 
-## ✨ Key Features in v1.7.9
+## ✨ Key Features in v2.0.0
 
-- Modular tool registry with direct API integrations
-- Streaming chat and document updates
-- Multi-tenant support with row-level security
-- File upload and extraction (n8n used only for extraction/MCP)
-- Dynamic prompt system for orchestrator and specialists
-- Real-time document editor with debugging tools
-
-## ✨ Key Features in v1.8.0
-
-### [PLACEHOLDER: Add highlights for v1.8.0]
-- 
-- 
-- 
+- **Client-Aware Configuration System:** Prompts, tool access, and specialist personas are dynamically tailored per client using a unified configuration schema. See [Prompt Architecture and Configuration Guide](./Prompt%20Architecture%20and%20Configuration%20Guide.md).
+- **General Chat Specialist:** The "General Chat" context now uses a dedicated, client-contextualized specialist prompt, not the Orchestrator prompt.
+- **Unified Specialist Registry:** All specialists (including General Chat) are registered and managed centrally, ensuring no duplicates in the UI.
+- **Comprehensive Test Suite:** New unit and integration tests validate prompt generation, tool configuration, and client context injection. See [tests/prompts/README.md](./tests/prompts/README.md).
+- **Stable, Clean Baseline:** This version is a stable, working baseline for further development (e.g., artifact streaming). Tag and revert to this version as needed.
 
 ## 🏗️ Architecture
 
@@ -118,22 +112,37 @@ Access the application at http://localhost:3000
 
 ## 📂 File Processing Capabilities
 
-- **Primary Extraction (n8n)**: Uses n8n workflow for optimal extraction (text-based files)
-- **Direct Upload**: All files are uploaded to Vercel Blob
-- **Format-Specific Handling**: Microsoft Office, PDF, text, JSON, images, etc.
+- **Primary Extraction (n8n):** Uses n8n workflow for optimal extraction (text-based files)
+- **Direct Upload:** All files are uploaded to Vercel Blob
+- **Format-Specific Handling:** Microsoft Office, PDF, text, JSON, images, etc.
 
 ## 🧩 Core Components
 
-- **Message Handling**: Type-safe, multi-layered sanitization, robust error handling
-- **Brain API**: Central orchestration, streaming, context-aware, multi-tenant
-- **Tool Integration**: Modular, direct API integrations, n8n for extraction/MCP only
-- **Prompt System**: Modular, context-aware, orchestrator and specialist personas
+- **Message Handling:** Type-safe, multi-layered sanitization, robust error handling
+- **Brain API:** Central orchestration, streaming, context-aware, multi-tenant
+- **Tool Integration:** Modular, direct API integrations, n8n for extraction/MCP only
+- **Prompt System:** Modular, context-aware, orchestrator and specialist personas
+- **Client-Aware Specialist Registry:** All specialists (including General Chat) are registered in a single registry, ensuring no duplicates in the UI or logic.
 
-## 🧪 Development
+## 🧪 Development & Testing
 
-- Run tests: `npm test`
+- Run tests: `npm test` or see [tests/prompts/README.md](./tests/prompts/README.md)
 - Run migrations: `npm run db:migrate`
 - Generate migration: `npm run db:generate`
+
+## 🔄 Reverting to v2.0.0 (Stable Baseline)
+
+To revert to this clean, working version if you break things during artifact streaming or other experiments:
+
+```bash
+git checkout v2.0.0
+```
+
+Or, if you want to create a new branch from this version:
+
+```bash
+git checkout -b my-feature-base v2.0.0
+```
 
 ## 🤝 Contributing
 
@@ -143,7 +152,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 MIT
 
-## �� Documentation
+## 📚 Documentation
 
 - [Prompt Architecture & Configuration Guide](./Prompt%20Architecture%20and%20Configuration%20Guide.md)
 - [Architecture Overview](./ARCHITECTURE.md)

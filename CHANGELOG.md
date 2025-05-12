@@ -8,9 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.0.0] - 2024-07-23
 
 ### Added
-- Comprehensive "Prompt Architecture and Configuration Guide" documenting the new modular, multi-layered prompt system and client configuration strategy
-- Centralized documentation for onboarding new clients, Bits, and tools
-- Cross-linked all documentation for easier navigation
+- **Client-Aware Configuration System:** Prompts, tool access, and specialist personas are dynamically tailored per client using a unified configuration schema. See [Prompt Architecture and Configuration Guide](./Prompt%20Architecture%20and%20Configuration%20Guide.md).
+- **General Chat Specialist:** The "General Chat" context now uses a dedicated, client-contextualized specialist prompt, not the Orchestrator prompt.
+- **Unified Specialist Registry:** All specialists (including General Chat) are registered and managed centrally, ensuring no duplicates in the UI.
+- **Comprehensive Test Suite:** New unit and integration tests validate prompt generation, tool configuration, and client context injection. See [tests/prompts/README.md](./tests/prompts/README.md).
 
 ### Changed
 - Refactored prompt system to use a hierarchical, client-driven configuration (see new guide)
@@ -20,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Cleaned up outdated documentation and removed references to deprecated features
+- Fixed duplicate "General Chat" entries in the specialist dropdown
+
+### Stability
+- **Stable, Clean Baseline:** This version is a stable, working baseline for further development (e.g., artifact streaming). Tag and revert to this version as needed.
 
 ## [1.8.0] - 2024-07-23
 
