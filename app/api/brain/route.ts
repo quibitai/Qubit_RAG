@@ -15,7 +15,9 @@ import {
 import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 import { TavilySearchResults } from '@langchain/community/tools/tavily_search';
 import type { Message as UIMessage } from 'ai';
+import { createDataStreamResponse, type DataStreamWriter } from 'ai';
 import { auth } from '@/app/(auth)/auth';
+import { documentHandlersByArtifactKind } from '@/lib/artifacts/server';
 
 // State variables to track between requests/handler invocations
 // These fix "Cannot find name" TypeScript errors
@@ -101,15 +103,17 @@ const logger = {
 };
 
 // Helper function to create a custom LangChain streaming handler
-function createLangChainStreamHandler({
-  onStart,
-  onToken,
-  onCompletion,
-}: {
-  onStart?: () => Promise<void>;
-  onToken?: (token: string) => Promise<void>;
-  onCompletion?: (response: string) => Promise<void>;
-} = {}) {
+function createLangChainStreamHandler(
+  {
+    dataStream, // Pass DataStreamWriter here for direct token streaming
+    onStart,
+    onCompletion,
+  }: {
+    dataStream: DataStreamWriter; // Add this parameter
+    onStart?: () => Promise<void>;
+    onCompletion?: (response: string) => Promise<void>;
+  } = {} as any,
+) {
   // Track the complete response for onCompletion callback
   let completeResponse = '';
   // Use let for assistantMessageSaved so it can be reassigned
@@ -119,16 +123,36 @@ function createLangChainStreamHandler({
   class CompletionCallbackHandler extends BaseCallbackHandler {
     name = 'CompletionCallbackHandler';
 
-    handleLLMNewToken(token: string) {
+    async handleLLMNewToken(token: string) {
       completeResponse += token;
+
+      // Stream token immediately using the correct protocol for Vercel AI SDK
+      if (token && dataStream) {
+        try {
+          // Vercel AI SDK Text Part protocol: 0:"json_stringified_text_chunk"\n
+          await dataStream.write(`0:${JSON.stringify(token)}\n`);
+        } catch (e) {
+          logger.error(
+            'Failed to write token to stream in handleLLMNewToken:',
+            e,
+          );
+        }
+      }
     }
 
-    handleLLMEnd() {
+    async handleLLMEnd() {
+      logger.debug(
+        'LLM Stream Ended. Full response length:',
+        completeResponse.length,
+      );
       if (onCompletion) {
-        onCompletion(completeResponse).catch((err) => {
+        try {
+          await onCompletion(completeResponse);
+        } catch (err) {
           logger.error('Error in onCompletion callback:', err);
-        });
+        }
       }
+      // Do not close dataStream here. The main execute function will do it.
     }
 
     // Add the custom callbacks as methods on the BaseCallbackHandler class
@@ -141,173 +165,6 @@ function createLangChainStreamHandler({
 
       if (onStart) {
         await onStart();
-      }
-    }
-
-    async handleTokenEmitted(token: string) {
-      if (onToken) {
-        await onToken(token);
-      }
-    }
-
-    async handleCompletion(fullResponse: string) {
-      // Skip if response is empty or just whitespace
-      logger.debug('ON_COMPLETION_HANDLER TRIGGERED');
-
-      if (!fullResponse || !fullResponse.trim()) {
-        logger.debug('Skipping empty response in onCompletion');
-        return;
-      }
-
-      // Add detailed logging to help debug duplicate saves
-      logger.debug('>> onCompletion Handler Triggered <<');
-      logger.debug(`Flag 'assistantMessageSaved': ${assistantMessageSaved}`);
-      logger.debug(`Response Length: ${fullResponse?.length || 0}`);
-      logger.debug(
-        `Response Snippet: ${(fullResponse || '').substring(0, 100)}...`,
-      );
-
-      // Check if message is already saved
-      if (assistantMessageSaved) {
-        logger.debug(
-          'onCompletion: Assistant message already saved, skipping duplicate save.',
-        );
-        return;
-      }
-
-      // Set flag to prevent duplicate saves
-      assistantMessageSaved = true; // Now valid, since let is used
-
-      // This code runs AFTER the entire response has been streamed
-      logger.info('Stream completed. Saving final assistant message.');
-
-      try {
-        // Format the assistant message for the database
-        const assistantId = randomUUID(); // Generate a new unique ID for the assistant message
-        logger.debug(`Generated assistant message UUID: ${assistantId}`);
-
-        logger.debug(
-          `Assistant UUID validation: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assistantId)}`,
-        );
-
-        const assistantMessageToSave = {
-          id: assistantId,
-          chatId: normalizedChatId,
-          role: 'assistant',
-          content: fullResponse, // Required by ChatRepository
-          createdAt: new Date(),
-          parts: [{ type: 'text', text: fullResponse }], // Required by DBMessage
-          attachments: [], // Required by DBMessage
-          clientId: effectiveClientId, // Make sure clientId is included
-        };
-
-        // Additional validation to ensure the UUID is valid
-        if (
-          !assistantId ||
-          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-            assistantId,
-          )
-        ) {
-          logger.error(
-            'Invalid UUID generated for assistant message, attempting to regenerate',
-          );
-          // If by some chance the UUID is invalid, generate a new one
-          const regeneratedId = randomUUID();
-          if (
-            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-              regeneratedId,
-            )
-          ) {
-            throw new Error(
-              'Failed to generate a valid UUID for assistant message',
-            );
-          }
-          logger.info(`Successfully regenerated UUID: ${regeneratedId}`);
-          assistantMessageToSave.id = regeneratedId;
-        }
-
-        logger.debug(
-          `Saving assistant message ${assistantMessageToSave.id} for chat ${normalizedChatId}`,
-        );
-
-        // First, check if there's an existing message with the same ID pattern but empty content
-        try {
-          // Look for existing messages with this chat ID that are empty and from assistant
-          const existingEmptyMessages = await sql<{ id: string; parts: any }[]>`
-            SELECT id, parts FROM "Message_v2" 
-            WHERE "chatId" = ${normalizedChatId} 
-            AND role = 'assistant' 
-            AND (
-              parts::text = '[{"type":"text","text":""}]' 
-              OR parts::text = '[]'
-              OR parts::text IS NULL
-              OR (parts::text)::jsonb->0->>'text' = ''
-            )
-          `;
-
-          if (existingEmptyMessages && existingEmptyMessages.length > 0) {
-            logger.info(
-              `Found ${existingEmptyMessages.length} empty assistant messages for this chat, will update one instead of creating new`,
-            );
-
-            // Use the first empty message ID instead of creating a new one
-            const emptyMsgId = existingEmptyMessages[0].id;
-            logger.info(
-              `Updating empty message ${emptyMsgId} with content instead of creating new`,
-            );
-
-            // Update the existing empty message with our content
-            await sql`
-              UPDATE "Message_v2"
-              SET parts = ${JSON.stringify(assistantMessageToSave.parts)}
-              WHERE id = ${emptyMsgId} AND "chatId" = ${normalizedChatId}
-            `;
-
-            logger.info(
-              `Successfully updated empty message ${emptyMsgId} with content`,
-            );
-            return;
-          } else {
-            logger.debug(`No empty messages found, creating new message`);
-          }
-        } catch (err) {
-          logger.error(`Error checking for empty messages:`, err);
-          // Continue with normal message creation since checking failed
-        }
-
-        // Only create a new message if we didn't find an empty one to update
-        await sql`
-          INSERT INTO "Message_v2" (
-            id, 
-            "chatId", 
-            role, 
-            parts, 
-            attachments, 
-            "createdAt",
-            client_id
-          ) VALUES (
-            ${assistantMessageToSave.id}, 
-            ${assistantMessageToSave.chatId}, 
-            ${assistantMessageToSave.role}, 
-            ${JSON.stringify(assistantMessageToSave.parts)}, 
-            ${JSON.stringify(assistantMessageToSave.attachments)}, 
-            ${assistantMessageToSave.createdAt.toISOString()},
-            ${effectiveClientId}
-          )
-        `;
-
-        logger.info(
-          `Successfully saved assistant message ${assistantMessageToSave.id}`,
-        );
-      } catch (dbError: any) {
-        logger.error(`FAILED to save assistant message:`, dbError);
-        logger.error(`Assistant message save error details:`, {
-          message: dbError?.message,
-          name: dbError?.name,
-          stack: dbError?.stack?.split('\n').slice(0, 3),
-        });
-        // Log error, but don't block response as stream already finished
-        // Do not reset assistantMessageSaved flag here to prevent duplicate save attempts
       }
     }
   }
@@ -1356,6 +1213,9 @@ async function getAvailableTools(clientConfig?: ClientConfig | null) {
   }
 }
 
+// Add import at the top of the file after the existing imports
+import { createEnhancedDataStream } from '@/lib/streaming';
+
 /**
  * POST handler for the Brain API
  */
@@ -2128,115 +1988,129 @@ ${extractedText}
       combinedMessage = `${combinedMessage}\n\n### ATTACHED FILE CONTENT ###${attachmentContext}`;
     }
 
-    // Set up LangChainStream with onCompletion handler for message saving
-    const streamHandler = createLangChainStreamHandler({
-      onStart: async () => {
-        logger.info(
-          `[Brain API] >> Stream started, setting assistantMessageSaved flag to false`,
-        );
-        // Reset the flag at the start of streaming to ensure we save exactly one message
-        assistantMessageSaved = false; // Use let, not redeclare
-      },
-      onToken: async (token: string) => {
-        // Don't do anything special here, just let tokens stream
-        // This is just to ensure we have a handler registered
-      },
-      onCompletion: async (fullResponse: string) => {
-        // Skip if response is empty or just whitespace
-        logger.info('[Brain API] ON_COMPLETION_HANDLER TRIGGERED');
-
-        if (!fullResponse || !fullResponse.trim()) {
-          logger.info(`[Brain API] Skipping empty response in onCompletion`);
-          return;
-        }
-
-        // Add detailed logging to help debug duplicate saves
-        logger.info(`[Brain API] >> onCompletion Handler Triggered <<`);
-        logger.info(
-          `[Brain API]    Flag 'assistantMessageSaved': ${assistantMessageSaved}`,
-        );
-        logger.info(
-          `[Brain API]    Response Length: ${fullResponse?.length || 0}`,
-        );
-        logger.info(
-          `[Brain API]    Response Snippet: ${(fullResponse || '').substring(0, 100)}...`,
-        );
-
-        // Check if message is already saved
-        if (assistantMessageSaved) {
-          logger.info(
-            '[Brain API] onCompletion: Assistant message already saved, skipping duplicate save.',
-          );
-          return;
-        }
-
-        // Set flag to prevent duplicate saves
-        assistantMessageSaved = true; // Now valid, since let is used
-
-        // This code runs AFTER the entire response has been streamed
-        logger.info(
-          '[Brain API] Stream completed. Saving final assistant message.',
-        );
+    // Use createDataStreamResponse to handle the streaming response
+    return createDataStreamResponse({
+      async execute(dataStream: DataStreamWriter) {
+        // Enhance the dataStream with our appendData method
+        const enhancedDataStream = createEnhancedDataStream(dataStream);
 
         try {
-          // Format the assistant message for the database
-          const assistantId = randomUUID(); // Generate a new unique ID for the assistant message
-          logger.info(
-            `[Brain API] Generated assistant message UUID: ${assistantId}`,
-          );
+          // SINGLE AGENT EXECUTION: This is now the only call to agentExecutor.stream
+          logger.info('[Brain API] SINGLE AGENT EXECUTION STARTING');
 
-          logger.info(
-            `[Brain API] Assistant UUID validation: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assistantId)}`,
-          );
+          // Send initial status as custom data
+          enhancedDataStream.writeData({
+            status: 'started',
+            timestamp: new Date().toISOString(),
+          });
 
-          const assistantMessageToSave = {
-            id: assistantId,
-            chatId: normalizedChatId,
-            role: 'assistant',
-            content: fullResponse, // Required by ChatRepository
-            createdAt: new Date(),
-            parts: [{ type: 'text', text: fullResponse }], // Required by DBMessage
-            attachments: [], // Required by DBMessage
-            clientId: effectiveClientId, // Make sure clientId is included
-          };
-
-          // Additional validation to ensure the UUID is valid
-          if (
-            !assistantId ||
-            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-              assistantId,
-            )
-          ) {
-            logger.error(
-              `[Brain API] Invalid UUID generated for assistant message, attempting to regenerate`,
-            );
-            // If by some chance the UUID is invalid, generate a new one
-            const regeneratedId = randomUUID();
-            if (
-              !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-                regeneratedId,
-              )
-            ) {
-              throw new Error(
-                'Failed to generate a valid UUID for assistant message',
+          // Set up LangChainStream with onCompletion handler for message saving
+          const streamHandler = createLangChainStreamHandler({
+            dataStream: enhancedDataStream, // Use enhanced version
+            onStart: async () => {
+              logger.info(
+                `[Brain API] Stream started for chat ID: ${normalizedChatId}`,
               );
-            }
-            logger.info(
-              `[Brain API] Successfully regenerated UUID: ${regeneratedId}`,
-            );
-            assistantMessageToSave.id = regeneratedId;
-          }
+              assistantMessageSaved = false;
+            },
+            onCompletion: async (fullResponse: string) => {
+              // Skip if response is empty or just whitespace
+              logger.info('[Brain API] ON_COMPLETION_HANDLER TRIGGERED');
 
-          logger.info(
-            `[Brain API] Saving assistant message ${assistantMessageToSave.id} for chat ${normalizedChatId}`,
-          );
+              if (!fullResponse || !fullResponse.trim()) {
+                logger.info(
+                  `[Brain API] Skipping empty response in onCompletion`,
+                );
+                return;
+              }
 
-          // First, check if there's an existing message with the same ID pattern but empty content
-          try {
-            // Look for existing messages with this chat ID that are empty and from assistant
-            const existingEmptyMessages = await sql<
-              { id: string; parts: any }[]
-            >`
+              // Add detailed logging to help debug duplicate saves
+              logger.info(`[Brain API] >> onCompletion Handler Triggered <<`);
+              logger.info(
+                `[Brain API]    Flag 'assistantMessageSaved': ${assistantMessageSaved}`,
+              );
+              logger.info(
+                `[Brain API]    Response Length: ${fullResponse?.length || 0}`,
+              );
+              logger.info(
+                `[Brain API]    Response Snippet: ${(fullResponse || '').substring(0, 100)}...`,
+              );
+
+              // Check if message is already saved
+              if (assistantMessageSaved) {
+                logger.info(
+                  '[Brain API] onCompletion: Assistant message already saved, skipping duplicate save.',
+                );
+                return;
+              }
+
+              // Set flag to prevent duplicate saves
+              assistantMessageSaved = true;
+
+              // This code runs AFTER the entire response has been streamed
+              logger.info(
+                '[Brain API] Stream completed. Saving final assistant message.',
+              );
+
+              try {
+                // Format the assistant message for the database
+                const assistantId = randomUUID(); // Generate a new unique ID for the assistant message
+                logger.info(
+                  `[Brain API] Generated assistant message UUID: ${assistantId}`,
+                );
+
+                logger.info(
+                  `[Brain API] Assistant UUID validation: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assistantId)}`,
+                );
+
+                const assistantMessageToSave = {
+                  id: assistantId,
+                  chatId: normalizedChatId,
+                  role: 'assistant',
+                  content: fullResponse, // Required by ChatRepository
+                  createdAt: new Date(),
+                  parts: [{ type: 'text', text: fullResponse }], // Required by DBMessage
+                  attachments: [], // Required by DBMessage
+                  clientId: effectiveClientId, // Make sure clientId is included
+                };
+
+                // Additional validation to ensure the UUID is valid
+                if (
+                  !assistantId ||
+                  !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                    assistantId,
+                  )
+                ) {
+                  logger.error(
+                    `[Brain API] Invalid UUID generated for assistant message, attempting to regenerate`,
+                  );
+                  // If by some chance the UUID is invalid, generate a new one
+                  const regeneratedId = randomUUID();
+                  if (
+                    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                      regeneratedId,
+                    )
+                  ) {
+                    throw new Error(
+                      'Failed to generate a valid UUID for assistant message',
+                    );
+                  }
+                  logger.info(
+                    `[Brain API] Successfully regenerated UUID: ${regeneratedId}`,
+                  );
+                  assistantMessageToSave.id = regeneratedId;
+                }
+
+                logger.info(
+                  `[Brain API] Saving assistant message ${assistantMessageToSave.id} for chat ${normalizedChatId}`,
+                );
+
+                // First, check if there's an existing message with the same ID pattern but empty content
+                try {
+                  // Look for existing messages with this chat ID that are empty and from assistant
+                  const existingEmptyMessages = await sql<
+                    { id: string; parts: any }[]
+                  >`
               SELECT id, parts FROM "Message_v2" 
               WHERE "chatId" = ${normalizedChatId} 
               AND role = 'assistant' 
@@ -2248,40 +2122,46 @@ ${extractedText}
               )
             `;
 
-            if (existingEmptyMessages && existingEmptyMessages.length > 0) {
-              logger.info(
-                `[Brain API] Found ${existingEmptyMessages.length} empty assistant messages for this chat, will update one instead of creating new`,
-              );
+                  if (
+                    existingEmptyMessages &&
+                    existingEmptyMessages.length > 0
+                  ) {
+                    logger.info(
+                      `[Brain API] Found ${existingEmptyMessages.length} empty assistant messages for this chat, will update one instead of creating new`,
+                    );
 
-              // Use the first empty message ID instead of creating a new one
-              const emptyMsgId = existingEmptyMessages[0].id;
-              logger.info(
-                `[Brain API] Updating empty message ${emptyMsgId} with content instead of creating new`,
-              );
+                    // Use the first empty message ID instead of creating a new one
+                    const emptyMsgId = existingEmptyMessages[0].id;
+                    logger.info(
+                      `[Brain API] Updating empty message ${emptyMsgId} with content instead of creating new`,
+                    );
 
-              // Update the existing empty message with our content
-              await sql`
+                    // Update the existing empty message with our content
+                    await sql`
                 UPDATE "Message_v2"
                 SET parts = ${JSON.stringify(assistantMessageToSave.parts)}
                 WHERE id = ${emptyMsgId} AND "chatId" = ${normalizedChatId}
               `;
 
-              logger.info(
-                `[Brain API] Successfully updated empty message ${emptyMsgId} with content`,
-              );
-              return;
-            } else {
-              logger.info(
-                `[Brain API] No empty messages found, creating new message`,
-              );
-            }
-          } catch (err) {
-            logger.error(`[Brain API] Error checking for empty messages:`, err);
-            // Continue with normal message creation since checking failed
-          }
+                    logger.info(
+                      `[Brain API] Successfully updated empty message ${emptyMsgId} with content`,
+                    );
+                    return;
+                  } else {
+                    logger.info(
+                      `[Brain API] No empty messages found, creating new message`,
+                    );
+                  }
+                } catch (err) {
+                  logger.error(
+                    `[Brain API] Error checking for empty messages:`,
+                    err,
+                  );
+                  // Continue with normal message creation since checking failed
+                }
 
-          // Only create a new message if we didn't find an empty one to update
-          await sql`
+                // Only create a new message if we didn't find an empty one to update
+                await sql`
             INSERT INTO "Message_v2" (
               id, 
               "chatId", 
@@ -2301,36 +2181,27 @@ ${extractedText}
             )
           `;
 
-          logger.info(
-            `[Brain API] Successfully saved assistant message ${assistantMessageToSave.id}`,
-          );
-        } catch (dbError: any) {
-          logger.error(
-            `[Brain API] FAILED to save assistant message:`,
-            dbError,
-          );
-          logger.error(`[Brain API] Assistant message save error details:`, {
-            message: dbError?.message,
-            name: dbError?.name,
-            stack: dbError?.stack?.split('\n').slice(0, 3),
+                logger.info(
+                  `[Brain API] Successfully saved assistant message ${assistantMessageToSave.id}`,
+                );
+              } catch (dbError: any) {
+                logger.error(
+                  `[Brain API] FAILED to save assistant message:`,
+                  dbError,
+                );
+                logger.error(
+                  `[Brain API] Assistant message save error details:`,
+                  {
+                    message: dbError?.message,
+                    name: dbError?.name,
+                    stack: dbError?.stack?.split('\n').slice(0, 3),
+                  },
+                );
+                // Log error, but don't block response as stream already finished
+                // Do not reset assistantMessageSaved flag here to prevent duplicate save attempts
+              }
+            },
           });
-          // Log error, but don't block response as stream already finished
-          // Do not reset assistantMessageSaved flag here to prevent duplicate save attempts
-        }
-      },
-    });
-
-    // Start the agent streaming execution
-    // REMOVED: First problematic invocation of agentExecutor.stream
-    // This was causing duplicate message persistence as the same agent was executed twice
-
-    // Implement custom streaming with a ReadableStream for character-by-character display
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      async start(controller) {
-        try {
-          // SINGLE AGENT EXECUTION: This is now the only call to agentExecutor.stream
-          logger.info('[Brain API] SINGLE AGENT EXECUTION STARTING');
 
           // Check if enhancedExecutor exists, otherwise fall back to the regular agentExecutor
           const streamResult = enhancedExecutor
@@ -2351,67 +2222,189 @@ ${extractedText}
                 { callbacks: streamHandler.handlers },
               );
 
-          // Process each chunk from the stream
+          // Process each chunk from the stream - focus on tool calls
+          // Since text is now handled by the LLM token callback
           for await (const chunk of streamResult) {
+            // Process tool calls if present
             if (
-              chunk.output &&
-              typeof chunk.output === 'string' &&
-              chunk.output.length > 0
-            ) {
-              const text = chunk.output;
-              // Stream character by character for maximum granularity
-              const subChunkSize = 1; // Character-by-character streaming
-              for (let i = 0; i < text.length; i += subChunkSize) {
-                const subChunk = text.slice(i, i + subChunkSize);
-                // console.log(`[Brain API] Enqueuing sub-chunk (type 0): "${subChunk}"`);
-                const encoded = encoder.encode(
-                  `0:${JSON.stringify(subChunk)}\n`,
-                );
-                controller.enqueue(encoded);
-                // Minimal pacing delay to avoid overwhelming the client or buffers
-                await new Promise((resolve) => setTimeout(resolve, 2)); // Adjust to 1ms or 5ms if needed
-              }
-            } else if (
               chunk.toolCalls &&
               Array.isArray(chunk.toolCalls) &&
               chunk.toolCalls.length > 0
             ) {
               logger.info(
-                `[Brain API] Enqueuing tool calls (type 2):`,
+                `[Brain API] Processing tool calls:`,
                 chunk.toolCalls,
               );
-              const encoded = encoder.encode(
-                `2:${JSON.stringify(chunk.toolCalls)}\n`,
-              );
-              controller.enqueue(encoded);
+
+              // Process tool calls, with special handling for createDocument
+              for (const toolCall of chunk.toolCalls) {
+                // Send the generic tool call info
+                enhancedDataStream.writeData({
+                  type: 'status-update',
+                  status: `Creating ${toolCall.name} document titled "${toolCall.args?.title || 'Untitled Document'}"...`,
+                });
+
+                // Generate a unique ID for the new document
+                const docId = randomUUID();
+
+                // Invoke the handler to create the document
+                logger.info(
+                  `[Brain API] Invoking document handler for ${toolCall.name} with ID: ${docId}`,
+                );
+
+                // Use auth session from earlier in the function
+                const creationResult = await documentHandlersByArtifactKind
+                  .find((h) => h.kind === toolCall.name)
+                  ?.onCreateDocument({
+                    id: docId,
+                    title: toolCall.args?.title || 'Untitled Document',
+                    dataStream: enhancedDataStream,
+                    initialContentPrompt: toolCall.args?.contentPrompt || '',
+                    session: authSession || {
+                      user: {
+                        id: effectiveUserId,
+                        name: 'User',
+                        email: '',
+                        image: '',
+                      },
+                      expires: '',
+                    },
+                  });
+
+                // Get the confirmed document ID from the result
+                const newDocId = creationResult?.documentId || docId;
+
+                // Send completion status
+                enhancedDataStream.writeData({
+                  type: 'status-update',
+                  status: `Document "${toolCall.args?.title || 'Untitled Document'}" (ID: ${newDocId}) created successfully.`,
+                });
+
+                // Add a message annotation for the tool use
+                enhancedDataStream.writeMessageAnnotation({
+                  documentCreated: {
+                    id: newDocId,
+                    title: toolCall.args?.title || 'Untitled Document',
+                    kind: toolCall.name,
+                  },
+                });
+
+                logger.info(
+                  `[Brain API] Document creation complete for ${newDocId}`,
+                );
+
+                // Create the document URL for reference
+                const documentUrl = `/documents/${newDocId}`;
+
+                // Write a message that will be displayed to the user
+                enhancedDataStream.writeData({
+                  type: 'tool-result',
+                  content: {
+                    toolName: toolCall.name,
+                    toolOutput: `Created a new ${toolCall.name} document titled "${toolCall.args?.title || 'Untitled Document'}" (ID: ${newDocId}). Access it at ${documentUrl}`,
+                    url: documentUrl,
+                  },
+                });
+
+                // Create a ToolMessage to feed back to the agent
+                if (toolCall.id) {
+                  // Prepare the ToolMessage content - this is what the agent will see
+                  let toolMessageContent: string;
+                  if (newDocId) {
+                    toolMessageContent = `Successfully created a ${toolCall.name} document titled "${toolCall.args?.title || 'Untitled Document'}" with ID ${newDocId}. The document is available at ${documentUrl}`;
+                    logger.info(
+                      `[Brain API] Document creation successful for agent, ID: ${newDocId}`,
+                    );
+                  } else {
+                    toolMessageContent = `Attempted to create document titled "${toolCall.args?.title || 'Untitled Document'}", but failed to confirm its creation or retrieve an ID.`;
+                    logger.warn(
+                      `[Brain API] Document creation failed or ID not returned for agent, Title: ${toolCall.args?.title || 'Untitled Document'}`,
+                    );
+                  }
+
+                  // Create the ToolMessage that will inform the agent about the result
+                  const agentToolResult = new ToolMessage({
+                    content: toolMessageContent,
+                    tool_call_id: toolCall.id,
+                  });
+
+                  logger.info(
+                    `[Brain API] Created ToolMessage for agent feedback with ID: ${toolCall.id}`,
+                    { toolCallId: toolCall.id, toolMessageContent },
+                  );
+
+                  // Critical: Add this ToolMessage to directInstances so the agent can access it
+                  // directInstances is used as chat_history in subsequent agent calls
+                  if (directInstances && Array.isArray(directInstances)) {
+                    directInstances.push(agentToolResult);
+                    logger.info(
+                      `[Brain API] Added ToolMessage to directInstances (chat_history) for agent's next step.`,
+                    );
+                    logger.debug(
+                      `[Brain API] Updated directInstances length: ${directInstances.length}`,
+                    );
+
+                    // The agent should now be able to access this tool result in its next iteration
+                    // through the chat_history parameter that contains directInstances
+                  } else {
+                    logger.warn(
+                      `[Brain API] 'directInstances' (chat_history) is not an array or is undefined. ToolMessage for agent may not be processed correctly.`,
+                    );
+                  }
+
+                  // Send a structured data event with the tool message for agent consumption
+                  enhancedDataStream.writeData({
+                    type: 'agent-tool-feedback',
+                    toolCallId: toolCall.id,
+                    toolName: toolCall.name,
+                    content: toolMessageContent,
+                  });
+                } else {
+                  logger.warn(
+                    '[Brain API] Unable to create ToolMessage: toolCall.id is missing',
+                  );
+                }
+              }
             }
-            // (Handle other chunk types if necessary)
+
+            // Check for intermediate steps if present
+            if (
+              chunk.intermediateSteps &&
+              Array.isArray(chunk.intermediateSteps) &&
+              chunk.intermediateSteps.length > 0
+            ) {
+              logger.debug(
+                `[Brain API] Received intermediate steps:`,
+                chunk.intermediateSteps,
+              );
+              // Process intermediate steps if needed
+            }
           }
 
-          // Send a finish message part at the end
-          const finishMessage = encoder.encode(
-            `d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n`,
-          );
-          controller.enqueue(finishMessage);
+          // Final clean-up and completion
+          logger.info('[Brain API] AGENT EXECUTION COMPLETED SUCCESSFULLY');
 
-          // Close the stream when done
-          controller.close();
+          // Close the stream with end-of-stream indicators
+          enhancedDataStream.writeData({
+            type: 'completion',
+            status: 'complete',
+            timestamp: new Date().toISOString(),
+          });
+
+          // Write message annotation with a final ID
+          const messageId = randomUUID();
+          enhancedDataStream.writeMessageAnnotation({
+            id: messageId,
+            createdAt: new Date().toISOString(),
+          });
         } catch (error) {
-          logger.error('[Brain API] Error streaming agent result:', error);
-          controller.error(error);
+          // Error handling
+          logger.error(`[Brain API] ERROR IN AGENT EXECUTION:`, error);
+          enhancedDataStream.writeData({
+            type: 'error',
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
-      },
-    });
-
-    // Return the streaming response with the correct content type for SSE
-    // and additional headers to prevent buffering
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
-        'X-Accel-Buffering': 'no',
-        Connection: 'keep-alive',
-        'x-vercel-ai-data-stream': 'v1', // Add this header to indicate it's a data stream
       },
     });
   } catch (error: any) {

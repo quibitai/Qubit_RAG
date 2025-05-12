@@ -19,14 +19,10 @@ import { getChatHistoryPaginationKey } from './sidebar-history';
 import { ChatPaneToggle } from './ChatPaneToggle';
 import { createChatAndSaveFirstMessages } from '@/app/(chat)/actions';
 import { cn } from '@/lib/utils';
-import { ChatScrollAnchor } from '@/components/chat-scroll-anchor';
-import { ChatForm } from '@/components/chat-form';
-import { Layout } from '@/components/layout';
-import { PromptList } from '@/components/prompt-list';
-import { FileIcon } from '@/components/icons/FileIcon';
 import { Button } from '@/components/ui/button';
 import { XIcon } from 'lucide-react';
 import { useChatPane } from '@/context/ChatPaneContext';
+import type { ArtifactKind } from '@/components/artifact';
 
 console.log('[Chat] actions:', {
   createChatAndSaveFirstMessages,
@@ -42,8 +38,10 @@ interface ChatRequestOptions {
 }
 
 // Extend UIMessage with an optional __saved property
-interface EnhancedUIMessage extends UIMessage {
+interface EnhancedUIMessage extends Omit<UIMessage, 'createdAt'> {
   __saved?: boolean;
+  attachments?: Array<Attachment>;
+  createdAt?: string | number | Date;
 }
 
 // --- File Context State (Hybrid Approach) ---
@@ -53,6 +51,18 @@ interface FileContext {
   url: string;
   extractedText: string;
 }
+
+// Simple logger for this file
+const logger = {
+  info: (message: string, data?: any) =>
+    console.log(`[ChatUI] ${message}`, data || ''),
+  error: (message: string, data?: any) =>
+    console.error(`[ChatUI ERROR] ${message}`, data || ''),
+  debug: (message: string, data?: any) =>
+    console.log(`[ChatUI DEBUG] ${message}`, data || ''),
+  warn: (message: string, data?: any) =>
+    console.warn(`[ChatUI WARN] ${message}`, data || ''),
+};
 
 // Inline SVG for clear (X) icon
 const XCircleIcon = (props: any) => (
@@ -72,6 +82,17 @@ const XCircleIcon = (props: any) => (
     <line x1="9" y1="9" x2="15" y2="15" />
   </svg>
 );
+
+// Add this interface to define the artifact state
+interface ActiveArtifactState {
+  documentId: string | null;
+  kind: ArtifactKind | null;
+  title: string | null;
+  content: string;
+  isStreaming: boolean;
+  isVisible: boolean;
+  error: string | null;
+}
 
 export function Chat({
   id,
@@ -109,12 +130,17 @@ export function Chat({
   // When a chat with a specific ID is loaded, update the shared context
   useEffect(() => {
     if (id) {
-      // Ensure the ID is a valid UUID before setting it
-      const validChatId = ensureValidChatId(id);
-      console.log(`[Chat] Updating shared mainUiChatId to: ${validChatId}`);
-      setMainUiChatId(validChatId);
+      try {
+        // Parse the chatId and check if it's a valid UUID before setting it
+        const chatId = id.toString();
+        console.log(`[Chat] Updating shared mainUiChatId to: ${chatId}`);
+        setMainUiChatId(chatId);
+      } catch (error) {
+        console.error('[Chat] Error validating chat ID:', error);
+        setMainUiChatId(null);
+      }
     }
-  }, [id, setMainUiChatId, ensureValidChatId]);
+  }, [id, setMainUiChatId]);
 
   const { mutate, cache } = useSWRConfig();
   const [attachments, setAttachments] = useState<Array<Attachment>>([]);
@@ -387,9 +413,12 @@ export function Chat({
             {
               userMsgId: currentMsg.id,
               assistantMsgId: nextMsg.id,
-              assistantContent: nextMsg.content?.substring(0, 50) + '...',
+              assistantContent: `${nextMsg.content?.substring(0, 50)}...`,
             },
           );
+
+          const currentMsgWithAttachments = currentMsg as EnhancedUIMessage;
+          const nextMsgWithAttachments = nextMsg as EnhancedUIMessage;
 
           // Format messages for database storage
           const userMessage = {
@@ -397,8 +426,10 @@ export function Chat({
             chatId: id,
             role: currentMsg.role,
             parts: [{ type: 'text', text: currentMsg.content }],
-            attachments: currentMsg.attachments || [],
-            createdAt: new Date(currentMsg.createdAt || Date.now()),
+            attachments: currentMsgWithAttachments.attachments || [],
+            createdAt: new Date(
+              currentMsgWithAttachments.createdAt || Date.now(),
+            ),
           };
 
           const assistantMessage = {
@@ -406,8 +437,8 @@ export function Chat({
             chatId: id,
             role: nextMsg.role,
             parts: [{ type: 'text', text: nextMsg.content }],
-            attachments: nextMsg.attachments || [],
-            createdAt: new Date(nextMsg.createdAt || Date.now()),
+            attachments: nextMsgWithAttachments.attachments || [],
+            createdAt: new Date(nextMsgWithAttachments.createdAt || Date.now()),
           };
 
           try {
@@ -462,6 +493,173 @@ export function Chat({
       }
     };
   }, [messages, id]);
+
+  // Add state for managing the currently active/streaming artifact
+  const [activeArtifactState, setActiveArtifactState] =
+    useState<ActiveArtifactState>({
+      documentId: null,
+      kind: null,
+      title: null,
+      content: '',
+      isStreaming: false,
+      isVisible: false, // To control the artifact panel
+      error: null,
+    });
+
+  // Process data stream for artifact-related events
+  useEffect(() => {
+    if (!data || data.length === 0) return;
+
+    console.debug(
+      '[ChatUI] Processing data stream update with',
+      data.length,
+      'items',
+    );
+
+    let newState = { ...activeArtifactState };
+    let stateChanged = false;
+
+    // Process each data item in the stream
+    data.forEach((dataObject) => {
+      if (
+        typeof dataObject === 'object' &&
+        dataObject !== null &&
+        'type' in dataObject
+      ) {
+        const typedDataObject = dataObject as {
+          type: string;
+          [key: string]: any;
+        };
+
+        // Log the data item being processed
+        console.debug('[ChatUI] Processing data item:', typedDataObject);
+
+        switch (typedDataObject.type) {
+          case 'artifact-start':
+            newState = {
+              ...newState,
+              isVisible: true,
+              isStreaming: true,
+              kind: typedDataObject.kind as ArtifactKind,
+              title: typedDataObject.title,
+              content: '', // Reset content
+              error: null,
+            };
+            console.debug(
+              '[ChatUI] Artifact start detected:',
+              typedDataObject,
+              'Setting isVisible to TRUE',
+            );
+            stateChanged = true;
+            break;
+
+          case 'id':
+            if (newState.isStreaming) {
+              newState = { ...newState, documentId: typedDataObject.content };
+              stateChanged = true;
+            }
+            break;
+
+          case 'title':
+            if (newState.isStreaming) {
+              newState = { ...newState, title: typedDataObject.content };
+              stateChanged = true;
+            }
+            break;
+
+          case 'kind':
+            if (newState.isStreaming) {
+              newState = {
+                ...newState,
+                kind: typedDataObject.content as ArtifactKind,
+              };
+              stateChanged = true;
+            }
+            break;
+
+          case 'text-delta':
+          case 'code-delta':
+            if (newState.isStreaming) {
+              newState = {
+                ...newState,
+                content: `${newState.content}${typedDataObject.content}`,
+              };
+              stateChanged = true;
+            }
+            break;
+
+          case 'finish':
+            if (newState.isStreaming) {
+              newState = { ...newState, isStreaming: false };
+              logger.info('[ChatUI] Artifact finish detected.');
+              stateChanged = true;
+            }
+            break;
+
+          case 'error':
+            // Handle error for the current artifact
+            if (
+              (typedDataObject.docId &&
+                newState.documentId === typedDataObject.docId) ||
+              !typedDataObject.docId
+            ) {
+              newState = {
+                ...newState,
+                error:
+                  typedDataObject.error ||
+                  typedDataObject.message ||
+                  'An unknown error occurred.',
+                isStreaming: false,
+              };
+              stateChanged = true;
+            }
+            break;
+
+          case 'status-update':
+            // Could display status messages to the user if needed
+            logger.info('[ChatUI] Status update:', typedDataObject.status);
+            break;
+
+          case 'tool-result':
+            // Process tool results which might contain artifact-related information
+            if (
+              typedDataObject.content &&
+              typedDataObject.content.toolName === 'createDocument'
+            ) {
+              logger.info(
+                '[ChatUI] Document creation tool result:',
+                typedDataObject.content,
+              );
+            }
+            break;
+        }
+      }
+    });
+
+    // If the state changed, update it
+    if (stateChanged) {
+      console.debug(
+        '[ChatUI] Active artifact state is about to change. Current:',
+        activeArtifactState,
+        'New tentative state:',
+        newState,
+      );
+      setActiveArtifactState(newState);
+    }
+  }, [data]); // Only depend on data changes
+
+  // Add a new useEffect to log when activeArtifactState changes
+  useEffect(() => {
+    console.debug(
+      '[ChatUI] activeArtifactState was updated to:',
+      activeArtifactState,
+    );
+  }, [activeArtifactState]);
+
+  // Function to handle closing the artifact panel
+  const handleArtifactClose = useCallback(() => {
+    setActiveArtifactState((prev) => ({ ...prev, isVisible: false }));
+  }, []);
 
   return (
     <>
@@ -533,6 +731,14 @@ export function Chat({
         reload={reload}
         votes={votes}
         isReadonly={isReadonly}
+        streamingDocumentId={activeArtifactState.documentId}
+        streamingTitle={activeArtifactState.title}
+        streamingKind={activeArtifactState.kind}
+        streamingContent={activeArtifactState.content}
+        isStreaming={activeArtifactState.isStreaming}
+        isVisible={activeArtifactState.isVisible}
+        error={activeArtifactState.error}
+        onClose={handleArtifactClose}
       />
     </>
   );

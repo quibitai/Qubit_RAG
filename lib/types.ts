@@ -122,3 +122,18 @@ export interface ChatPaneState {
   globalPaneChatId: string | null;
   isNewChat: boolean; // Tracks if the current chat is new (no messages persisted yet)
 }
+
+import { DataStreamWriter } from 'ai';
+
+// Extend the DataStreamWriter interface to include the appendData method
+declare module 'ai' {
+  interface DataStreamWriter {
+    /**
+     * Appends data to the stream and adds it to the client's data array.
+     * Use this for artifact-related events that need to be visible in the UI.
+     */
+    appendData(data: any): Promise<void>;
+  }
+}
+
+// Export any other custom types here

@@ -6,15 +6,70 @@ import { saveDocument } from '@/lib/db/queries';
 
 export const textDocumentHandler = createDocumentHandler<'text'>({
   kind: 'text',
-  onCreateDocument: async ({ title, dataStream }) => {
+  onCreateDocument: async ({
+    id: docId,
+    title,
+    dataStream,
+    initialContentPrompt,
+    session,
+  }) => {
     let draftContent = '';
+
+    console.log(
+      `[textDocumentHandler] onCreateDocument for ID: ${docId}, Title: "${title}"`,
+    );
+
+    // 1. Save initial document placeholder to DB
+    const userId = session?.user?.id;
+    if (!userId) {
+      console.error(
+        '[textDocumentHandler] User ID missing in session during onCreateDocument.',
+      );
+      dataStream.writeData({
+        type: 'error',
+        error: 'User not authenticated for document creation.',
+      });
+      // Cannot close the stream from here as it's managed by the caller
+      throw new Error('User not authenticated');
+    }
+
+    try {
+      await saveDocument({
+        id: docId,
+        title: title,
+        content: '', // Initial empty content
+        kind: 'text',
+        userId: userId,
+      });
+      console.log(`[textDocumentHandler] Initial document ${docId} saved.`);
+    } catch (dbError) {
+      console.error(
+        `[textDocumentHandler] Failed to save initial document ${docId}:`,
+        dbError,
+      );
+      dataStream.writeData({
+        type: 'error',
+        error: 'Failed to initialize document in database.',
+      });
+      throw dbError;
+    }
+
+    // 2. Stream Metadata (after initial save)
+    dataStream.writeData({ type: 'artifact-start', kind: 'text', title });
+    dataStream.writeData({ type: 'id', content: docId });
+    dataStream.writeData({ type: 'title', content: title });
+    dataStream.writeData({ type: 'kind', content: 'text' });
+    console.log(`[textDocumentHandler] Streamed metadata for ${docId}`);
+
+    // 3. Stream Content
+    const promptToUse = initialContentPrompt || title;
 
     const { fullStream } = streamText({
       model: myProvider.languageModel('artifact-model'),
       system:
         'Write about the given topic. Markdown is supported. Use headings wherever appropriate.',
       experimental_transform: smoothStream({ chunking: 'word' }),
-      prompt: title,
+      prompt: promptToUse,
     });
 
     for await (const delta of fullStream) {
@@ -32,7 +87,26 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
       }
     }
 
-    return draftContent;
+    // Update DB with final content
+    await saveDocument({
+      id: docId,
+      title: title,
+      content: draftContent,
+      kind: 'text',
+      userId,
+    });
+    console.log(
+      `[textDocumentHandler] Document ${docId} updated with generated content.`,
+    );
+
+    // 4. Send a finish event
+    dataStream.writeData({
+      type: 'finish',
+    });
+    console.log(`[textDocumentHandler] Stream finished for ${docId}`);
+
+    // Return the content and indicate document was already saved
+    return `${draftContent}<!-- DOCUMENT_ALREADY_SAVED -->`;
   },
   onUpdateDocument: async ({ document, description, dataStream, session }) => {
     console.log(

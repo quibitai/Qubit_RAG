@@ -66,6 +66,14 @@ function PureArtifact({
   reload,
   votes,
   isReadonly,
+  streamingDocumentId,
+  streamingTitle,
+  streamingKind,
+  streamingContent,
+  isStreaming,
+  isVisible: isStreamingVisible,
+  error: streamingError,
+  onClose,
 }: {
   chatId: string;
   input: string;
@@ -81,8 +89,32 @@ function PureArtifact({
   handleSubmit: UseChatHelpers['handleSubmit'];
   reload: UseChatHelpers['reload'];
   isReadonly: boolean;
+  streamingDocumentId: string | null;
+  streamingTitle: string | null;
+  streamingKind: ArtifactKind | null;
+  streamingContent: string;
+  isStreaming: boolean;
+  isVisible: boolean;
+  error: string | null;
+  onClose: () => void;
 }) {
+  // Log incoming props for debugging
+  console.debug('[PureArtifact] Props received:', {
+    isStreaming,
+    isStreamingVisible,
+    streamingError,
+    streamingKind,
+    streamingTitle,
+    streamingDocumentId,
+  });
+
   const { artifact, setArtifact, metadata, setMetadata } = useArtifact();
+
+  // Log current local artifact state
+  console.debug(
+    '[PureArtifact] Current local artifact state from useArtifact:',
+    artifact,
+  );
 
   const {
     data: documents,
@@ -250,6 +282,113 @@ function PureArtifact({
       }
     }
   }, [artifact.documentId, artifactDefinition, setMetadata]);
+
+  useEffect(() => {
+    console.debug(
+      '[PureArtifact] Sync useEffect triggered. isStreamingVisible:',
+      isStreamingVisible,
+      'streamingKind:',
+      streamingKind,
+    );
+
+    if (isStreamingVisible && streamingKind) {
+      console.debug(
+        '[PureArtifact] Syncing streaming props to useArtifact state.',
+      );
+      setArtifact((currentArtifact) => {
+        // Create a properly typed artifact state
+        const newArtifactState: UIArtifact = {
+          ...currentArtifact,
+          documentId: streamingDocumentId || 'streaming',
+          title: streamingTitle || 'Document',
+          kind: streamingKind,
+          content: streamingContent,
+          isVisible: isStreamingVisible,
+          status: isStreaming ? 'streaming' : 'idle',
+        };
+        console.debug(
+          '[PureArtifact] New artifact state for setArtifact:',
+          newArtifactState,
+        );
+        return newArtifactState;
+      });
+    } else if (!isStreamingVisible && artifact.isVisible) {
+      // If the prop says not visible but local state is visible, attempt to hide
+      console.debug(
+        '[PureArtifact] Prop isVisible is false, ensuring local artifact is hidden.',
+      );
+      setArtifact((prev) => ({ ...prev, isVisible: false }));
+    }
+  }, [
+    streamingDocumentId,
+    streamingTitle,
+    streamingKind,
+    streamingContent,
+    isStreaming,
+    isStreamingVisible,
+    setArtifact,
+    artifact.isVisible,
+  ]);
+
+  const handleClose = useCallback(() => {
+    if (onClose) {
+      onClose();
+    } else {
+      setArtifact((currentArtifact) => ({
+        ...currentArtifact,
+        isVisible: false,
+      }));
+    }
+  }, [onClose, setArtifact]);
+
+  // Add debug logging when key props change
+  useEffect(() => {
+    console.debug('[PureArtifact] Visibility changed:', isStreamingVisible);
+  }, [isStreamingVisible]);
+
+  useEffect(() => {
+    if (streamingDocumentId) {
+      console.debug('[PureArtifact] Document ID changed:', streamingDocumentId);
+    }
+  }, [streamingDocumentId]);
+
+  useEffect(() => {
+    if (streamingContent) {
+      console.debug(
+        '[PureArtifact] Content updated, length:',
+        streamingContent.length,
+      );
+    }
+  }, [streamingContent]);
+
+  if (streamingError && isStreamingVisible) {
+    return (
+      <AnimatePresence>
+        {isStreamingVisible && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <div className="bg-white rounded-md p-6 max-w-md w-full">
+              <h2 className="text-xl font-bold mb-4">
+                Error Creating Document
+              </h2>
+              <p className="text-red-500 mb-4">{streamingError}</p>
+              <button
+                type="button"
+                onClick={handleClose}
+                className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+              >
+                Close
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    );
+  }
 
   return (
     <AnimatePresence>
