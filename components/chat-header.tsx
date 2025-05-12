@@ -25,11 +25,11 @@ import {
 } from '@/lib/constants';
 
 // Default option for general chat
-const GENERAL_CHAT_OPTION = {
-  id: CHAT_BIT_GENERAL_CONTEXT_ID,
-  name: 'General Chat',
-  description: 'Standard chat without specialist persona',
-};
+// const GENERAL_CHAT_OPTION = {
+//   id: CHAT_BIT_GENERAL_CONTEXT_ID,
+//   name: 'General Chat',
+//   description: 'Standard chat without specialist persona',
+// };
 
 // Echo Tango specialist option
 const ECHO_TANGO_OPTION = {
@@ -213,9 +213,9 @@ function PureChatHeader({
     }>
   >([]);
 
-  // Memoize the available specialists with the General Chat option
+  // Memoize the available specialists from the registry
   const availableSpecialists = useMemo(() => {
-    return [GENERAL_CHAT_OPTION, ...specialists];
+    return specialists;
   }, [specialists]);
 
   // Coerce currentActiveSpecialistId to string for selector props

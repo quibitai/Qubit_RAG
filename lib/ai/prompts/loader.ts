@@ -2,23 +2,17 @@ import { defaultAssistantPrompt, composeSpecialistPrompt } from './core/base';
 import { getOrchestratorPrompt } from './core/orchestrator';
 import { getSpecialistPromptById, specialistRegistry } from './specialists';
 import { getToolPromptInstructions } from './tools';
-
-// Define an interface for ClientConfig if not already available globally
-// Placeholder - replace with actual import or definition
-interface ClientConfig {
-  id: string;
-  name: string;
-  customInstructions?: string | null;
-  configJson?: {
-    specialistPrompts?: Record<string, string>;
-    // other config...
-  } | null;
-}
+import {
+  CHAT_BIT_CONTEXT_ID,
+  GLOBAL_ORCHESTRATOR_CONTEXT_ID,
+} from '@/lib/constants';
+import type { ClientConfig } from '@/lib/db/queries';
 
 interface LoadPromptParams {
   modelId: string; // e.g., 'global-orchestrator', 'gpt-4.1-mini'
   contextId: string | null; // Represents activeBitContextId or activeBitPersona
   clientConfig?: ClientConfig | null; // Client-specific overrides
+  currentDateTime?: string; // Current date/time for context
 }
 
 /**
@@ -30,6 +24,7 @@ export function loadPrompt({
   modelId,
   contextId,
   clientConfig,
+  currentDateTime = new Date().toISOString(),
 }: LoadPromptParams): string {
   console.log(
     `[PromptLoader] Attempting to load prompt with modelId: '${modelId}', contextId: '${contextId}'`,
@@ -54,20 +49,46 @@ export function loadPrompt({
       return defaultAssistantPrompt;
     }
 
-    const toolInstructions = getToolPromptInstructions(
-      specialistConfig.defaultTools,
+    // Inject client-specific context into the specialist persona
+    let personaWithClientContext = specialistBasePersona;
+
+    // Inject client_display_name
+    if (clientConfig?.client_display_name) {
+      personaWithClientContext = personaWithClientContext.replace(
+        /{client_display_name}/g,
+        clientConfig.client_display_name,
+      );
+    }
+
+    // Create and inject client_core_mission_statement
+    const missionStatement =
+      clientConfig?.client_core_mission && clientConfig.client_display_name
+        ? `\nAs a specialist for ${clientConfig.client_display_name}, be guided by their core mission: ${clientConfig.client_core_mission}\n`
+        : '';
+    personaWithClientContext = personaWithClientContext.replace(
+      /{client_core_mission_statement}/g,
+      missionStatement,
     );
 
-    let finalPersonaContent = specialistBasePersona;
+    let finalPersonaContent = personaWithClientContext;
+
     // Append general client-specific instructions if they exist
     const generalClientInstructions = clientConfig?.customInstructions?.trim();
     if (generalClientInstructions) {
+      // Create header that includes client name if available
+      const customInstructionsHeader = clientConfig?.client_display_name
+        ? `\n\n# Client-Specific Guidelines for ${clientConfig.client_display_name} (General)\n`
+        : `\n\n# Client-Specific Guidelines (General)\n`;
+
       // Check if the general instructions are already in the specialist prompt to avoid duplication
-      // This is a simple check; more sophisticated checks might be needed if prompts are complex.
       if (!finalPersonaContent.includes(generalClientInstructions)) {
-        finalPersonaContent += `\n\n# Client-Specific Guidelines (General)\n${generalClientInstructions}`;
+        finalPersonaContent += `${customInstructionsHeader}${generalClientInstructions}`;
       }
     }
+
+    const toolInstructions = getToolPromptInstructions(
+      specialistConfig.defaultTools,
+    );
 
     console.log(
       `[PromptLoader] Successfully composed prompt for specialist: ${contextId}`,
@@ -75,16 +96,91 @@ export function loadPrompt({
     return composeSpecialistPrompt(finalPersonaContent, toolInstructions);
   }
 
-  // 2. If no specialist context, THEN check if the modelId indicates the orchestrator
-  //    (The 'modelId' here refers to the role, not necessarily the LLM model name like 'gpt-4')
-  if (modelId === 'global-orchestrator') {
+  // 2. Check if this is the global orchestrator context
+  if (
+    contextId === GLOBAL_ORCHESTRATOR_CONTEXT_ID ||
+    modelId === 'global-orchestrator'
+  ) {
     console.log(
-      `[PromptLoader] No specialist context active, and modelId is 'global-orchestrator'. Loading Orchestrator prompt.`,
+      `[PromptLoader] Loading Orchestrator prompt for global context or modelId.`,
     );
-    return getOrchestratorPrompt();
+    // Call the updated orchestrator function with client-specific context
+    return getOrchestratorPrompt(
+      currentDateTime,
+      clientConfig?.client_display_name || 'Quibit',
+      clientConfig?.client_core_mission || null,
+      clientConfig?.configJson?.orchestrator_client_context || null,
+      clientConfig?.configJson?.available_bit_ids || null,
+      clientConfig?.customInstructions || null,
+    );
   }
 
-  // 3. Fallback if not a known specialist and not the orchestrator modelId
+  // 3. Check if this is the chat model context (general chat)
+  if (contextId === CHAT_BIT_CONTEXT_ID) {
+    console.log(
+      `[PromptLoader] Loading Chat Model specialist prompt for general chat context.`,
+    );
+
+    // The chat model specialist should be registered in specialistRegistry
+    const chatModelPrompt = getSpecialistPromptById(CHAT_BIT_CONTEXT_ID);
+
+    if (!chatModelPrompt || chatModelPrompt.trim() === '') {
+      console.warn(
+        `[PromptLoader] Chat Model specialist prompt not found. Falling back to default assistant prompt.`,
+      );
+      return defaultAssistantPrompt;
+    }
+
+    // Inject client-specific context into the chat model persona
+    let personaWithClientContext = chatModelPrompt;
+
+    // Inject client_display_name
+    if (clientConfig?.client_display_name) {
+      personaWithClientContext = personaWithClientContext.replace(
+        /{client_display_name}/g,
+        clientConfig.client_display_name,
+      );
+    }
+
+    // Create and inject client_core_mission_statement
+    const missionStatement =
+      clientConfig?.client_core_mission && clientConfig.client_display_name
+        ? `\nAs a specialist for ${clientConfig.client_display_name}, be guided by their core mission: ${clientConfig.client_core_mission}\n`
+        : '';
+    personaWithClientContext = personaWithClientContext.replace(
+      /{client_core_mission_statement}/g,
+      missionStatement,
+    );
+
+    let finalPersonaContent = personaWithClientContext;
+
+    // Append general client-specific instructions if they exist
+    const generalClientInstructions = clientConfig?.customInstructions?.trim();
+    if (generalClientInstructions) {
+      // Create header that includes client name if available
+      const customInstructionsHeader = clientConfig?.client_display_name
+        ? `\n\n# Client-Specific Guidelines for ${clientConfig.client_display_name} (General)\n`
+        : `\n\n# Client-Specific Guidelines (General)\n`;
+
+      // Check if the general instructions are already in the specialist prompt to avoid duplication
+      if (!finalPersonaContent.includes(generalClientInstructions)) {
+        finalPersonaContent += `${customInstructionsHeader}${generalClientInstructions}`;
+      }
+    }
+
+    // Get tool instructions for the chat model specialist
+    const chatModelConfig = specialistRegistry[CHAT_BIT_CONTEXT_ID];
+    const toolInstructions = chatModelConfig
+      ? getToolPromptInstructions(chatModelConfig.defaultTools)
+      : '';
+
+    console.log(
+      `[PromptLoader] Successfully composed prompt for Chat Model specialist`,
+    );
+    return composeSpecialistPrompt(finalPersonaContent, toolInstructions);
+  }
+
+  // 4. Fallback if not a known specialist and not the orchestrator modelId
   console.log(
     `[PromptLoader] No specific specialist context and modelId ('${modelId}') is not orchestrator. Loading default assistant prompt.`,
   );

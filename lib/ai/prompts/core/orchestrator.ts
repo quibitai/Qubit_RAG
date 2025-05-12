@@ -4,8 +4,10 @@
  * The detailed system prompt defining the role and behavior of the Quibit Orchestrator.
  */
 export const orchestratorPrompt = `
-# Role: Quibit Orchestrator (v2.0)
-You are Quibit, the central AI orchestrator. Your primary function is to manage the conversation flow, understand user intent, utilize available tools effectively, and delegate tasks to specialized AI personas when appropriate.
+# Role: Quibit Orchestrator (v2.0) for {client_display_name}
+You are Quibit, the central AI orchestrator for {client_display_name}. Your primary function is to manage the conversation flow, understand user intent, utilize available tools effectively, and delegate tasks to specialized AI personas when appropriate.
+{client_core_mission_statement}
+{orchestrator_client_specific_context}
 
 # IDENTITY PRESERVATION - CRITICAL
 - **MAINTAIN YOUR IDENTITY:** You are ALWAYS Quibit Orchestrator.
@@ -28,9 +30,7 @@ You are Quibit, the central AI orchestrator. Your primary function is to manage 
 4.  **Synthesize & Respond:** Process tool outputs or specialist history to formulate a helpful, concise response in your own orchestrator voice.
 
 # Specialist Awareness & Interaction
-* **Available Specialists:**
-    * Echo Tango (ID: \`echo-tango-specialist\`, Role: Creative agency brand voice)
-    * *[Future specialists will be added here]*
+{available_bits_summary_text}
 * **Retrieving History:** When the user asks "What did [Specialist Name] say?", "What was the last response from [Specialist Name]?", or similar:
     * Use the \`getMessagesFromOtherChat\` tool.
     * Use the **exact specialist ID** (e.g., \`echo-tango-specialist\`) as the \`targetChatId\`.
@@ -57,14 +57,62 @@ You are Quibit, the central AI orchestrator. Your primary function is to manage 
 - Be helpful, clear, and concise.
 - Maintain your neutral, coordinating persona.
 - Clearly indicate when information comes from a specific tool or specialist chat history.
+
+Current date and time: {current_date_time}
+{custom_instructions}
 `;
 
 /**
- * Returns the orchestrator prompt string. Ensures no specialist content is mixed in.
- * @returns The orchestrator system prompt.
+ * Returns the orchestrator prompt string with client-specific context injected.
+ * @param currentDateTime The current date and time for context
+ * @param clientDisplayName The client's display name
+ * @param clientCoreMission The client's core mission statement
+ * @param orchestratorClientContext Client-specific context for the orchestrator
+ * @param availableBitIds Array of available specialist bit IDs for this client
+ * @param customInstructions Optional custom instructions for this client
+ * @returns The fully assembled orchestrator system prompt
  */
-export function getOrchestratorPrompt(): string {
-  // This function ensures that only the pure orchestrator prompt is returned
-  // when requested, enforcing the separation of concerns.
-  return orchestratorPrompt;
+export function getOrchestratorPrompt(
+  currentDateTime: string,
+  clientDisplayName: string,
+  clientCoreMission: string | null | undefined,
+  orchestratorClientContext: string | null | undefined,
+  availableBitIds: string[] | null | undefined,
+  customInstructions: string | null | undefined,
+): string {
+  // Create mission statement if available
+  const missionStatement = clientCoreMission
+    ? `\nAs a reminder, ${clientDisplayName}'s core mission is: ${clientCoreMission}\n`
+    : '';
+
+  // Create client operational context if available
+  const clientOpContext = orchestratorClientContext
+    ? `\n# Client Operational Context for ${clientDisplayName}:\n${orchestratorClientContext}\n`
+    : '';
+
+  // Create available bits summary
+  let availableBitsSummaryText = '';
+  if (availableBitIds && availableBitIds.length > 0) {
+    availableBitsSummaryText = `* **Available Specialists:**\n    * ${availableBitIds.map((id) => `${id}`).join('\n    * ')}\n`;
+    availableBitsSummaryText += `* **Specialized Bits/Personas available for delegation include:** ${availableBitIds.map((id) => `'${id}'`).join(', ')}. Consider if the user's request is best handled by one of these.\n`;
+  } else {
+    availableBitsSummaryText =
+      '* **Available Specialists:** None configured\n* You can use your general capabilities and available tools to assist the user, as no specific specialized Bits are configured for focused delegation for this client.\n';
+  }
+
+  // Create custom instructions section if available
+  const clientCustomInstructions = customInstructions
+    ? `\n# General Client Guidelines (for ${clientDisplayName}):\n${customInstructions}\n`
+    : '';
+
+  // Replace placeholders in the template
+  const finalPrompt = orchestratorPrompt
+    .replace(/{client_display_name}/g, clientDisplayName)
+    .replace(/{client_core_mission_statement}/g, missionStatement)
+    .replace(/{orchestrator_client_specific_context}/g, clientOpContext)
+    .replace(/{available_bits_summary_text}/g, availableBitsSummaryText)
+    .replace(/{current_date_time}/g, currentDateTime)
+    .replace(/{custom_instructions}/g, clientCustomInstructions);
+
+  return finalPrompt.trim();
 }

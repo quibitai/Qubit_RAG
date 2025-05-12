@@ -52,12 +52,14 @@ const db = drizzle(client);
 export type ClientConfig = {
   id: string;
   name: string;
+  client_display_name: string; // User-facing client name
+  client_core_mission?: string | null; // Short client business description
   customInstructions?: string | null;
-  enabledBits?: string[] | null;
   configJson?: {
-    enabledBits?: string[];
-    specialistPrompts?: Record<string, string>;
-    // Add any other expected top-level keys from your config_json
+    specialistPrompts?: Record<string, string> | null;
+    orchestrator_client_context?: string | null;
+    available_bit_ids?: string[] | null;
+    tool_configs?: Record<string, any> | null;
   } | null;
 };
 
@@ -77,8 +79,9 @@ export async function getClientConfig(
       .select({
         id: clients.id,
         name: clients.name,
+        client_display_name: clients.client_display_name,
+        client_core_mission: clients.client_core_mission,
         customInstructions: clients.customInstructions,
-        enabledBits: clients.enabledBits,
         configJsonRaw: clients.config_json, // Fetch the JSONB column
       })
       .from(clients)
@@ -123,8 +126,9 @@ export async function getClientConfig(
     const clientConfigData: ClientConfig = {
       id: dbClient.id,
       name: dbClient.name,
+      client_display_name: dbClient.client_display_name,
+      client_core_mission: dbClient.client_core_mission,
       customInstructions: dbClient.customInstructions,
-      enabledBits: dbClient.enabledBits as string[] | null,
       configJson: parsedConfigJson,
     };
 

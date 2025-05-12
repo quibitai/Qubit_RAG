@@ -44,7 +44,7 @@ import { availableTools } from '@/lib/ai/tools/index';
 import { sql } from '@/lib/db/client';
 import { getClientConfig } from '@/lib/db/queries';
 import type { DBMessage } from '@/lib/db/schema';
-import type { ClientConfig } from '@/lib/db/queries';
+import type { ClientConfig } from '@/lib/db/queries'; // Import the correct ClientConfig type
 import { randomUUID } from 'node:crypto';
 
 // Add GLOBAL_ORCHESTRATOR_CONTEXT_ID to imports at the top
@@ -713,10 +713,7 @@ class DebugCallbackHandler extends BaseCallbackHandler {
 }
 
 /**
- * Initialize LLM based on configuration/environment
- *
- * @param bitId - The ID of the Bit requesting LLM services
- * @returns Configured LLM instance
+ * Initialize a LangChain LLM with appropriate parameters
  */
 function initializeLLM(bitId?: string) {
   // Use the model mapping to determine the correct model based on bitId
@@ -1275,18 +1272,86 @@ export const config = {
   unstable_allowDynamic: ['**/node_modules/**'],
 };
 
+// Add this type declaration at the top of the file
+declare global {
+  var CURRENT_TOOL_CONFIGS: Record<string, any>;
+  var CURRENT_REQUEST_BODY: {
+    referencedChatId?: string | null;
+    referencedGlobalPaneChatId?: string | null;
+    currentActiveSpecialistId?: string | null;
+    isFromGlobalPane?: boolean;
+  } | null;
+}
+
 // Helper function to get available tools
-async function getAvailableTools() {
+async function getAvailableTools(clientConfig?: ClientConfig | null) {
+  logger.info('[Brain API] Initializing available tools...');
+
   try {
-    // availableTools is an array in this codebase, not a function
     if (Array.isArray(availableTools)) {
+      // If no client configuration, return default tools
+      if (!clientConfig?.configJson?.tool_configs) {
+        logger.info(
+          '[Brain API] Using default tool configurations (no client-specific configs found)',
+        );
+        return availableTools;
+      }
+
+      const toolConfigs = clientConfig.configJson.tool_configs;
+      logger.info(
+        `[Brain API] Found client-specific tool configurations: ${Object.keys(toolConfigs).join(', ')}`,
+      );
+
+      // Instead of directly modifying tool objects (which could cause type issues),
+      // use a global configuration store that tools can access
+
+      // Initialize the global configuration store
+      global.CURRENT_TOOL_CONFIGS = {};
+
+      // Example: Configure specific tools based on client settings
+      if (toolConfigs.n8n) {
+        logger.info(
+          '[Brain API] Configuring n8nMcpGateway tool with client settings',
+        );
+
+        // Set configuration for n8nMcpGateway tool
+        global.CURRENT_TOOL_CONFIGS.n8n = {
+          webhookUrl: toolConfigs.n8n.webhookUrl || process.env.N8N_WEBHOOK_URL,
+          apiKey: toolConfigs.n8n.apiKey || process.env.N8N_API_KEY,
+          // Additional configurations
+          ...toolConfigs.n8n,
+        };
+
+        logger.info(
+          '[Brain API] n8nMcpGateway tool will use client-specific webhookUrl and apiKey',
+        );
+      }
+
+      if (toolConfigs.tavily) {
+        logger.info(
+          '[Brain API] Configuring tavilySearch tool with client settings',
+        );
+        global.CURRENT_TOOL_CONFIGS.tavily = toolConfigs.tavily;
+
+        // The tavilySearch tool should check global.CURRENT_TOOL_CONFIGS.tavily for configurations
+        logger.info(
+          '[Brain API] tavilySearch tool will use client-specific settings',
+        );
+      }
+
+      // Apply similar configuration for other tools as needed
+
+      logger.info(
+        `[Brain API] Initialized ${availableTools.length} tools with client-specific configs where available`,
+      );
       return availableTools;
     }
+
     // Fallback to empty array for safety
-    console.error('[Brain API] availableTools is not an array');
+    logger.error('[Brain API] availableTools is not an array');
     return [];
   } catch (error) {
-    console.error('[Brain API] Error getting available tools:', error);
+    logger.error('[Brain API] Error getting available tools:', error);
     return [];
   }
 }
@@ -1476,7 +1541,17 @@ export async function POST(req: NextRequest) {
       clientConfig = await getClientConfig(effectiveClientId);
       if (clientConfig) {
         logger.info(
-          `[Brain API] Loaded config for client: ${clientConfig.name}`,
+          `[Brain API] Loaded config for client: ${clientConfig.name} (display name: ${clientConfig.client_display_name})`,
+        );
+
+        // Log client-specific configuration details for debugging
+        logger.debug(
+          `[Brain API] Client config loaded with: 
+          - Client core mission: ${clientConfig.client_core_mission ? 'Present' : 'Not set'}
+          - Custom instructions: ${clientConfig.customInstructions ? 'Present' : 'Not set'}
+          - Available bit IDs: ${clientConfig.configJson?.available_bit_ids?.length || 0} bits
+          - Orchestrator context: ${clientConfig.configJson?.orchestrator_client_context ? 'Present' : 'Not set'}
+          - Tool configs: ${Object.keys(clientConfig.configJson?.tool_configs || {}).length || 0} tools configured`,
         );
       } else {
         logger.warn(
@@ -1697,7 +1772,7 @@ export async function POST(req: NextRequest) {
     const llm = initializeLLM(quibitModelId);
 
     // Get available tools for the current context
-    const tools = await getAvailableTools();
+    const tools = await getAvailableTools(clientConfig);
 
     // Determine active context ID (prioritize persona)
     const contextId = activeBitPersona || effectiveContextId;
@@ -1712,15 +1787,7 @@ export async function POST(req: NextRequest) {
     let enhancedExecutor: EnhancedAgentExecutor | undefined; // Properly typed with undefined
 
     try {
-      // Load the appropriate system prompt using the new loader
-      // For the orchestrator, we always use the orchestrator prompt
-      finalSystemPrompt = loadPrompt({
-        modelId: quibitModelId, // Always use global-orchestrator for now
-        contextId: contextId,
-        clientConfig: clientConfig,
-      });
-
-      // *** BEGIN DATE/TIME INJECTION ***
+      // Format the current date/time for system prompt context
       // Use user's timezone if provided, else fallback to UTC
       const userTimezone = reqBody.userTimezone || 'UTC';
       let now = DateTime.now().setZone(userTimezone);
@@ -1728,13 +1795,49 @@ export async function POST(req: NextRequest) {
       if (!now.isValid) {
         now = DateTime.now().setZone('UTC');
       }
-      const currentDateAndTimeISO = now.toISO();
+      const currentDateTimeISO = now.toISO();
       const userFriendlyDate = now.toLocaleString(DateTime.DATE_FULL); // e.g., May 10, 2025
       const userFriendlyTime = now.toLocaleString(DateTime.TIME_SIMPLE); // e.g., 6:04 PM
-      const dateTimeInjectionString = `IMPORTANT CONTEXT: The current date is ${userFriendlyDate} (ISO: ${currentDateAndTimeISO?.split('T')[0]}), and the current time is ${userFriendlyTime} (ISO: ${currentDateAndTimeISO?.split('T')[1]?.replace('Z', '')} ${userTimezone}). You MUST use this information for any queries that are time-sensitive, refer to "today," "now," or require knowledge of the current date or time. Do not rely on your internal knowledge for the current date and time.`;
-      finalSystemPrompt = `${dateTimeInjectionString}\n\n${finalSystemPrompt}`;
+
+      // Format the current date/time string for display in the prompt
+      const currentDateTime = `${userFriendlyDate} ${userFriendlyTime} (${userTimezone})`;
+
+      // Determine the appropriate modelId to use for loadPrompt
+      // If it's the global orchestrator context, use 'global-orchestrator'
+      // Otherwise, use the actual selected model ID to avoid triggering orchestrator logic
+      const promptModelId =
+        contextId === GLOBAL_ORCHESTRATOR_CONTEXT_ID
+          ? 'global-orchestrator'
+          : selectedChatModel || 'gpt-4';
+
+      // Load the appropriate system prompt using the updated loader
+      finalSystemPrompt = loadPrompt({
+        modelId: promptModelId, // Use the determined modelId instead of hardcoding to 'global-orchestrator'
+        contextId: contextId,
+        clientConfig, // Pass the ClientConfig object directly
+        currentDateTime, // Pass the formatted date/time
+      });
+
+      // Log which prompt type is being used
       logger.info(
-        `[Brain API] Injected current date/time into system prompt. User-friendly: ${userFriendlyDate} ${userFriendlyTime} (${userTimezone}), ISO: ${currentDateAndTimeISO}`,
+        `[Brain API] Using prompt type: ${
+          contextId === GLOBAL_ORCHESTRATOR_CONTEXT_ID
+            ? 'Orchestrator'
+            : contextId === CHAT_BIT_CONTEXT_ID
+              ? 'General Chat'
+              : `Specialist (${contextId || 'unknown'})`
+        }`,
+      );
+
+      // Create a date/time context message for time-sensitive queries
+      const dateTimeInjectionString = `IMPORTANT CONTEXT: The current date is ${userFriendlyDate} (ISO: ${currentDateTimeISO?.split('T')[0]}), and the current time is ${userFriendlyTime} (ISO: ${currentDateTimeISO?.split('T')[1]?.replace('Z', '')} ${userTimezone}). You MUST use this information for any queries that are time-sensitive, refer to "today," "now," or require knowledge of the current date or time. Do not rely on your internal knowledge for the current date and time.`;
+
+      // The date/time context is now passed to loadPrompt, but we'll keep this for extra emphasis
+      // since it appears to be an important feature of your system
+      finalSystemPrompt = `${dateTimeInjectionString}\n\n${finalSystemPrompt}`;
+
+      logger.info(
+        `[Brain API] Injected current date/time into system prompt. User-friendly: ${currentDateTime}, ISO: ${currentDateTimeISO}`,
       );
       // *** END DATE/TIME INJECTION ***
 

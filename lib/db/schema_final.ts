@@ -20,6 +20,8 @@ import {
 export const clients = pgTable('Clients', {
   id: text('id').primaryKey().notNull(),
   name: text('name').notNull(),
+  client_display_name: text('client_display_name').notNull(), // User-facing client name
+  client_core_mission: text('client_core_mission'), // Short client business description (nullable)
   createdAt: timestamp('createdAt', { mode: 'date', withTimezone: true })
     .defaultNow()
     .notNull(),

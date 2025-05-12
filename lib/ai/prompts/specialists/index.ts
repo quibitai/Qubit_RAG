@@ -1,14 +1,22 @@
 import type { SpecialistConfig } from './template';
 import { echoTangoConfig, echoTangoPrompt } from './echo-tango';
+import { chatModelConfig, chatModelPrompt } from './chat-model';
 // --- Import future specialists here ---
 // Example: import { dataAnalystConfig, dataAnalystPrompt } from './data-analyst';
 
 /**
  * Registry mapping specialist IDs to their full configuration objects.
  * This is the single source of truth for specialist definitions.
+ *
+ * IMPORTANT: When adding a new specialist:
+ * 1. Create a new file for the specialist (e.g., data-analyst.ts)
+ * 2. Implement the SpecialistConfig interface with client context placeholders
+ * 3. Import the config and prompt at the top of this file
+ * 4. Register the config here and the prompt in promptRegistry below
  */
 export const specialistRegistry: Record<string, SpecialistConfig> = {
   [echoTangoConfig.id]: echoTangoConfig,
+  [chatModelConfig.id]: chatModelConfig,
   // --- Register future specialists here ---
   // [dataAnalystConfig.id]: dataAnalystConfig,
 };
@@ -16,9 +24,14 @@ export const specialistRegistry: Record<string, SpecialistConfig> = {
 /**
  * Registry mapping specialist IDs directly to their persona prompt strings.
  * Used for quick lookup by the prompt loader.
+ *
+ * IMPORTANT: Always keep this registry in sync with specialistRegistry above.
+ * Every specialist config in specialistRegistry should have a corresponding
+ * prompt entry here with the same key.
  */
 const promptRegistry: Record<string, string> = {
   [echoTangoConfig.id]: echoTangoPrompt,
+  [chatModelConfig.id]: chatModelPrompt,
   // --- Register future specialist prompts here ---
   // [dataAnalystConfig.id]: dataAnalystPrompt,
 };
