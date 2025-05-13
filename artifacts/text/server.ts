@@ -1,8 +1,35 @@
 import { smoothStream, streamText } from 'ai';
+import type { DataStreamWriter } from 'ai';
 import { myProvider } from '@/lib/ai/providers';
 import { createDocumentHandler } from '@/lib/artifacts/server';
 import { updateDocumentPrompt } from '@/lib/ai/prompts/tools/documents';
 import { saveDocument } from '@/lib/db/queries';
+
+// Helper function to correctly format data for useChat().data
+async function sendArtifactDataToClient(
+  dataStream: DataStreamWriter,
+  dataObject: any,
+): Promise<void> {
+  // Ensure the dataObject is stringified and wrapped in an array, then prefixed with '2:'
+  const streamChunk = `2:${JSON.stringify([dataObject])}\n` as const;
+  // Log exactly what is about to be sent and its intended type for the UI
+  console.log(
+    `[ArtifactHandler:${dataObject?.kind || dataObject?.type || 'UNKNOWN_KIND_TYPE'}] Attempting to stream to client UI: ${streamChunk.trim()}`,
+  );
+  try {
+    await dataStream.write(streamChunk);
+    console.log(
+      `[ArtifactHandler:${dataObject?.kind || dataObject?.type || 'UNKNOWN_KIND_TYPE'}] Successfully streamed to client UI: type "${dataObject.type}"`,
+    );
+  } catch (error) {
+    console.error(
+      `[ArtifactHandler:${dataObject?.kind || dataObject?.type || 'UNKNOWN_KIND_TYPE'}] ERROR streaming to client UI:`,
+      error,
+      'Attempted object:',
+      dataObject,
+    );
+  }
+}
 
 export const textDocumentHandler = createDocumentHandler<'text'>({
   kind: 'text',
@@ -25,7 +52,7 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
       console.error(
         '[textDocumentHandler] User ID missing in session during onCreateDocument.',
       );
-      dataStream.writeData({
+      await sendArtifactDataToClient(dataStream, {
         type: 'error',
         error: 'User not authenticated for document creation.',
       });
@@ -47,7 +74,7 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
         `[textDocumentHandler] Failed to save initial document ${docId}:`,
         dbError,
       );
-      dataStream.writeData({
+      await sendArtifactDataToClient(dataStream, {
         type: 'error',
         error: 'Failed to initialize document in database.',
       });
@@ -55,11 +82,23 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
     }
 
     // 2. Stream Metadata (after initial save)
-    dataStream.writeData({ type: 'artifact-start', kind: 'text', title });
-    dataStream.writeData({ type: 'id', content: docId });
-    dataStream.writeData({ type: 'title', content: title });
-    dataStream.writeData({ type: 'kind', content: 'text' });
-    console.log(`[textDocumentHandler] Streamed metadata for ${docId}`);
+    await sendArtifactDataToClient(dataStream, {
+      type: 'artifact-start',
+      kind: 'text',
+      title,
+    });
+    await sendArtifactDataToClient(dataStream, { type: 'id', content: docId });
+    await sendArtifactDataToClient(dataStream, {
+      type: 'title',
+      content: title,
+    });
+    await sendArtifactDataToClient(dataStream, {
+      type: 'kind',
+      content: 'text',
+    });
+    console.log(
+      `[textDocumentHandler] Streamed metadata for ${docId} using 2: prefix.`,
+    );
 
     // 3. Stream Content
     const promptToUse = initialContentPrompt || title;
@@ -80,7 +119,7 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
 
         draftContent += textDelta;
 
-        dataStream.writeData({
+        await sendArtifactDataToClient(dataStream, {
           type: 'text-delta',
           content: textDelta,
         });
@@ -100,10 +139,12 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
     );
 
     // 4. Send a finish event
-    dataStream.writeData({
+    await sendArtifactDataToClient(dataStream, {
       type: 'finish',
     });
-    console.log(`[textDocumentHandler] Stream finished for ${docId}`);
+    console.log(
+      `[textDocumentHandler] Stream finished for ${docId} using 2: prefix.`,
+    );
 
     // Return the content and indicate document was already saved
     return `${draftContent}<!-- DOCUMENT_ALREADY_SAVED -->`;
@@ -151,7 +192,7 @@ MODIFIED CONTENT (Markdown Only):`;
 
           // Stream each delta to the client for real-time updates
           // The client will accumulate these updates
-          dataStream.writeData({
+          await sendArtifactDataToClient(dataStream, {
             type: 'document-update-delta',
             docId: document.id,
             content: textDelta,
@@ -208,7 +249,7 @@ MODIFIED CONTENT (Markdown Only):`;
 
       // Try to write error to the stream if possible
       try {
-        dataStream.writeData({
+        await sendArtifactDataToClient(dataStream, {
           type: 'error',
           message: `Failed to update document: ${error.message}`,
           docId: document.id,

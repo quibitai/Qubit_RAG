@@ -98,6 +98,24 @@ function PureArtifact({
   error: string | null;
   onClose: () => void;
 }) {
+  // ENHANCED DEBUGGING - Add clear console markers for visibility
+  console.log('============== ARTIFACT COMPONENT RENDER ==============');
+  console.log('[PureArtifact] COMPONENT MOUNTED/UPDATED with props:', {
+    streamingDocumentId,
+    streamingTitle,
+    streamingKind,
+    streamingContentLength: streamingContent?.length || 0,
+    isStreaming,
+    isStreamingVisible,
+    streamingError,
+    chatId,
+  });
+
+  // Most important visibility debugging
+  console.log(
+    `[PureArtifact] VISIBILITY STATUS: ${isStreamingVisible ? 'VISIBLE ✅' : 'HIDDEN ❌'}`,
+  );
+
   // Log incoming props for debugging
   console.debug('[PureArtifact] Props received:', {
     isStreaming,
@@ -330,6 +348,42 @@ function PureArtifact({
     artifact.isVisible,
   ]);
 
+  // Sync streaming state to artifact state
+  useEffect(() => {
+    console.log('[PureArtifact] Syncing streaming props to artifact state');
+    console.log(
+      '[PureArtifact] Current streaming visibility:',
+      isStreamingVisible,
+    );
+    console.log(
+      '[PureArtifact] Current artifact.isVisible:',
+      artifact.isVisible,
+    );
+
+    // Only update if we're receiving a streaming document and it's supposed to be visible
+    if (streamingDocumentId && isStreamingVisible) {
+      console.log('[PureArtifact] Updating artifact state with streaming data');
+      setArtifact({
+        documentId: streamingDocumentId || 'init',
+        title: streamingTitle || 'Untitled',
+        kind: streamingKind || 'text',
+        content: streamingContent || '',
+        isVisible: true, // Important: ensure visibility is set
+        status: isStreaming ? 'streaming' : 'idle',
+        boundingBox: artifact.boundingBox, // Preserve the existing bounding box
+      });
+    }
+  }, [
+    streamingDocumentId,
+    streamingTitle,
+    streamingKind,
+    streamingContent,
+    isStreaming,
+    isStreamingVisible,
+    setArtifact,
+    artifact.boundingBox,
+  ]);
+
   const handleClose = useCallback(() => {
     if (onClose) {
       onClose();
@@ -392,7 +446,7 @@ function PureArtifact({
 
   return (
     <AnimatePresence>
-      {artifact.isVisible && (
+      {(isStreamingVisible || artifact.isVisible) && (
         <motion.div
           data-testid="artifact"
           className="flex flex-row h-dvh w-dvw fixed top-0 left-0 z-50 bg-transparent"
@@ -400,6 +454,14 @@ function PureArtifact({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0, transition: { delay: 0.4 } }}
         >
+          <div
+            className="fixed top-0 left-0 z-[9999] p-2 bg-yellow-300 text-black text-xs"
+            style={{ display: 'none' }}
+          >
+            DEBUG: isStreamingVisible={String(isStreamingVisible)},
+            artifact.isVisible={String(artifact.isVisible)}
+          </div>
+
           {!isMobile && (
             <motion.div
               className="fixed bg-background h-dvh"

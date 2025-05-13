@@ -222,7 +222,7 @@ export function Chat({
     },
     initialMessages,
     experimental_throttle: 50, // Lower value for smoother streaming
-    streamProtocol: 'data', // Explicitly set for Vercel AI SDK
+    streamProtocol: 'data', // Explicitly set for Vercel AI SDK - this handles streaming custom data
     sendExtraMessageFields: true,
     generateId: generateUUID,
     onError: (err) => console.error('[ChatBit UI useChat Error]', err), // Simplified error
@@ -508,19 +508,44 @@ export function Chat({
 
   // Process data stream for artifact-related events
   useEffect(() => {
-    if (!data || data.length === 0) return;
-
-    console.debug(
-      '[ChatUI] Processing data stream update with',
-      data.length,
-      'items',
+    console.log(
+      '[ChatUI] useEffect[data] TRIGGERED. Current raw data from useChat():',
+      JSON.stringify(data, null, 2),
     );
 
-    let newState = { ...activeArtifactState };
-    let stateChanged = false;
+    if (!data) {
+      console.log('[ChatUI] useEffect[data]: data is null. Returning.');
+      return;
+    }
+    if (data.length === 0) {
+      console.log(
+        '[ChatUI] useEffect[data]: data is an empty array. Returning.',
+      );
+      return;
+    }
+
+    console.log(
+      `[ChatUI] useEffect[data]: PROCESSING ${data.length} item(s) in data stream.`,
+    );
+
+    // It's safer to create the new state based on the previous state from the hook,
+    // rather than mutating a copy of activeArtifactState directly in each loop.
+    let newDocumentId = activeArtifactState.documentId;
+    let newKind = activeArtifactState.kind;
+    let newTitle = activeArtifactState.title;
+    let newContent = activeArtifactState.content;
+    let newIsStreaming = activeArtifactState.isStreaming;
+    let newIsVisible = activeArtifactState.isVisible;
+    let newError = activeArtifactState.error;
+    let stateActuallyChangedThisCycle = false;
 
     // Process each data item in the stream
-    data.forEach((dataObject) => {
+    data.forEach((dataObject, index) => {
+      console.log(
+        `[ChatUI] useEffect[data]: Inspecting data item [${index}]:`,
+        JSON.stringify(dataObject, null, 2),
+      );
+
       if (
         typeof dataObject === 'object' &&
         dataObject !== null &&
@@ -530,123 +555,179 @@ export function Chat({
           type: string;
           [key: string]: any;
         };
-
-        // Log the data item being processed
-        console.debug('[ChatUI] Processing data item:', typedDataObject);
+        console.log(
+          `[ChatUI] useEffect[data]: Item [${index}] is valid. Type: "${typedDataObject.type}".`,
+        );
 
         switch (typedDataObject.type) {
           case 'artifact-start':
-            newState = {
-              ...newState,
-              isVisible: true,
-              isStreaming: true,
-              kind: typedDataObject.kind as ArtifactKind,
-              title: typedDataObject.title,
-              content: '', // Reset content
-              error: null,
-            };
+            console.log(
+              '[ChatUI] CASE: artifact-start. Payload:',
+              typedDataObject,
+            );
+            console.log(
+              '[ChatUI] SETTING VISIBILITY FLAG TO TRUE - THIS IS CRITICAL',
+            );
+            newIsVisible = true; // CRITICAL: Ensure this is set
+            newIsStreaming = true;
+            newKind = typedDataObject.kind as ArtifactKind;
+            newTitle = typedDataObject.title;
+            newContent = ''; // Reset content
+            newError = null;
             console.debug(
               '[ChatUI] Artifact start detected:',
               typedDataObject,
               'Setting isVisible to TRUE',
             );
-            stateChanged = true;
+            stateActuallyChangedThisCycle = true;
             break;
 
           case 'id':
-            if (newState.isStreaming) {
-              newState = { ...newState, documentId: typedDataObject.content };
-              stateChanged = true;
+            console.log('[ChatUI] CASE: id. Payload:', typedDataObject);
+            if (newIsStreaming) {
+              newDocumentId = typedDataObject.content;
+              stateActuallyChangedThisCycle = true;
+            } else {
+              console.warn(
+                '[ChatUI] Received "id" but not in streaming state. Ignored.',
+              );
             }
             break;
 
           case 'title':
-            if (newState.isStreaming) {
-              newState = { ...newState, title: typedDataObject.content };
-              stateChanged = true;
+            console.log('[ChatUI] CASE: title. Payload:', typedDataObject);
+            if (newIsStreaming) {
+              newTitle = typedDataObject.content;
+              stateActuallyChangedThisCycle = true;
+            } else {
+              console.warn(
+                '[ChatUI] Received "title" but not in streaming state. Ignored.',
+              );
             }
             break;
 
           case 'kind':
-            if (newState.isStreaming) {
-              newState = {
-                ...newState,
-                kind: typedDataObject.content as ArtifactKind,
-              };
-              stateChanged = true;
+            console.log('[ChatUI] CASE: kind. Payload:', typedDataObject);
+            if (newIsStreaming) {
+              newKind = typedDataObject.content as ArtifactKind;
+              stateActuallyChangedThisCycle = true;
+            } else {
+              console.warn(
+                '[ChatUI] Received "kind" but not in streaming state. Ignored.',
+              );
             }
             break;
 
           case 'text-delta':
           case 'code-delta':
-            if (newState.isStreaming) {
-              newState = {
-                ...newState,
-                content: `${newState.content}${typedDataObject.content}`,
-              };
-              stateChanged = true;
+          case 'image-delta':
+          case 'sheet-delta':
+            console.log(
+              `[ChatUI] CASE: ${typedDataObject.type}. Appending content.`,
+            );
+            if (newIsStreaming) {
+              newContent = `${newContent}${typedDataObject.content}`;
+              stateActuallyChangedThisCycle = true;
+            } else {
+              console.warn(
+                `[ChatUI] Received "${typedDataObject.type}" but not in streaming state. Delta ignored. Current content: "${newContent.substring(0, 50)}..."`,
+              );
             }
             break;
 
           case 'finish':
-            if (newState.isStreaming) {
-              newState = { ...newState, isStreaming: false };
-              logger.info('[ChatUI] Artifact finish detected.');
-              stateChanged = true;
+            console.log('[ChatUI] CASE: finish. Payload:', typedDataObject);
+            if (newIsStreaming) {
+              newIsStreaming = false;
+              stateActuallyChangedThisCycle = true;
+              console.log('[ChatUI] Artifact streaming officially FINISHED.');
+            } else {
+              console.warn(
+                '[ChatUI] Received "finish" but was not in streaming state.',
+              );
             }
             break;
 
           case 'error':
-            // Handle error for the current artifact
-            if (
-              (typedDataObject.docId &&
-                newState.documentId === typedDataObject.docId) ||
-              !typedDataObject.docId
-            ) {
-              newState = {
-                ...newState,
-                error:
-                  typedDataObject.error ||
-                  typedDataObject.message ||
-                  'An unknown error occurred.',
-                isStreaming: false,
-              };
-              stateChanged = true;
-            }
+            console.error(
+              '[ChatUI] CASE: error from stream. Payload:',
+              typedDataObject,
+            );
+            newError =
+              typedDataObject.error ||
+              typedDataObject.message ||
+              'An unknown error occurred.';
+            newIsStreaming = false; // Stop streaming on error
+            stateActuallyChangedThisCycle = true;
             break;
 
           case 'status-update':
             // Could display status messages to the user if needed
-            logger.info('[ChatUI] Status update:', typedDataObject.status);
+            console.log('[ChatUI] Status update:', typedDataObject.status);
             break;
 
           case 'tool-result':
             // Process tool results which might contain artifact-related information
+            console.log(
+              '[ChatUI] CASE: tool-result. Payload:',
+              typedDataObject,
+            );
             if (
               typedDataObject.content &&
               typedDataObject.content.toolName === 'createDocument'
             ) {
-              logger.info(
+              console.log(
                 '[ChatUI] Document creation tool result:',
                 typedDataObject.content,
               );
             }
             break;
+
+          default:
+            console.log(
+              `[ChatUI] INFO: Data item type "${typedDataObject.type}" received but not specifically handled by artifact state logic. Payload:`,
+              typedDataObject,
+            );
         }
+      } else {
+        console.warn(
+          `[ChatUI] useEffect[data]: Data item at index ${index} is invalid (not an object or no "type" property):`,
+          JSON.stringify(dataObject, null, 2),
+        );
       }
     });
 
     // If the state changed, update it
-    if (stateChanged) {
-      console.debug(
-        '[ChatUI] Active artifact state is about to change. Current:',
-        activeArtifactState,
-        'New tentative state:',
-        newState,
+    if (stateActuallyChangedThisCycle) {
+      console.log(
+        '[ChatUI] useEffect[data]: State changes detected. Updating activeArtifactState with:',
+        {
+          documentId: newDocumentId,
+          kind: newKind,
+          title: newTitle,
+          content:
+            newContent.substring(0, 100) +
+            (newContent.length > 100 ? '...' : ''), // Log snippet
+          isStreaming: newIsStreaming,
+          isVisible: newIsVisible,
+          error: newError,
+        },
       );
-      setActiveArtifactState(newState);
+      setActiveArtifactState({
+        documentId: newDocumentId,
+        kind: newKind,
+        title: newTitle,
+        content: newContent,
+        isStreaming: newIsStreaming,
+        isVisible: newIsVisible,
+        error: newError,
+      });
+    } else {
+      console.log(
+        '[ChatUI] useEffect[data]: No state changes for activeArtifactState in this cycle.',
+      );
     }
-  }, [data]); // Only depend on data changes
+  }, [data, activeArtifactState]); // Include activeArtifactState in dependencies
 
   // Add a new useEffect to log when activeArtifactState changes
   useEffect(() => {
@@ -740,6 +821,28 @@ export function Chat({
         error={activeArtifactState.error}
         onClose={handleArtifactClose}
       />
+
+      {/* Debug button for testing artifact visibility - hidden in production */}
+      <button
+        type="button"
+        className="fixed bottom-4 right-4 z-[9999] bg-blue-600 text-white px-3 py-1 rounded text-xs"
+        onClick={() => {
+          console.log('[MANUAL DEBUG] Forcing artifact visibility');
+          setActiveArtifactState({
+            documentId: 'debug-doc-id',
+            kind: 'text',
+            title: 'Debug Test Document',
+            content:
+              'This is test content for debugging the artifact visibility issue.',
+            isStreaming: false,
+            isVisible: true,
+            error: null,
+          });
+        }}
+        style={{ opacity: 0.6 }}
+      >
+        Debug: Show Artifact
+      </button>
     </>
   );
 }

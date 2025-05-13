@@ -18,11 +18,11 @@ export function createEnhancedDataStream(dataStream: any) {
 
       // Then ensure it's added to the data array that the client's useChat hook exposes
       // This is done by writing a special format that the Vercel AI SDK recognizes
-      // Format: 1:{"type":"data","data":JSON_STRINGIFIED_DATA}\n
+      // Format for useChat().data array: 2:JSON_STRINGIFIED_ARRAY\n
       try {
-        await dataStream.write(`1:${JSON.stringify({ type: 'data', data })}\n`);
+        await dataStream.write(`2:${JSON.stringify([data])}\n` as const);
         console.log(
-          `[EnhancedDataStream] Successfully appended data of type: ${data.type}`,
+          `[EnhancedDataStream] Successfully appended data of type: ${data.type} using 2: prefix for useChat().data`,
         );
       } catch (error) {
         console.error('[EnhancedDataStream] Error appending data:', error);

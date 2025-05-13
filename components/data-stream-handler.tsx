@@ -6,6 +6,11 @@ import { artifactDefinitions, type ArtifactKind } from './artifact';
 import type { Suggestion } from '@/lib/db/schema';
 import { initialArtifactData, useArtifact } from '@/hooks/use-artifact';
 
+/**
+ * @deprecated This component is deprecated. Artifact streaming is now handled directly
+ * through the Chat component using the data prop from useChat. This component will be removed
+ * in a future release.
+ */
 export type DataStreamDelta = {
   type:
     | 'text-delta'
@@ -18,9 +23,13 @@ export type DataStreamDelta = {
     | 'clear'
     | 'finish'
     | 'kind';
-  content: string | Suggestion;
+  content: string | any;
 };
 
+/**
+ * @deprecated This component is deprecated. Artifact streaming is now handled directly
+ * through the Chat component using the data prop from useChat.
+ */
 export function DataStreamHandler({ id }: { id: string }) {
   const { data: dataStream } = useChat({ id });
   const { artifact, setArtifact, setMetadata } = useArtifact();
@@ -92,5 +101,14 @@ export function DataStreamHandler({ id }: { id: string }) {
     });
   }, [dataStream, setArtifact, setMetadata, artifact]);
 
+  useEffect(() => {
+    console.warn(
+      '[DEPRECATED] DataStreamHandler is deprecated and does nothing. ' +
+        'Artifact streaming is now handled directly through the Chat component ' +
+        'using the data prop from useChat. Update your code to remove this component.',
+    );
+  }, []);
+
+  // Empty implementation - all functionality moved to Chat component
   return null;
 }

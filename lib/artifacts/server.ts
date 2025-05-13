@@ -21,6 +21,7 @@ export interface CreateDocumentCallbackProps {
   title: string;
   dataStream: DataStreamWriter;
   session: Session;
+  initialContentPrompt?: string;
 }
 
 export interface UpdateDocumentCallbackProps {
@@ -32,7 +33,9 @@ export interface UpdateDocumentCallbackProps {
 
 export interface DocumentHandler<T = ArtifactKind> {
   kind: T;
-  onCreateDocument: (args: CreateDocumentCallbackProps) => Promise<void>;
+  onCreateDocument: (
+    args: CreateDocumentCallbackProps,
+  ) => Promise<{ documentId: string }>;
   onUpdateDocument: (args: UpdateDocumentCallbackProps) => Promise<void>;
 }
 
@@ -43,25 +46,30 @@ export function createDocumentHandler<T extends ArtifactKind>(config: {
 }): DocumentHandler<T> {
   return {
     kind: config.kind,
-    onCreateDocument: async (args: CreateDocumentCallbackProps) => {
+    onCreateDocument: async (
+      args: CreateDocumentCallbackProps,
+    ): Promise<{ documentId: string }> => {
       const draftContent = await config.onCreateDocument({
         id: args.id,
         title: args.title,
         dataStream: args.dataStream,
         session: args.session,
+        initialContentPrompt: args.initialContentPrompt,
       });
 
-      if (args.session?.user?.id) {
-        await saveDocument({
-          id: args.id,
-          title: args.title,
-          content: draftContent,
-          kind: config.kind,
-          userId: args.session.user.id,
-        });
+      if (!draftContent.includes('DOCUMENT_ALREADY_SAVED')) {
+        if (args.session?.user?.id) {
+          await saveDocument({
+            id: args.id,
+            title: args.title,
+            content: draftContent,
+            kind: config.kind,
+            userId: args.session.user.id,
+          });
+        }
       }
 
-      return;
+      return { documentId: args.id };
     },
     onUpdateDocument: async (args: UpdateDocumentCallbackProps) => {
       const draftContent = await config.onUpdateDocument({

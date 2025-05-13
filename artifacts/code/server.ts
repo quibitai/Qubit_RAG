@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { streamObject } from 'ai';
+import type { DataStreamWriter } from 'ai';
 import { myProvider } from '@/lib/ai/providers';
 import {
   codePrompt,
@@ -7,6 +8,32 @@ import {
 } from '@/lib/ai/prompts/tools/documents';
 import { createDocumentHandler } from '@/lib/artifacts/server';
 import { saveDocument } from '@/lib/db/queries';
+
+// Helper function to correctly format data for useChat().data
+async function sendArtifactDataToClient(
+  dataStream: DataStreamWriter,
+  dataObject: any,
+): Promise<void> {
+  // Ensure the dataObject is stringified and wrapped in an array, then prefixed with '2:'
+  const streamChunk = `2:${JSON.stringify([dataObject])}\n` as const;
+  // Log exactly what is about to be sent and its intended type for the UI
+  console.log(
+    `[ArtifactHandler:${dataObject?.kind || dataObject?.type || 'UNKNOWN_KIND_TYPE'}] Attempting to stream to client UI: ${streamChunk.trim()}`,
+  );
+  try {
+    await dataStream.write(streamChunk);
+    console.log(
+      `[ArtifactHandler:${dataObject?.kind || dataObject?.type || 'UNKNOWN_KIND_TYPE'}] Successfully streamed to client UI: type "${dataObject.type}"`,
+    );
+  } catch (error) {
+    console.error(
+      `[ArtifactHandler:${dataObject?.kind || dataObject?.type || 'UNKNOWN_KIND_TYPE'}] ERROR streaming to client UI:`,
+      error,
+      'Attempted object:',
+      dataObject,
+    );
+  }
+}
 
 export const codeDocumentHandler = createDocumentHandler<'code'>({
   kind: 'code',
@@ -29,7 +56,7 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
       console.error(
         '[codeDocumentHandler] User ID missing in session during onCreateDocument.',
       );
-      dataStream.writeData({
+      await sendArtifactDataToClient(dataStream, {
         type: 'error',
         error: 'User not authenticated for document creation.',
       });
@@ -50,7 +77,7 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
         `[codeDocumentHandler] Failed to save initial document ${docId}:`,
         dbError,
       );
-      dataStream.writeData({
+      await sendArtifactDataToClient(dataStream, {
         type: 'error',
         error: 'Failed to initialize document in database.',
       });
@@ -58,11 +85,23 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
     }
 
     // 2. Stream Metadata (after initial save)
-    dataStream.writeData({ type: 'artifact-start', kind: 'code', title });
-    dataStream.writeData({ type: 'id', content: docId });
-    dataStream.writeData({ type: 'title', content: title });
-    dataStream.writeData({ type: 'kind', content: 'code' });
-    console.log(`[codeDocumentHandler] Streamed metadata for ${docId}`);
+    await sendArtifactDataToClient(dataStream, {
+      type: 'artifact-start',
+      kind: 'code',
+      title,
+    });
+    await sendArtifactDataToClient(dataStream, { type: 'id', content: docId });
+    await sendArtifactDataToClient(dataStream, {
+      type: 'title',
+      content: title,
+    });
+    await sendArtifactDataToClient(dataStream, {
+      type: 'kind',
+      content: 'code',
+    });
+    console.log(
+      `[codeDocumentHandler] Streamed metadata for ${docId} using 2: prefix.`,
+    );
 
     // 3. Stream Content
     const promptToUse = initialContentPrompt || title;
@@ -84,7 +123,7 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
         const { code } = object;
 
         if (code) {
-          dataStream.writeData({
+          await sendArtifactDataToClient(dataStream, {
             type: 'code-delta',
             content: code ?? '',
           });
@@ -107,10 +146,12 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
     );
 
     // 4. Notify client that we're finished
-    dataStream.writeData({
+    await sendArtifactDataToClient(dataStream, {
       type: 'finish',
     });
-    console.log(`[codeDocumentHandler] Stream finished for ${docId}`);
+    console.log(
+      `[codeDocumentHandler] Stream finished for ${docId} using 2: prefix.`,
+    );
 
     // Return the content and indicate document was already saved
     return `${draftContent}/* DOCUMENT_ALREADY_SAVED */`;
@@ -135,7 +176,7 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
         const { code } = object;
 
         if (code) {
-          dataStream.writeData({
+          await sendArtifactDataToClient(dataStream, {
             type: 'code-delta',
             content: code ?? '',
           });

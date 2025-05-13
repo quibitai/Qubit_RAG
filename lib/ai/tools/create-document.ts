@@ -8,6 +8,12 @@ const createDocumentSchema = z.object({
   kind: z
     .enum(artifactKinds)
     .describe('The type of artifact to create (e.g., text, code).'),
+  contentPrompt: z
+    .string()
+    .optional()
+    .describe(
+      'Optional initial content or prompt to generate content for the document.',
+    ),
 });
 
 /**
@@ -26,23 +32,20 @@ export const createDocumentTool = new DynamicStructuredTool({
   description:
     'Create a document artifact (e.g., text, code) for writing or content creation activities. The content will be generated based on the title and kind.',
   schema: createDocumentSchema,
-  func: async ({ title, kind }) => {
+  func: async ({ title, kind, contentPrompt }) => {
     const id = generateUUID(); // Keep ID generation
     console.log(
       `[createDocumentTool] Called with title: "${title}", kind: "${kind}", generated ID: ${id}`,
     );
 
-    // TODO: Implement full document creation logic with the following steps:
-    // 1. Create database entry for the new artifact
-    // 2. Initialize artifact content based on kind
-    // 3. Set up streaming response channel for progress updates
-    // 4. Connect with frontend via data-stream-handler
-    // 5. Handle error cases and provide meaningful error messages
+    if (contentPrompt) {
+      console.log(
+        `[createDocumentTool] Content prompt provided: "${contentPrompt.substring(0, 50)}${contentPrompt.length > 50 ? '...' : ''}"`,
+      );
+    }
 
-    // Placeholder logic:
-    console.log(
-      `[createDocumentTool] Placeholder: Simulating creation for ${kind} document "${title}"`,
-    );
+    // This is just a placeholder - actual document creation happens in app/api/brain/route.ts
+    // through integration with appropriate artifact handlers
 
     // Return a string confirming the action instead of an object
     return `Document artifact of kind '${kind}' titled '${title}' requested with ID ${id}. Content generation process initiated.`;
