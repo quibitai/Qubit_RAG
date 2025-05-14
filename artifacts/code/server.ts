@@ -37,13 +37,12 @@ async function sendArtifactDataToClient(
 
 export const codeDocumentHandler = createDocumentHandler<'code'>({
   kind: 'code',
-  onCreateDocument: async ({
-    id: docId,
-    title,
-    dataStream,
-    initialContentPrompt,
-    session,
-  }) => {
+  onCreateDocument: async (args) => {
+    console.log(
+      '[SERVER CODE_HANDLER] onCreateDocument called with args:',
+      JSON.stringify(args),
+    );
+    const { id: docId, title, dataStream, initialContentPrompt } = args;
     let draftContent = '';
 
     console.log(
@@ -51,7 +50,7 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
     );
 
     // 1. Save initial document placeholder to DB
-    const userId = session?.user?.id;
+    const userId = args.session?.user?.id;
     if (!userId) {
       console.error(
         '[codeDocumentHandler] User ID missing in session during onCreateDocument.',
@@ -63,6 +62,11 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
       throw new Error('User not authenticated');
     }
 
+    // --- LOGGING: Before initial DB save ---
+    console.log(
+      '[SERVER CODE_HANDLER SAVE] Attempting initial saveDocument with:',
+      JSON.stringify({ docId, title, kind: 'code', userId }),
+    );
     try {
       await saveDocument({
         id: docId,
@@ -71,10 +75,15 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
         kind: 'code',
         userId: userId,
       });
-      console.log(`[codeDocumentHandler] Initial document ${docId} saved.`);
+      // --- LOGGING: After successful DB save ---
+      console.log(
+        '[SERVER CODE_HANDLER SAVE] Initial saveDocument succeeded for docId:',
+        docId,
+      );
     } catch (dbError) {
+      // --- LOGGING: On DB save error ---
       console.error(
-        `[codeDocumentHandler] Failed to save initial document ${docId}:`,
+        '[SERVER CODE_HANDLER SAVE] Initial saveDocument FAILED:',
         dbError,
       );
       await sendArtifactDataToClient(dataStream, {
@@ -85,20 +94,33 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
     }
 
     // 2. Stream Metadata (after initial save)
-    await sendArtifactDataToClient(dataStream, {
-      type: 'artifact-start',
-      kind: 'code',
-      title,
-    });
-    await sendArtifactDataToClient(dataStream, { type: 'id', content: docId });
-    await sendArtifactDataToClient(dataStream, {
-      type: 'title',
-      content: title,
-    });
-    await sendArtifactDataToClient(dataStream, {
-      type: 'kind',
-      content: 'code',
-    });
+    const startPayload = { type: 'artifact-start', kind: 'code', title };
+    console.log(
+      `[SERVER CODE_HANDLER SEND] Event: ${startPayload.type}, Payload:`,
+      JSON.stringify(startPayload),
+    );
+    await sendArtifactDataToClient(dataStream, startPayload);
+
+    const idPayload = { type: 'id', content: docId };
+    console.log(
+      `[SERVER CODE_HANDLER SEND] Event: ${idPayload.type}, Payload:`,
+      JSON.stringify(idPayload),
+    );
+    await sendArtifactDataToClient(dataStream, idPayload);
+
+    const titlePayload = { type: 'title', content: title };
+    console.log(
+      `[SERVER CODE_HANDLER SEND] Event: ${titlePayload.type}, Payload:`,
+      JSON.stringify(titlePayload),
+    );
+    await sendArtifactDataToClient(dataStream, titlePayload);
+
+    const kindPayload = { type: 'kind', content: 'code' };
+    console.log(
+      `[SERVER CODE_HANDLER SEND] Event: ${kindPayload.type}, Payload:`,
+      JSON.stringify(kindPayload),
+    );
+    await sendArtifactDataToClient(dataStream, kindPayload);
     console.log(
       `[codeDocumentHandler] Streamed metadata for ${docId} using 2: prefix.`,
     );
@@ -123,10 +145,12 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
         const { code } = object;
 
         if (code) {
-          await sendArtifactDataToClient(dataStream, {
-            type: 'code-delta',
-            content: code ?? '',
-          });
+          const codeDeltaPayload = { type: 'code-delta', content: code ?? '' };
+          console.log(
+            `[SERVER CODE_HANDLER SEND] Event: ${codeDeltaPayload.type}, Payload:`,
+            JSON.stringify(codeDeltaPayload),
+          );
+          await sendArtifactDataToClient(dataStream, codeDeltaPayload);
 
           draftContent = code;
         }
@@ -146,9 +170,12 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
     );
 
     // 4. Notify client that we're finished
-    await sendArtifactDataToClient(dataStream, {
-      type: 'finish',
-    });
+    const finishPayload = { type: 'finish' };
+    console.log(
+      `[SERVER CODE_HANDLER SEND] Event: ${finishPayload.type}, Payload:`,
+      JSON.stringify(finishPayload),
+    );
+    await sendArtifactDataToClient(dataStream, finishPayload);
     console.log(
       `[codeDocumentHandler] Stream finished for ${docId} using 2: prefix.`,
     );

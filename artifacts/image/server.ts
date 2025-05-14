@@ -31,8 +31,21 @@ async function sendArtifactDataToClient(
 
 export const imageDocumentHandler = createDocumentHandler<'image'>({
   kind: 'image',
-  onCreateDocument: async ({ title, dataStream }) => {
+  onCreateDocument: async (args) => {
+    console.log(
+      '[SERVER IMAGE_HANDLER] onCreateDocument called with args:',
+      JSON.stringify(args),
+    );
+    const { id: docId, title, dataStream, initialContentPrompt } = args;
     let draftContent = '';
+
+    // Send artifact-start event (metadata)
+    const startPayload = { type: 'artifact-start', kind: 'image', title };
+    console.log(
+      `[SERVER IMAGE_HANDLER SEND] Event: ${startPayload.type}, Payload:`,
+      JSON.stringify(startPayload),
+    );
+    await sendArtifactDataToClient(dataStream, startPayload);
 
     const { image } = await experimental_generateImage({
       model: myProvider.imageModel('small-model'),
@@ -42,10 +55,13 @@ export const imageDocumentHandler = createDocumentHandler<'image'>({
 
     draftContent = image.base64;
 
-    await sendArtifactDataToClient(dataStream, {
-      type: 'image-delta',
-      content: image.base64,
-    });
+    // 2. Stream Metadata (for image, just the image-delta event)
+    const imageDeltaPayload = { type: 'image-delta', content: image.base64 };
+    console.log(
+      `[SERVER IMAGE_HANDLER SEND] Event: ${imageDeltaPayload.type}, Payload:`,
+      JSON.stringify(imageDeltaPayload),
+    );
+    await sendArtifactDataToClient(dataStream, imageDeltaPayload);
 
     return draftContent;
   },

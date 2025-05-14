@@ -10,20 +10,177 @@ import { SpreadsheetEditor } from '@/components/sheet-editor';
 import { parse, unparse } from 'papaparse';
 import { toast } from 'sonner';
 
-type Metadata = any;
+interface SheetMetadata {
+  // Track processed content hashes to prevent duplicate processing
+  processedContentHashes: Set<string>;
+  // Track the last content length to detect significant changes
+  lastContentLength: number;
+}
 
-export const sheetArtifact = new Artifact<'sheet', Metadata>({
+export const sheetArtifact = new Artifact<'sheet', SheetMetadata>({
   kind: 'sheet',
   description: 'Useful for working with spreadsheets',
-  initialize: async () => {},
-  onStreamPart: ({ setArtifact, streamPart }) => {
+  initialize: async ({ setMetadata }) => {
+    setMetadata({
+      processedContentHashes: new Set<string>(),
+      lastContentLength: 0,
+    });
+  },
+  onStreamPart: ({ setArtifact, streamPart, setMetadata }) => {
+    // Skip processing if the stream part is not a valid type
+    if (!streamPart || !streamPart.type) {
+      console.log('[SheetArtifact] Invalid stream part received, skipping');
+      return;
+    }
+
+    console.log(
+      `[SheetArtifact] Processing stream part of type: ${streamPart.type}`,
+    );
+
     if (streamPart.type === 'sheet-delta') {
+      const deltaContent = streamPart.content as string;
+
+      // Skip empty content
+      if (!deltaContent || deltaContent.length === 0) {
+        console.log('[SheetArtifact] Empty sheet-delta received, skipping');
+        return;
+      }
+
+      // Generate a simple hash of the content for tracking
+      const contentHash = `${deltaContent.length}:${deltaContent.substring(0, 10)}`;
+
+      setMetadata((metadata) => {
+        // Check if we've already processed this exact content
+        if (metadata.processedContentHashes.has(contentHash)) {
+          console.log(
+            '[SheetArtifact] Duplicate content detected, skipping',
+            contentHash,
+          );
+          return metadata;
+        }
+
+        // Add this content hash to our processed set
+        const updatedHashes = new Set(metadata.processedContentHashes);
+        updatedHashes.add(contentHash);
+
+        return {
+          ...metadata,
+          processedContentHashes: updatedHashes,
+          lastContentLength: deltaContent.length, // For sheet-delta, we replace the content
+        };
+      });
+
       setArtifact((draftArtifact) => ({
         ...draftArtifact,
-        content: streamPart.content as string,
+        content: deltaContent,
         isVisible: true,
         status: 'streaming',
       }));
+    }
+
+    if (streamPart.type === 'text-delta') {
+      const deltaContent = streamPart.content as string;
+
+      // Skip empty content
+      if (!deltaContent || deltaContent.length === 0) {
+        console.log('[SheetArtifact] Empty text-delta received, skipping');
+        return;
+      }
+
+      // Generate a simple hash of the content for tracking
+      const contentHash = `${deltaContent.length}:${deltaContent.substring(0, 10)}`;
+
+      setMetadata((metadata) => {
+        // Check if we've already processed this exact content
+        if (metadata.processedContentHashes.has(contentHash)) {
+          console.log(
+            '[SheetArtifact] Duplicate content detected, skipping',
+            contentHash,
+          );
+          return metadata;
+        }
+
+        // Add this content hash to our processed set
+        const updatedHashes = new Set(metadata.processedContentHashes);
+        updatedHashes.add(contentHash);
+
+        return {
+          ...metadata,
+          processedContentHashes: updatedHashes,
+          lastContentLength: metadata.lastContentLength + deltaContent.length,
+        };
+      });
+
+      setArtifact((draftArtifact) => {
+        console.log(
+          '[SheetArtifact] Updating content with text-delta, delta length:',
+          deltaContent.length,
+        );
+
+        return {
+          ...draftArtifact,
+          content: draftArtifact.content + deltaContent,
+          isVisible: true,
+          status: 'streaming',
+        };
+      });
+    }
+
+    if (streamPart.type === 'id') {
+      setArtifact((draftArtifact) => {
+        // Only update if ID is different
+        if (draftArtifact.documentId === streamPart.content) {
+          return draftArtifact;
+        }
+
+        console.log('[SheetArtifact] Setting document ID:', streamPart.content);
+
+        // Reset metadata when we get a new document ID
+        setMetadata((metadata) => ({
+          ...metadata,
+          processedContentHashes: new Set<string>(),
+          lastContentLength: 0,
+        }));
+
+        return {
+          ...draftArtifact,
+          documentId: streamPart.content as string,
+          isVisible: true,
+        };
+      });
+    }
+
+    if (streamPart.type === 'title') {
+      setArtifact((draftArtifact) => {
+        // Only update if title is different
+        if (draftArtifact.title === streamPart.content) {
+          return draftArtifact;
+        }
+
+        console.log('[SheetArtifact] Setting title:', streamPart.content);
+        return {
+          ...draftArtifact,
+          title: streamPart.content as string,
+          isVisible: true,
+        };
+      });
+    }
+
+    if (streamPart.type === 'finish') {
+      // Clear our tracking state on finish
+      setMetadata((metadata) => ({
+        ...metadata,
+        processedContentHashes: new Set<string>(),
+      }));
+
+      setArtifact((draftArtifact) => {
+        console.log('[SheetArtifact] Finishing stream, maintaining visibility');
+        return {
+          ...draftArtifact,
+          status: 'idle',
+          isVisible: true,
+        };
+      });
     }
   },
   content: ({
@@ -51,11 +208,7 @@ export const sheetArtifact = new Artifact<'sheet', Metadata>({
         handleVersionChange('prev');
       },
       isDisabled: ({ currentVersionIndex }) => {
-        if (currentVersionIndex === 0) {
-          return true;
-        }
-
-        return false;
+        return currentVersionIndex === 0;
       },
     },
     {
@@ -65,11 +218,7 @@ export const sheetArtifact = new Artifact<'sheet', Metadata>({
         handleVersionChange('next');
       },
       isDisabled: ({ isCurrentVersion }) => {
-        if (isCurrentVersion) {
-          return true;
-        }
-
-        return false;
+        return isCurrentVersion;
       },
     },
     {

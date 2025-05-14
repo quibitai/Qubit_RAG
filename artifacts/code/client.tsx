@@ -75,19 +75,64 @@ export const codeArtifact = new Artifact<'code', Metadata>({
       outputs: [],
     });
   },
-  onStreamPart: ({ streamPart, setArtifact }) => {
-    if (streamPart.type === 'code-delta') {
-      setArtifact((draftArtifact) => ({
-        ...draftArtifact,
-        content: streamPart.content as string,
-        isVisible:
-          draftArtifact.status === 'streaming' &&
-          draftArtifact.content.length > 300 &&
-          draftArtifact.content.length < 310
-            ? true
-            : draftArtifact.isVisible,
-        status: 'streaming',
-      }));
+  onStreamPart: ({ streamPart, setMetadata, setArtifact }) => {
+    if (streamPart.type === 'code-output') {
+      setMetadata((metadata) => {
+        return {
+          ...metadata,
+          outputs: [
+            ...metadata.outputs,
+            streamPart.content as ConsoleOutputContent,
+          ],
+        };
+      });
+    }
+
+    if (streamPart.type === 'language') {
+      setMetadata((metadata) => {
+        return {
+          ...metadata,
+          language: streamPart.content as string,
+        };
+      });
+    }
+
+    if (streamPart.type === 'text-delta') {
+      setArtifact((draftArtifact) => {
+        return {
+          ...draftArtifact,
+          content: draftArtifact.content + (streamPart.content as string),
+          isVisible: true,
+          status: 'streaming',
+        };
+      });
+    }
+
+    if (streamPart.type === 'id') {
+      setArtifact((draftArtifact) => {
+        return {
+          ...draftArtifact,
+          documentId: streamPart.content as string,
+        };
+      });
+    }
+
+    if (streamPart.type === 'title') {
+      setArtifact((draftArtifact) => {
+        return {
+          ...draftArtifact,
+          title: streamPart.content as string,
+        };
+      });
+    }
+
+    if (streamPart.type === 'finish') {
+      setArtifact((draftArtifact) => {
+        return {
+          ...draftArtifact,
+          status: 'idle',
+        };
+      });
     }
   },
   content: ({ metadata, setMetadata, ...props }) => {

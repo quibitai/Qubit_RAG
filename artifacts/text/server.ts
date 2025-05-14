@@ -33,21 +33,24 @@ async function sendArtifactDataToClient(
 
 export const textDocumentHandler = createDocumentHandler<'text'>({
   kind: 'text',
-  onCreateDocument: async ({
-    id: docId,
-    title,
-    dataStream,
-    initialContentPrompt,
-    session,
-  }) => {
+  onCreateDocument: async (args) => {
+    console.log(
+      '[SERVER TEXT_HANDLER] onCreateDocument called with args:',
+      JSON.stringify(args),
+    );
+    const { id: docId, title, dataStream, initialContentPrompt } = args;
     let draftContent = '';
+
+    // Add flag to track if finish event has been sent
+    let streamFinishSent = false;
+    let serverSideAccumulatedContentLength = 0;
 
     console.log(
       `[textDocumentHandler] onCreateDocument for ID: ${docId}, Title: "${title}"`,
     );
 
     // 1. Save initial document placeholder to DB
-    const userId = session?.user?.id;
+    const userId = args.session?.user?.id;
     if (!userId) {
       console.error(
         '[textDocumentHandler] User ID missing in session during onCreateDocument.',
@@ -60,6 +63,11 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
       throw new Error('User not authenticated');
     }
 
+    // --- LOGGING: Before initial DB save ---
+    console.log(
+      '[SERVER TEXT_HANDLER SAVE] Attempting initial saveDocument with:',
+      JSON.stringify({ docId, title, kind: 'text', userId }),
+    );
     try {
       await saveDocument({
         id: docId,
@@ -68,10 +76,15 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
         kind: 'text',
         userId: userId,
       });
-      console.log(`[textDocumentHandler] Initial document ${docId} saved.`);
+      // --- LOGGING: After successful DB save ---
+      console.log(
+        '[SERVER TEXT_HANDLER SAVE] Initial saveDocument succeeded for docId:',
+        docId,
+      );
     } catch (dbError) {
+      // --- LOGGING: On DB save error ---
       console.error(
-        `[textDocumentHandler] Failed to save initial document ${docId}:`,
+        '[SERVER TEXT_HANDLER SAVE] Initial saveDocument FAILED:',
         dbError,
       );
       await sendArtifactDataToClient(dataStream, {
@@ -82,20 +95,33 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
     }
 
     // 2. Stream Metadata (after initial save)
-    await sendArtifactDataToClient(dataStream, {
-      type: 'artifact-start',
-      kind: 'text',
-      title,
-    });
-    await sendArtifactDataToClient(dataStream, { type: 'id', content: docId });
-    await sendArtifactDataToClient(dataStream, {
-      type: 'title',
-      content: title,
-    });
-    await sendArtifactDataToClient(dataStream, {
-      type: 'kind',
-      content: 'text',
-    });
+    const startPayload = { type: 'artifact-start', kind: 'text', title };
+    console.log(
+      `[SERVER TEXT_HANDLER SEND] Event: ${startPayload.type}, Payload:`,
+      JSON.stringify(startPayload),
+    );
+    await sendArtifactDataToClient(dataStream, startPayload);
+
+    const idPayload = { type: 'id', content: docId };
+    console.log(
+      `[SERVER TEXT_HANDLER SEND] Event: ${idPayload.type}, Payload:`,
+      JSON.stringify(idPayload),
+    );
+    await sendArtifactDataToClient(dataStream, idPayload);
+
+    const titlePayload = { type: 'title', content: title };
+    console.log(
+      `[SERVER TEXT_HANDLER SEND] Event: ${titlePayload.type}, Payload:`,
+      JSON.stringify(titlePayload),
+    );
+    await sendArtifactDataToClient(dataStream, titlePayload);
+
+    const kindPayload = { type: 'kind', content: 'text' };
+    console.log(
+      `[SERVER TEXT_HANDLER SEND] Event: ${kindPayload.type}, Payload:`,
+      JSON.stringify(kindPayload),
+    );
+    await sendArtifactDataToClient(dataStream, kindPayload);
     console.log(
       `[textDocumentHandler] Streamed metadata for ${docId} using 2: prefix.`,
     );
@@ -115,14 +141,30 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
       const { type } = delta;
 
       if (type === 'text-delta') {
+        // Check if finish has already been sent - this should never happen
+        if (streamFinishSent) {
+          console.warn(
+            `[SERVER TEXT_HANDLER WARN] Attempting to send text-delta AFTER finish event was sent!`,
+          );
+          continue; // Skip this delta if finish already sent
+        }
+
         const { textDelta } = delta;
 
-        draftContent += textDelta;
+        // --- ADDED LOGGING: Log text-delta content before sending ---
+        console.log(
+          `[SERVER TEXT_HANDLER SEND_DELTA] Type: text-delta, Length: ${textDelta?.length}, Snippet: "${textDelta?.substring(0, 50)}..."`,
+        );
 
-        await sendArtifactDataToClient(dataStream, {
-          type: 'text-delta',
-          content: textDelta,
-        });
+        draftContent += textDelta;
+        serverSideAccumulatedContentLength += textDelta.length;
+
+        const textDeltaPayload = { type: 'text-delta', content: textDelta };
+        console.log(
+          `[SERVER TEXT_HANDLER SEND] Event: ${textDeltaPayload.type}, Payload:`,
+          JSON.stringify(textDeltaPayload),
+        );
+        await sendArtifactDataToClient(dataStream, textDeltaPayload);
       }
     }
 
@@ -139,9 +181,19 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
     );
 
     // 4. Send a finish event
-    await sendArtifactDataToClient(dataStream, {
-      type: 'finish',
-    });
+    console.log(
+      `[SERVER TEXT_HANDLER SEND_FINISH] Sending 'finish' event. Final accumulated content length on server: ${serverSideAccumulatedContentLength}`,
+    );
+    const finishPayload = { type: 'finish' };
+    console.log(
+      `[SERVER TEXT_HANDLER SEND] Event: ${finishPayload.type}, Payload:`,
+      JSON.stringify(finishPayload),
+    );
+    await sendArtifactDataToClient(dataStream, finishPayload);
+
+    // Set flag after sending finish
+    streamFinishSent = true;
+
     console.log(
       `[textDocumentHandler] Stream finished for ${docId} using 2: prefix.`,
     );

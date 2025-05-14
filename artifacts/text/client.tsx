@@ -16,6 +16,10 @@ import { getSuggestions } from '../actions';
 
 interface TextArtifactMetadata {
   suggestions: Array<Suggestion>;
+  // Track processed content hashes to prevent duplicate processing
+  processedContentHashes: Set<string>;
+  // Track the last content length to detect significant changes
+  lastContentLength: number;
 }
 
 export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
@@ -26,32 +30,140 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
 
     setMetadata({
       suggestions,
+      processedContentHashes: new Set<string>(),
+      lastContentLength: 0,
     });
   },
   onStreamPart: ({ streamPart, setMetadata, setArtifact }) => {
+    // Skip processing if the stream part is not a valid type
+    if (!streamPart || !streamPart.type) {
+      console.log('[TextArtifact] Invalid stream part received, skipping');
+      return;
+    }
+
+    console.log(
+      `[TextArtifact] Processing stream part of type: ${streamPart.type}`,
+    );
+
     if (streamPart.type === 'suggestion') {
       setMetadata((metadata) => {
         return {
+          ...metadata,
           suggestions: [
             ...metadata.suggestions,
             streamPart.content as Suggestion,
           ],
         };
       });
-    }
+    } else if (streamPart.type === 'text-delta') {
+      const deltaContent = streamPart.content as string;
 
-    if (streamPart.type === 'text-delta') {
+      // Skip empty content deltas
+      if (!deltaContent || deltaContent.length === 0) {
+        console.log('[TextArtifact] Empty text-delta received, skipping');
+        return;
+      }
+
+      // Generate a simple hash of the content for tracking
+      const contentHash = `${deltaContent.length}:${deltaContent.substring(0, 10)}`;
+
+      console.log(
+        `[TextArtifact] Processing text-delta with contentHash: ${contentHash}, length: ${deltaContent.length}`,
+      );
+
+      setMetadata((metadata) => {
+        // Check if we've already processed this exact content
+        if (metadata.processedContentHashes.has(contentHash)) {
+          console.log(
+            '[TextArtifact] Duplicate content detected, skipping',
+            contentHash,
+          );
+          return metadata;
+        }
+
+        // Add this content hash to our processed set
+        const updatedHashes = new Set(metadata.processedContentHashes);
+        updatedHashes.add(contentHash);
+
+        console.log(
+          `[TextArtifact] New content hash added. Total unique deltas: ${updatedHashes.size}`,
+        );
+
+        return {
+          ...metadata,
+          processedContentHashes: updatedHashes,
+          lastContentLength: metadata.lastContentLength + deltaContent.length,
+        };
+      });
+
+      // Now handle the artifact update with the new content
       setArtifact((draftArtifact) => {
+        // Use a functional update to ensure we're working with the latest state
+        console.log(
+          '[TextArtifact] Updating content with text-delta, delta length:',
+          deltaContent.length,
+          'Current artifact content length:',
+          draftArtifact.content.length,
+          'Will result in new length:',
+          draftArtifact.content.length + deltaContent.length,
+        );
+
         return {
           ...draftArtifact,
-          content: draftArtifact.content + (streamPart.content as string),
-          isVisible:
-            draftArtifact.status === 'streaming' &&
-            draftArtifact.content.length > 400 &&
-            draftArtifact.content.length < 450
-              ? true
-              : draftArtifact.isVisible,
+          content: draftArtifact.content + deltaContent,
+          isVisible: true,
           status: 'streaming',
+        };
+      });
+    } else if (streamPart.type === 'id') {
+      setArtifact((draftArtifact) => {
+        // Only update if ID is different
+        if (draftArtifact.documentId === streamPart.content) {
+          return draftArtifact;
+        }
+
+        console.log('[TextArtifact] Setting document ID:', streamPart.content);
+
+        // Reset metadata when we get a new document ID
+        setMetadata((metadata) => ({
+          ...metadata,
+          processedContentHashes: new Set<string>(),
+          lastContentLength: 0,
+        }));
+
+        return {
+          ...draftArtifact,
+          documentId: streamPart.content as string,
+          isVisible: true,
+        };
+      });
+    } else if (streamPart.type === 'title') {
+      setArtifact((draftArtifact) => {
+        // Only update if title is different
+        if (draftArtifact.title === streamPart.content) {
+          return draftArtifact;
+        }
+
+        console.log('[TextArtifact] Setting title:', streamPart.content);
+        return {
+          ...draftArtifact,
+          title: streamPart.content as string,
+          isVisible: true,
+        };
+      });
+    } else if (streamPart.type === 'finish') {
+      // Clear our tracking state on finish
+      setMetadata((metadata) => ({
+        ...metadata,
+        processedContentHashes: new Set<string>(),
+      }));
+
+      setArtifact((draftArtifact) => {
+        console.log('[TextArtifact] Finishing stream, maintaining visibility');
+        return {
+          ...draftArtifact,
+          status: 'idle',
+          isVisible: true,
         };
       });
     }
@@ -90,8 +202,7 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
             onSaveContent={onSaveContent}
           />
 
-          {metadata?.suggestions &&
-          metadata.suggestions.length > 0 ? (
+          {metadata?.suggestions && metadata.suggestions.length > 0 ? (
             <div className="md:hidden h-dvh w-12 shrink-0" />
           ) : null}
         </div>
@@ -105,12 +216,8 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
       onClick: ({ handleVersionChange }) => {
         handleVersionChange('toggle');
       },
-      isDisabled: ({ currentVersionIndex, setMetadata }) => {
-        if (currentVersionIndex === 0) {
-          return true;
-        }
-
-        return false;
+      isDisabled: ({ currentVersionIndex }) => {
+        return currentVersionIndex === 0;
       },
     },
     {
@@ -120,11 +227,7 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
         handleVersionChange('prev');
       },
       isDisabled: ({ currentVersionIndex }) => {
-        if (currentVersionIndex === 0) {
-          return true;
-        }
-
-        return false;
+        return currentVersionIndex === 0;
       },
     },
     {
@@ -134,11 +237,7 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
         handleVersionChange('next');
       },
       isDisabled: ({ isCurrentVersion }) => {
-        if (isCurrentVersion) {
-          return true;
-        }
-
-        return false;
+        return isCurrentVersion;
       },
     },
     {

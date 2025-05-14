@@ -41,8 +41,16 @@ function PureEditor({
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorView | null>(null);
 
+  // Log when the component receives new props
+  console.log(
+    `[TEXT_EDITOR_RENDERER] Received content prop. Length: ${content?.length || 0}. Status: ${status}. First 50 chars: "${content?.substring(0, 50)}..."`,
+  );
+
   useEffect(() => {
     if (containerRef.current && !editorRef.current) {
+      console.log(
+        `[TEXT_EDITOR_RENDERER] Initializing editor with initial content length: ${content?.length || 0}`,
+      );
       const state = EditorState.create({
         doc: buildDocumentFromContent(content),
         plugins: [
@@ -64,6 +72,7 @@ function PureEditor({
       editorRef.current = new EditorView(containerRef.current, {
         state,
       });
+      console.log(`[TEXT_EDITOR_RENDERER] Editor initialized successfully`);
     }
 
     return () => {
@@ -97,6 +106,9 @@ function PureEditor({
       );
 
       if (status === 'streaming') {
+        console.log(
+          `[TEXT_EDITOR_RENDERER] Streaming update received. New content length: ${content.length}, Current editor content length: ${currentContent.length}`,
+        );
         const newDocument = buildDocumentFromContent(content);
 
         const transaction = editorRef.current.state.tr.replaceWith(
@@ -107,10 +119,16 @@ function PureEditor({
 
         transaction.setMeta('no-save', true);
         editorRef.current.dispatch(transaction);
+        console.log(
+          `[TEXT_EDITOR_RENDERER] Editor updated with streaming content`,
+        );
         return;
       }
 
       if (currentContent !== content) {
+        console.log(
+          `[TEXT_EDITOR_RENDERER] Content differs, updating editor. New content length: ${content.length}, Current editor content length: ${currentContent.length}`,
+        );
         const newDocument = buildDocumentFromContent(content);
 
         const transaction = editorRef.current.state.tr.replaceWith(
@@ -121,6 +139,7 @@ function PureEditor({
 
         transaction.setMeta('no-save', true);
         editorRef.current.dispatch(transaction);
+        console.log(`[TEXT_EDITOR_RENDERER] Editor updated with new content`);
       }
     }
   }, [content, status]);

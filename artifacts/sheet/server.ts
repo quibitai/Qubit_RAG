@@ -36,8 +36,24 @@ async function sendArtifactDataToClient(
 
 export const sheetDocumentHandler = createDocumentHandler<'sheet'>({
   kind: 'sheet',
-  onCreateDocument: async ({ title, dataStream }) => {
+  onCreateDocument: async (args) => {
+    console.log(
+      '[SERVER SHEET_HANDLER] onCreateDocument called with args:',
+      JSON.stringify(args),
+    );
+    const { id: docId, title, dataStream, initialContentPrompt } = args;
     let draftContent = '';
+
+    // Send artifact-start event (metadata)
+    const startPayload = { type: 'artifact-start', kind: 'sheet', title };
+    console.log(
+      `[SERVER SHEET_HANDLER SEND] Event: ${startPayload.type}, Payload:`,
+      JSON.stringify(startPayload),
+    );
+    await sendArtifactDataToClient(dataStream, startPayload);
+
+    // Optionally send id, title, kind events for consistency (if you have a docId, add those here)
+    // ...
 
     const { fullStream } = streamObject({
       model: myProvider.languageModel('artifact-model'),
@@ -56,20 +72,23 @@ export const sheetDocumentHandler = createDocumentHandler<'sheet'>({
         const { csv } = object;
 
         if (csv) {
-          await sendArtifactDataToClient(dataStream, {
-            type: 'sheet-delta',
-            content: csv,
-          });
-
+          const sheetDeltaPayload = { type: 'sheet-delta', content: csv };
+          console.log(
+            `[SERVER SHEET_HANDLER SEND] Event: ${sheetDeltaPayload.type}, Payload:`,
+            JSON.stringify(sheetDeltaPayload),
+          );
+          await sendArtifactDataToClient(dataStream, sheetDeltaPayload);
           draftContent = csv;
         }
       }
     }
 
-    await sendArtifactDataToClient(dataStream, {
-      type: 'sheet-delta',
-      content: draftContent,
-    });
+    const finishPayload = { type: 'finish' };
+    console.log(
+      `[SERVER SHEET_HANDLER SEND] Event: ${finishPayload.type}, Payload:`,
+      JSON.stringify(finishPayload),
+    );
+    await sendArtifactDataToClient(dataStream, finishPayload);
 
     return draftContent;
   },

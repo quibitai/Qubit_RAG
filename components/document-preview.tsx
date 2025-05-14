@@ -28,6 +28,15 @@ interface DocumentPreviewProps {
   args?: any;
 }
 
+// Improved UUID validation function
+const isValidUUID = (id: string | null | undefined): boolean => {
+  if (!id || id === '') return false;
+  // Simple UUID v4 regex
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
+    id,
+  );
+};
+
 export function DocumentPreview({
   isReadonly,
   result,
@@ -37,7 +46,10 @@ export function DocumentPreview({
 
   const { data: documents, isLoading: isDocumentsFetching } = useSWR<
     Array<Document>
-  >(result ? `/api/document?id=${result.id}` : null, fetcher);
+  >(
+    result && isValidUUID(result.id) ? `/api/document?id=${result.id}` : null,
+    fetcher,
+  );
 
   const previewDocument = useMemo(() => documents?.[0], [documents]);
   const hitboxRef = useRef<HTMLDivElement>(null);
@@ -45,7 +57,11 @@ export function DocumentPreview({
   useEffect(() => {
     const boundingBox = hitboxRef.current?.getBoundingClientRect();
 
-    if (artifact.documentId && boundingBox) {
+    if (
+      artifact.documentId &&
+      isValidUUID(artifact.documentId) &&
+      boundingBox
+    ) {
       setArtifact((artifact) => ({
         ...artifact,
         boundingBox: {
@@ -81,7 +97,7 @@ export function DocumentPreview({
   }
 
   if (isDocumentsFetching) {
-    return <LoadingSkeleton artifactKind={result.kind ?? args.kind} />;
+    return <LoadingSkeleton artifactKind={result?.kind ?? args?.kind} />;
   }
 
   const document: Document | null = previewDocument
@@ -91,7 +107,7 @@ export function DocumentPreview({
           title: artifact.title,
           kind: artifact.kind,
           content: artifact.content,
-          id: artifact.documentId,
+          id: isValidUUID(artifact.documentId) ? artifact.documentId : '',
           createdAt: new Date(),
           userId: 'noop',
           clientId: 'noop-client',
@@ -163,7 +179,9 @@ const PureHitboxLayer = ({
           : {
               ...artifact,
               title: result.title,
-              documentId: result.id,
+              documentId: isValidUUID(result.id)
+                ? result.id
+                : artifact.documentId,
               kind: result.kind,
               isVisible: true,
               boundingBox: {

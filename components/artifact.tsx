@@ -8,6 +8,7 @@ import {
   useCallback,
   useEffect,
   useState,
+  useMemo,
 } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { useDebounceCallback, useWindowSize } from 'usehooks-ts';
@@ -50,6 +51,15 @@ export interface UIArtifact {
     height: number;
   };
 }
+
+// Add a type guard for UUID validation
+const isValidUUID = (id: string | null | undefined): boolean => {
+  if (!id || id === '') return false;
+  // Simple UUID v4 regex
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
+    id,
+  );
+};
 
 function PureArtifact({
   chatId,
@@ -98,6 +108,21 @@ function PureArtifact({
   error: string | null;
   onClose: () => void;
 }) {
+  console.log(
+    '[CLIENT ARTIFACT_COMPONENT RENDER] Props received => isVisible (isStreamingVisible):',
+    isStreamingVisible,
+    '| streamingDocId:',
+    streamingDocumentId,
+    '| streamingKind:',
+    streamingKind,
+    '| isStreaming:',
+    isStreaming,
+    '| streamingError:',
+    streamingError,
+    '| streamingContent length:',
+    streamingContent?.length || 0,
+  );
+
   // ENHANCED DEBUGGING - Add clear console markers for visibility
   console.log('============== ARTIFACT COMPONENT RENDER ==============');
   console.log('[PureArtifact] COMPONENT MOUNTED/UPDATED with props:', {
@@ -139,7 +164,7 @@ function PureArtifact({
     isLoading: isDocumentsFetching,
     mutate: mutateDocuments,
   } = useSWR<Array<Document>>(
-    artifact.documentId !== 'init' && artifact.status !== 'streaming'
+    isValidUUID(artifact.documentId) && artifact.status !== 'streaming'
       ? `/api/document?id=${artifact.documentId}`
       : null,
     fetcher,
@@ -175,7 +200,7 @@ function PureArtifact({
 
   const handleContentChange = useCallback(
     (updatedContent: string) => {
-      if (!artifact) return;
+      if (!artifact || !isValidUUID(artifact.documentId)) return;
 
       mutate<Array<Document>>(
         `/api/document?id=${artifact.documentId}`,
@@ -290,8 +315,17 @@ function PureArtifact({
     throw new Error('Artifact definition not found!');
   }
 
+  // Memoize the content to prevent unnecessary re-renders
+  const memoizedArtifactContent = useMemo(() => {
+    console.log(
+      '[PureArtifact] Memoizing artifact content, length:',
+      artifact.content.length,
+    );
+    return artifact.content;
+  }, [artifact.content]);
+
   useEffect(() => {
-    if (artifact.documentId !== 'init') {
+    if (artifact.documentId !== 'init' && isValidUUID(artifact.documentId)) {
       if (artifactDefinition.initialize) {
         artifactDefinition.initialize({
           documentId: artifact.documentId,
@@ -309,27 +343,50 @@ function PureArtifact({
       streamingKind,
     );
 
+    // Only update when streaming is active and visible
     if (isStreamingVisible && streamingKind) {
-      console.debug(
-        '[PureArtifact] Syncing streaming props to useArtifact state.',
-      );
-      setArtifact((currentArtifact) => {
-        // Create a properly typed artifact state
-        const newArtifactState: UIArtifact = {
-          ...currentArtifact,
-          documentId: streamingDocumentId || 'streaming',
-          title: streamingTitle || 'Document',
-          kind: streamingKind,
-          content: streamingContent,
-          isVisible: isStreamingVisible,
-          status: isStreaming ? 'streaming' : 'idle',
-        };
+      // Compare with current values to avoid unnecessary updates
+      const needsUpdate =
+        (isValidUUID(streamingDocumentId) &&
+          streamingDocumentId !== artifact.documentId) ||
+        (streamingTitle && streamingTitle !== artifact.title) ||
+        streamingKind !== artifact.kind ||
+        isStreaming !== (artifact.status === 'streaming') ||
+        artifact.isVisible !== true;
+
+      if (needsUpdate) {
         console.debug(
-          '[PureArtifact] New artifact state for setArtifact:',
-          newArtifactState,
+          '[PureArtifact] Syncing streaming props to useArtifact state - values changed.',
         );
-        return newArtifactState;
-      });
+
+        setArtifact((currentArtifact) => {
+          // Create a properly typed artifact state
+          const newArtifactState: UIArtifact = {
+            ...currentArtifact,
+            // Only use documentId if it's a valid UUID
+            documentId: isValidUUID(streamingDocumentId)
+              ? streamingDocumentId || ''
+              : currentArtifact.documentId,
+            title: streamingTitle || 'Document',
+            kind: streamingKind,
+            isVisible: true, // Always set to true when streaming content is available
+            status: isStreaming ? 'streaming' : 'idle',
+          };
+
+          // Only update content if we need to keep the existing content
+          // Don't synchronize content here to avoid duplication
+
+          console.debug(
+            '[PureArtifact] New artifact state for setArtifact:',
+            newArtifactState,
+          );
+          return newArtifactState;
+        });
+      } else {
+        console.debug(
+          '[PureArtifact] No state update needed - values unchanged.',
+        );
+      }
     } else if (!isStreamingVisible && artifact.isVisible) {
       // If the prop says not visible but local state is visible, attempt to hide
       console.debug(
@@ -341,47 +398,14 @@ function PureArtifact({
     streamingDocumentId,
     streamingTitle,
     streamingKind,
-    streamingContent,
     isStreaming,
     isStreamingVisible,
     setArtifact,
     artifact.isVisible,
-  ]);
-
-  // Sync streaming state to artifact state
-  useEffect(() => {
-    console.log('[PureArtifact] Syncing streaming props to artifact state');
-    console.log(
-      '[PureArtifact] Current streaming visibility:',
-      isStreamingVisible,
-    );
-    console.log(
-      '[PureArtifact] Current artifact.isVisible:',
-      artifact.isVisible,
-    );
-
-    // Only update if we're receiving a streaming document and it's supposed to be visible
-    if (streamingDocumentId && isStreamingVisible) {
-      console.log('[PureArtifact] Updating artifact state with streaming data');
-      setArtifact({
-        documentId: streamingDocumentId || 'init',
-        title: streamingTitle || 'Untitled',
-        kind: streamingKind || 'text',
-        content: streamingContent || '',
-        isVisible: true, // Important: ensure visibility is set
-        status: isStreaming ? 'streaming' : 'idle',
-        boundingBox: artifact.boundingBox, // Preserve the existing bounding box
-      });
-    }
-  }, [
-    streamingDocumentId,
-    streamingTitle,
-    streamingKind,
-    streamingContent,
-    isStreaming,
-    isStreamingVisible,
-    setArtifact,
-    artifact.boundingBox,
+    artifact.documentId,
+    artifact.title,
+    artifact.kind,
+    artifact.status,
   ]);
 
   const handleClose = useCallback(() => {
@@ -411,9 +435,115 @@ function PureArtifact({
       console.debug(
         '[PureArtifact] Content updated, length:',
         streamingContent.length,
+        'Content preview:',
+        streamingContent.substring(0, 50),
       );
     }
   }, [streamingContent]);
+
+  // Add debug element to show content length in UI
+  const debugInfo = (
+    <div className="fixed bottom-4 left-4 z-[9999] bg-black text-white p-2 rounded text-xs">
+      Content length: {artifact.content.length}
+      <br />
+      streamingContent length: {streamingContent?.length || 0}
+      <br />
+      isVisible: {String(artifact.isVisible)}
+      <br />
+      isStreamingVisible: {String(isStreamingVisible)}
+      <br />
+      Status: {artifact.status}
+      <br />
+      Kind: {artifact.kind}
+      <br />
+      DocumentId: {artifact.documentId?.substring(0, 8)}...
+    </div>
+  );
+
+  // Force sync of streaming content to artifact content when needed
+  useEffect(() => {
+    // Log debugging info for easier troubleshooting
+    if (streamingContent) {
+      console.log(
+        '[PureArtifact] FORCE SYNC CHECK - streamingContent length:',
+        streamingContent.length,
+        'artifact.content length:',
+        artifact.content.length,
+        'isStreamingVisible:',
+        isStreamingVisible,
+        'artifact.isVisible:',
+        artifact.isVisible,
+      );
+    }
+
+    // Only attempt sync if we have streaming content to sync
+    if (streamingContent && streamingContent.length > 0) {
+      // ALWAYS ensure visibility if we have streaming content
+      if (isStreamingVisible && !artifact.isVisible) {
+        console.log(
+          '[PureArtifact] Forcing artifact visibility because isStreamingVisible is true',
+        );
+        setArtifact((current) => ({
+          ...current,
+          isVisible: true,
+        }));
+      }
+
+      // Determine if we need to sync content (one of the following must be true):
+      // 1. We have no existing content at all
+      // 2. The streaming content is substantially different and not a duplicate
+      const needsContentSync =
+        !artifact.content ||
+        artifact.content.length === 0 ||
+        (streamingContent.length > artifact.content.length &&
+          !streamingContent.includes(artifact.content + artifact.content));
+
+      if (needsContentSync) {
+        console.log(
+          '[PureArtifact] FORCE SYNC: Syncing content. Current:',
+          artifact.content.length,
+          'Streaming:',
+          streamingContent.length,
+        );
+
+        // Use functional update to ensure we're working with latest state
+        setArtifact((current) => {
+          // Skip update if content is already identical
+          if (current.content === streamingContent) {
+            console.log(
+              '[PureArtifact] FORCE SYNC: Content already matches, skipping update',
+            );
+            return current;
+          }
+
+          console.log(
+            '[PureArtifact] FORCE SYNC: Updating content and ensuring visibility',
+          );
+
+          return {
+            ...current,
+            content: streamingContent,
+            isVisible: true,
+            status: isStreaming ? 'streaming' : 'idle',
+          };
+        });
+      } else {
+        console.log(
+          '[PureArtifact] FORCE SYNC: Content sync not needed based on conditions',
+        );
+      }
+    }
+  }, [
+    streamingContent,
+    artifact.content,
+    setArtifact,
+    isStreaming,
+    isStreamingVisible,
+    artifact.isVisible,
+  ]);
+
+  // Always show debug info in development
+  const debugElement = process.env.NODE_ENV !== 'production' && debugInfo;
 
   if (streamingError && isStreamingVisible) {
     return (
@@ -454,6 +584,8 @@ function PureArtifact({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0, transition: { delay: 0.4 } }}
         >
+          {debugElement}
+
           <div
             className="fixed top-0 left-0 z-[9999] p-2 bg-yellow-300 text-black text-xs"
             style={{ display: 'none' }}
@@ -648,25 +780,55 @@ function PureArtifact({
             </div>
 
             <div className="dark:bg-muted bg-background h-full overflow-y-scroll !max-w-full items-center">
-              <artifactDefinition.content
-                title={artifact.title}
-                content={
-                  isCurrentVersion
-                    ? artifact.content
-                    : getDocumentContentById(currentVersionIndex)
-                }
-                mode={mode}
-                status={artifact.status}
-                currentVersionIndex={currentVersionIndex}
-                suggestions={[]}
-                onSaveContent={saveContent}
-                isInline={false}
-                isCurrentVersion={isCurrentVersion}
-                getDocumentContentById={getDocumentContentById}
-                isLoading={isDocumentsFetching && !artifact.content}
-                metadata={metadata}
-                setMetadata={setMetadata}
-              />
+              {artifact.content && artifact.content.length > 0
+                ? (() => {
+                    // Log the content sources to understand which content is being used
+                    console.log(
+                      `[ARTIFACT_COMPONENT CONTENT_CHOICE] isStreaming: ${isStreaming}, streamingContent length: ${streamingContent?.length || 0}, artifact.content length: ${artifact.content?.length || 0}, isStreamingVisible: ${isStreamingVisible}, artifact.isVisible: ${artifact.isVisible}`,
+                    );
+                    console.log(
+                      `[ARTIFACT_COMPONENT CONTENT_SAMPLE] First 50 chars: "${artifact.content?.substring(0, 50)}"`,
+                    );
+
+                    return (
+                      <artifactDefinition.content
+                        title={artifact.title}
+                        content={
+                          isCurrentVersion
+                            ? memoizedArtifactContent // Use memoized content
+                            : getDocumentContentById(currentVersionIndex)
+                        }
+                        mode={mode}
+                        status={artifact.status}
+                        currentVersionIndex={currentVersionIndex}
+                        suggestions={[]}
+                        onSaveContent={saveContent}
+                        isInline={false}
+                        isCurrentVersion={isCurrentVersion}
+                        getDocumentContentById={getDocumentContentById}
+                        isLoading={isDocumentsFetching && !artifact.content}
+                        metadata={metadata}
+                        setMetadata={setMetadata}
+                      />
+                    );
+                  })()
+                : (() => {
+                    // Log when content is missing
+                    console.log(
+                      `[ARTIFACT_COMPONENT CONTENT_MISSING] No content to display. isStreaming: ${isStreaming}, streamingContent length: ${streamingContent?.length || 0}, artifact.content length: ${artifact.content?.length || 0}, isStreamingVisible: ${isStreamingVisible}, artifact.isVisible: ${artifact.isVisible}`,
+                    );
+
+                    return (
+                      <div className="flex flex-col items-center justify-center h-full p-8">
+                        <div className="animate-pulse bg-muted rounded-md h-6 w-3/4 mb-4" />
+                        <div className="animate-pulse bg-muted rounded-md h-6 w-2/3 mb-4" />
+                        <div className="animate-pulse bg-muted rounded-md h-6 w-1/2 mb-4" />
+                        <div className="text-center text-muted-foreground mt-4">
+                          Loading content...
+                        </div>
+                      </div>
+                    );
+                  })()}
 
               <AnimatePresence>
                 {isCurrentVersion && (

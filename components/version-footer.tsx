@@ -2,7 +2,7 @@
 
 import { isAfter } from 'date-fns';
 import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useSWRConfig } from 'swr';
 import { useWindowSize } from 'usehooks-ts';
 
@@ -19,6 +19,15 @@ interface VersionFooterProps {
   currentVersionIndex: number;
 }
 
+// Improved UUID validation function
+const isValidUUID = (id: string | null | undefined): boolean => {
+  if (!id || id === '') return false;
+  // Simple UUID v4 regex
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
+    id,
+  );
+};
+
 export const VersionFooter = ({
   handleVersionChange,
   documents,
@@ -32,7 +41,37 @@ export const VersionFooter = ({
   const { mutate } = useSWRConfig();
   const [isMutating, setIsMutating] = useState(false);
 
-  if (!documents) return;
+  const handleDeleteVersion = useCallback(async () => {
+    if (!artifact.documentId || !isValidUUID(artifact.documentId)) return;
+
+    try {
+      mutate<Array<Document>>(
+        `/api/document?id=${artifact.documentId}`,
+        async (currentDocuments) => {
+          if (!currentDocuments) return undefined;
+
+          await fetch(`/api/document?id=${artifact.documentId}`, {
+            method: 'DELETE',
+            body: JSON.stringify({
+              id: currentDocuments[currentVersionIndex].id,
+            }),
+          });
+
+          const newDocuments = [...currentDocuments];
+          newDocuments.splice(currentVersionIndex, 1);
+
+          return newDocuments;
+        },
+        { revalidate: false },
+      );
+
+      handleVersionChange('latest');
+    } catch (error) {
+      console.error('Failed to delete version:', error);
+    }
+  }, [artifact.documentId, currentVersionIndex, handleVersionChange, mutate]);
+
+  if (!documents) return null;
 
   return (
     <motion.div
@@ -53,6 +92,8 @@ export const VersionFooter = ({
         <Button
           disabled={isMutating}
           onClick={async () => {
+            if (!artifact.documentId || !isValidUUID(artifact.documentId))
+              return;
             setIsMutating(true);
 
             mutate(

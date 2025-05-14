@@ -6,7 +6,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { useRouter } from 'next/navigation';
 import { ChatHeader } from '@/components/chat-header';
-import type { Vote, DBMessage } from '@/lib/db/schema';
+import type { Vote } from '@/lib/db/schema';
 import { fetcher, generateUUID } from '@/lib/utils';
 import { Artifact } from './artifact';
 import { MultimodalInput } from './multimodal-input';
@@ -14,13 +14,9 @@ import { Messages } from './messages';
 import type { VisibilityType } from './visibility-selector';
 import { useArtifactSelector } from '@/hooks/use-artifact';
 import { toast } from 'sonner';
-import { unstable_serialize } from 'swr/infinite';
-import { getChatHistoryPaginationKey } from './sidebar-history';
 import { ChatPaneToggle } from './ChatPaneToggle';
 import { createChatAndSaveFirstMessages } from '@/app/(chat)/actions';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { XIcon } from 'lucide-react';
 import { useChatPane } from '@/context/ChatPaneContext';
 import type { ArtifactKind } from '@/components/artifact';
 
@@ -506,30 +502,78 @@ export function Chat({
       error: null,
     });
 
+  // --- Defensive logic to prevent duplicate streaming and infinite loops ---
+  // Track the last streamed documentId to avoid re-processing the same artifact
+  const lastStreamedDocIdRef = useRef<string | null>(null);
+
+  // Track which indexes in the data array we've already processed to avoid reprocessing
+  const processedDataIndexRef = useRef<number>(0);
+
+  // Add a reference to track if the finish event has been processed
+  const streamFinishedRef = useRef<boolean>(false);
+
+  // Reset streaming state when component is unmounted or new conversation starts
+  useEffect(() => {
+    return () => {
+      // Clean up when component unmounts
+      processedDataIndexRef.current = 0;
+      streamFinishedRef.current = false;
+      lastStreamedDocIdRef.current = null;
+    };
+  }, [id]); // Reset when chat ID changes
+
   // Process data stream for artifact-related events
   useEffect(() => {
-    console.log(
-      '[ChatUI] useEffect[data] TRIGGERED. Current raw data from useChat():',
-      JSON.stringify(data, null, 2),
-    );
-
-    if (!data) {
-      console.log('[ChatUI] useEffect[data]: data is null. Returning.');
+    // Skip processing if no data
+    if (!data || data.length === 0) {
+      console.log('[ChatUI] useEffect[data]: data is empty. Returning.');
       return;
     }
-    if (data.length === 0) {
+
+    // Only process new items since last time this effect ran
+    if (data.length <= processedDataIndexRef.current) {
       console.log(
-        '[ChatUI] useEffect[data]: data is an empty array. Returning.',
+        `[ChatUI] useEffect[data]: No new data items (current: ${processedDataIndexRef.current}, available: ${data.length}). Skipping.`,
       );
       return;
     }
 
+    // If streaming was already finished for the current document, don't process more data
+    // for the same document ID (unless it's a new artifact-start event)
+    if (streamFinishedRef.current && lastStreamedDocIdRef.current) {
+      const newArtifactStart = data
+        .slice(processedDataIndexRef.current)
+        .some(
+          (item) =>
+            item &&
+            typeof item === 'object' &&
+            'type' in item &&
+            item.type === 'artifact-start',
+        );
+
+      if (!newArtifactStart) {
+        console.log(
+          `[ChatUI] useEffect[data]: Stream already finished for document ${lastStreamedDocIdRef.current}. Ignoring additional data until new artifact-start.`,
+        );
+        processedDataIndexRef.current = data.length; // Update index to avoid reprocessing
+        return;
+      } else {
+        // Reset finished state when a new artifact starts
+        console.log(
+          '[ChatUI] useEffect[data]: New artifact-start detected after previous finish. Resetting stream state.',
+        );
+        streamFinishedRef.current = false;
+      }
+    }
+
+    // Extract only the new items we haven't processed yet
+    const newDataItems = data.slice(processedDataIndexRef.current);
+
     console.log(
-      `[ChatUI] useEffect[data]: PROCESSING ${data.length} item(s) in data stream.`,
+      `[CLIENT CHAT_EFFECT DATA_UPDATE] Raw data array length: ${data.length}. Previously processed: ${processedDataIndexRef.current}. Processing ${newDataItems.length} new items.`,
     );
 
-    // It's safer to create the new state based on the previous state from the hook,
-    // rather than mutating a copy of activeArtifactState directly in each loop.
+    // Defensive: Only process new streams if documentId changes
     let newDocumentId = activeArtifactState.documentId;
     let newKind = activeArtifactState.kind;
     let newTitle = activeArtifactState.title;
@@ -539,11 +583,47 @@ export function Chat({
     let newError = activeArtifactState.error;
     let stateActuallyChangedThisCycle = false;
 
-    // Process each data item in the stream
-    data.forEach((dataObject, index) => {
+    // Find the latest artifact-start or id event to determine the current docId
+    let latestDocId: string | null = null;
+    newDataItems.forEach((dataObject) => {
+      if (
+        dataObject &&
+        typeof dataObject === 'object' &&
+        'type' in dataObject &&
+        dataObject.type === 'id' &&
+        'content' in dataObject &&
+        typeof (dataObject as any).content === 'string'
+      ) {
+        latestDocId = (dataObject as any).content;
+      }
+    });
+
+    // MODIFIED: Only use the guard for initialization, not for skipping delta processing
+    let shouldInitializeNewDocument = true;
+    if (latestDocId && lastStreamedDocIdRef.current === latestDocId) {
       console.log(
-        `[ChatUI] useEffect[data]: Inspecting data item [${index}]:`,
-        JSON.stringify(dataObject, null, 2),
+        '[CLIENT CHAT_EFFECT GUARD] Already streaming this documentId, will continue processing deltas:',
+        latestDocId,
+      );
+      shouldInitializeNewDocument = false;
+    } else if (latestDocId) {
+      lastStreamedDocIdRef.current = latestDocId;
+      console.log(
+        '[CLIENT CHAT_EFFECT GUARD] New documentId detected, processing stream:',
+        latestDocId,
+      );
+      shouldInitializeNewDocument = true;
+      // Reset finished state for new document
+      streamFinishedRef.current = false;
+    }
+
+    // Process only the new data items
+    newDataItems.forEach((dataObject, relativeIndex) => {
+      const absoluteIndex = processedDataIndexRef.current + relativeIndex;
+      const typedDataObject = dataObject as any; // Replace with actual type if available
+      console.log(
+        `[CLIENT CHAT_EFFECT ITEM_${absoluteIndex}] Type: ${typedDataObject.type}, Payload:`,
+        JSON.stringify(typedDataObject),
       );
 
       if (
@@ -551,69 +631,72 @@ export function Chat({
         dataObject !== null &&
         'type' in dataObject
       ) {
-        const typedDataObject = dataObject as {
-          type: string;
-          [key: string]: any;
-        };
-        console.log(
-          `[ChatUI] useEffect[data]: Item [${index}] is valid. Type: "${typedDataObject.type}".`,
-        );
-
         switch (typedDataObject.type) {
           case 'artifact-start':
-            console.log(
-              '[ChatUI] CASE: artifact-start. Payload:',
-              typedDataObject,
-            );
-            console.log(
-              '[ChatUI] SETTING VISIBILITY FLAG TO TRUE - THIS IS CRITICAL',
-            );
-            newIsVisible = true; // CRITICAL: Ensure this is set
-            newIsStreaming = true;
-            newKind = typedDataObject.kind as ArtifactKind;
-            newTitle = typedDataObject.title;
-            newContent = ''; // Reset content
-            newError = null;
-            console.debug(
-              '[ChatUI] Artifact start detected:',
-              typedDataObject,
-              'Setting isVisible to TRUE',
-            );
-            stateActuallyChangedThisCycle = true;
+            if (shouldInitializeNewDocument) {
+              console.log(
+                '[CLIENT CHAT_EFFECT MATCH] artifact-start detected. Current newIsVisible before update:',
+                newIsVisible,
+              );
+              newIsVisible = true;
+              console.log('[CLIENT CHAT_EFFECT SET] newIsVisible set to true.');
+              newIsStreaming = true;
+              newKind = typedDataObject.kind as ArtifactKind;
+              newTitle = typedDataObject.title;
+
+              // Reset content when starting a new document
+              console.log(
+                '[CLIENT CHAT_EFFECT] New artifact - resetting content',
+              );
+              newContent = '';
+
+              newError = null;
+              console.debug(
+                '[ChatUI] Artifact start detected:',
+                typedDataObject,
+                'Setting isVisible to TRUE',
+              );
+              stateActuallyChangedThisCycle = true;
+              // Reset finished flag for new artifact
+              streamFinishedRef.current = false;
+            }
             break;
 
           case 'id':
             console.log('[ChatUI] CASE: id. Payload:', typedDataObject);
-            if (newIsStreaming) {
+            if (shouldInitializeNewDocument && newIsStreaming) {
               newDocumentId = typedDataObject.content;
               stateActuallyChangedThisCycle = true;
+              newIsVisible = true;
             } else {
               console.warn(
-                '[ChatUI] Received "id" but not in streaming state. Ignored.',
+                '[ChatUI] Received "id" but not in initialization state. Using existing ID.',
               );
             }
             break;
 
           case 'title':
             console.log('[ChatUI] CASE: title. Payload:', typedDataObject);
-            if (newIsStreaming) {
+            if (shouldInitializeNewDocument && newIsStreaming) {
               newTitle = typedDataObject.content;
               stateActuallyChangedThisCycle = true;
+              newIsVisible = true;
             } else {
               console.warn(
-                '[ChatUI] Received "title" but not in streaming state. Ignored.',
+                '[ChatUI] Received "title" but not in initialization state. Using existing title.',
               );
             }
             break;
 
           case 'kind':
             console.log('[ChatUI] CASE: kind. Payload:', typedDataObject);
-            if (newIsStreaming) {
+            if (shouldInitializeNewDocument && newIsStreaming) {
               newKind = typedDataObject.content as ArtifactKind;
               stateActuallyChangedThisCycle = true;
+              newIsVisible = true;
             } else {
               console.warn(
-                '[ChatUI] Received "kind" but not in streaming state. Ignored.',
+                '[ChatUI] Received "kind" but not in initialization state. Using existing kind.',
               );
             }
             break;
@@ -622,25 +705,48 @@ export function Chat({
           case 'code-delta':
           case 'image-delta':
           case 'sheet-delta':
-            console.log(
-              `[ChatUI] CASE: ${typedDataObject.type}. Appending content.`,
-            );
-            if (newIsStreaming) {
-              newContent = `${newContent}${typedDataObject.content}`;
-              stateActuallyChangedThisCycle = true;
-            } else {
+            // Skip delta processing if stream is already finished
+            if (streamFinishedRef.current) {
               console.warn(
-                `[ChatUI] Received "${typedDataObject.type}" but not in streaming state. Delta ignored. Current content: "${newContent.substring(0, 50)}..."`,
+                `[CLIENT CHAT_EFFECT WARN] Skipping ${typedDataObject.type} because stream is already finished.`,
               );
+              break;
+            }
+
+            // Properly accumulate delta content
+            console.log(
+              `[CLIENT CHAT_EFFECT MATCH] ${typedDataObject.type} detected`,
+            );
+
+            // Don't reset content for deltas, just accumulate
+            if (typedDataObject.content) {
+              const oldLength = newContent.length;
+              newContent += typedDataObject.content;
+              console.log(
+                `[CLIENT CHAT_EFFECT DELTA] Content updated. Old length: ${oldLength}, New length: ${newContent.length}, Delta: ${typedDataObject.content.length} chars, Preview: "${typedDataObject.content.substring(0, 25)}${typedDataObject.content.length > 25 ? '...' : ''}"`,
+              );
+              stateActuallyChangedThisCycle = true;
+              newIsVisible = true;
             }
             break;
 
           case 'finish':
-            console.log('[ChatUI] CASE: finish. Payload:', typedDataObject);
+            console.log(
+              `[CLIENT CHAT_EFFECT FINISH_EVENT] Finish event processed. Setting isStreaming to false. Current accumulated newContent length: ${newContent.length}`,
+            );
             if (newIsStreaming) {
               newIsStreaming = false;
               stateActuallyChangedThisCycle = true;
-              console.log('[ChatUI] Artifact streaming officially FINISHED.');
+              console.log(
+                '[CLIENT CHAT_EFFECT SET] newIsStreaming set to false.',
+              );
+              newIsVisible = true;
+
+              // Mark this stream as finished to prevent further processing
+              streamFinishedRef.current = true;
+              console.log(
+                '[CLIENT CHAT_EFFECT] Stream marked as finished. No more content will be processed for this document.',
+              );
             } else {
               console.warn(
                 '[ChatUI] Received "finish" but was not in streaming state.',
@@ -657,17 +763,17 @@ export function Chat({
               typedDataObject.error ||
               typedDataObject.message ||
               'An unknown error occurred.';
-            newIsStreaming = false; // Stop streaming on error
+            newIsStreaming = false;
             stateActuallyChangedThisCycle = true;
+            // Mark stream as finished on error
+            streamFinishedRef.current = true;
             break;
 
           case 'status-update':
-            // Could display status messages to the user if needed
             console.log('[ChatUI] Status update:', typedDataObject.status);
             break;
 
           case 'tool-result':
-            // Process tool results which might contain artifact-related information
             console.log(
               '[ChatUI] CASE: tool-result. Payload:',
               typedDataObject,
@@ -691,48 +797,84 @@ export function Chat({
         }
       } else {
         console.warn(
-          `[ChatUI] useEffect[data]: Data item at index ${index} is invalid (not an object or no "type" property):`,
+          `[ChatUI] useEffect[data]: Data item at index ${absoluteIndex} is invalid (not an object or no "type" property):`,
           JSON.stringify(dataObject, null, 2),
         );
       }
     });
 
-    // If the state changed, update it
+    // Update our reference to the processed data index for the next cycle
+    processedDataIndexRef.current = data.length;
+
+    // Only update state if it actually changed
     if (stateActuallyChangedThisCycle) {
-      console.log(
-        '[ChatUI] useEffect[data]: State changes detected. Updating activeArtifactState with:',
-        {
+      // Use a more reliable comparison that doesn't depend on stringifying the entire state
+      // which could be problematic for large content strings
+      const isStateChanged =
+        newDocumentId !== activeArtifactState.documentId ||
+        newKind !== activeArtifactState.kind ||
+        newTitle !== activeArtifactState.title ||
+        newIsStreaming !== activeArtifactState.isStreaming ||
+        newIsVisible !== activeArtifactState.isVisible ||
+        newError !== activeArtifactState.error ||
+        // For content, just compare lengths to avoid expensive string comparison
+        newContent.length !== activeArtifactState.content.length;
+
+      if (isStateChanged) {
+        console.log(
+          '[CLIENT CHAT_EFFECT PRE_UPDATE_STATE] New activeArtifactState values will be:',
+          {
+            documentId: newDocumentId,
+            kind: newKind,
+            title: newTitle,
+            contentLength: newContent.length,
+            isStreaming: newIsStreaming,
+            isVisible: newIsVisible,
+            error: newError,
+          },
+        );
+
+        // Always ensure visibility is true when actively streaming content
+        if (newContent && newContent.length > 0) {
+          console.log(
+            '[CLIENT CHAT_EFFECT CONTENT_PREVIEW]',
+            newContent.substring(0, Math.min(50, newContent.length)),
+            newContent.length > 50 ? '...' : '',
+          );
+          // CRITICAL: Force visibility to true when we have content
+          newIsVisible = true;
+        }
+
+        const newState = {
           documentId: newDocumentId,
           kind: newKind,
           title: newTitle,
-          content:
-            newContent.substring(0, 100) +
-            (newContent.length > 100 ? '...' : ''), // Log snippet
+          content: newContent,
           isStreaming: newIsStreaming,
           isVisible: newIsVisible,
           error: newError,
-        },
-      );
-      setActiveArtifactState({
-        documentId: newDocumentId,
-        kind: newKind,
-        title: newTitle,
-        content: newContent,
-        isStreaming: newIsStreaming,
-        isVisible: newIsVisible,
-        error: newError,
-      });
+        };
+
+        setActiveArtifactState(newState);
+        console.log(
+          '[CLIENT CHAT_EFFECT POST_UPDATE_STATE] activeArtifactState updated with a new state',
+        );
+      } else {
+        console.log(
+          '[CLIENT CHAT_EFFECT GUARD] No meaningful state changes detected, skipping setActiveArtifactState call.',
+        );
+      }
     } else {
       console.log(
         '[ChatUI] useEffect[data]: No state changes for activeArtifactState in this cycle.',
       );
     }
-  }, [data, activeArtifactState]); // Include activeArtifactState in dependencies
+  }, [data, activeArtifactState]);
 
   // Add a new useEffect to log when activeArtifactState changes
   useEffect(() => {
-    console.debug(
-      '[ChatUI] activeArtifactState was updated to:',
+    console.log(
+      '[CLIENT CHAT_EFFECT STATE_CHANGE] activeArtifactState changed:',
       activeArtifactState,
     );
   }, [activeArtifactState]);

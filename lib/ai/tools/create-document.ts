@@ -2,6 +2,7 @@ import { generateUUID } from '@/lib/utils';
 import { z } from 'zod';
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { artifactKinds } from '@/lib/artifacts/server';
+import { documentHandlersByArtifactKind } from '@/lib/artifacts/server';
 
 const createDocumentSchema = z.object({
   title: z.string().describe('The title for the new document artifact.'),
@@ -34,14 +35,65 @@ export const createDocumentTool = new DynamicStructuredTool({
   schema: createDocumentSchema,
   func: async ({ title, kind, contentPrompt }) => {
     const id = generateUUID(); // Keep ID generation
+
+    // Task B1: Add detailed logging for arguments received
     console.log(
-      `[createDocumentTool] Called with title: "${title}", kind: "${kind}", generated ID: ${id}`,
+      `[CREATE_DOCUMENT_TOOL EXECUTE_START] Called with title: "${title}", kind: "${kind}", generated ID: ${id}`,
     );
 
     if (contentPrompt) {
       console.log(
-        `[createDocumentTool] Content prompt provided: "${contentPrompt.substring(0, 50)}${contentPrompt.length > 50 ? '...' : ''}"`,
+        `[CREATE_DOCUMENT_TOOL] Content prompt provided (${contentPrompt.length} chars): "${contentPrompt.substring(0, 50)}${contentPrompt.length > 50 ? '...' : ''}"`,
       );
+    }
+
+    // Task B1: Add logging for handler search process
+    console.log(
+      `[CREATE_DOCUMENT_TOOL] Attempting to find handler for artifact kind: "${kind}" from ${documentHandlersByArtifactKind.length} available handlers`,
+    );
+
+    // Find the appropriate handler based on kind
+    const handler = documentHandlersByArtifactKind.find((h) => h.kind === kind);
+
+    // Task B1: Log the result of the handler search
+    console.log(
+      `[CREATE_DOCUMENT_TOOL] Search complete. RESULT: ${handler ? `Handler for "${kind}" found` : 'No handler found'}`,
+    );
+
+    // Task B1: Log critical failure if no handler is found
+    if (!handler) {
+      console.error(
+        `[CREATE_DOCUMENT_TOOL CRITICAL_FAILURE] No handler found for artifact kind: "${kind}". Available kinds: ${documentHandlersByArtifactKind.map((h) => h.kind).join(', ')}`,
+      );
+    } else {
+      // Task B1: Log handler found and preparation to call onCreateDocument
+      console.log(
+        `[CREATE_DOCUMENT_TOOL] Handler "${handler.kind}" found. About to call its onCreateDocument method.`,
+      );
+
+      // Task B1: Log enhancedDataStream status (this would happen in the route.ts file)
+      console.log(
+        `[CREATE_DOCUMENT_TOOL] Passing enhancedDataStream to handler. Note: The actual stream will be provided by the route handler.`,
+      );
+
+      // Task B1: Add try/catch block for the onCreateDocument call (this would happen in the route.ts file)
+      console.log(
+        `[CREATE_DOCUMENT_TOOL] Note: In the actual execution flow, a try/catch block would be used as follows:`,
+      );
+      console.log(`
+try {
+  await handler.onCreateDocument({
+    title,
+    docId: id,
+    dataStream: enhancedDataStream,
+    initialContentPrompt: contentPrompt
+  });
+  console.log(\`[CREATE_DOCUMENT_TOOL] \${handler.kind}.onCreateDocument call completed successfully.\`);
+} catch (error) {
+  console.error(\`[CREATE_DOCUMENT_TOOL ERROR] Error during \${handler.kind}.onCreateDocument call:\`, error);
+  throw error; // Re-throw to propagate the error
+}
+      `);
     }
 
     // This is just a placeholder - actual document creation happens in app/api/brain/route.ts
