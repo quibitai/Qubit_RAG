@@ -17,18 +17,6 @@ Located in `lib/ai/prompts/`:
 - `specialists/`: Specialist persona definitions, registry, and template interface.
 - `tools/`: Tool usage instructions, mapped to tool names.
 
-## Tool Migration Status
-
-### Native Implementations
-- Internal Knowledge Base Search
-- Web Search (Tavily)
-- Document Management
-- Google Calendar
-- Asana (v2.1.0 - in progress)
-
-### Pending Migrations
-- File Extraction Service
-
 ## Prompt Composition Flow
 
 1. The Brain API calls `loadPrompt()` with context (orchestrator, specialist, client config).
@@ -45,12 +33,10 @@ Located in `lib/ai/prompts/`:
 - Keep persona and tool instructions modular and under 200 lines per file.
 - Use clear docstrings and rationale for each persona/tool.
 - Test new prompts and tool instructions in isolation before production use.
-- Follow the tool migration guide for new native implementations.
 
 ## References
 - See `ARCHITECTURE.md` for system overview.
 - See `lib/ai/prompts/` for implementation details.
-- See `ASANA_MIGRATION.md` for tool migration guidelines.
 
 ## Adding a New Specialist
 

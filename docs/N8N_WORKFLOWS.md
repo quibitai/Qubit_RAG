@@ -25,7 +25,6 @@
 - Spreadsheet Query Tool
 - Google Drive Integration
 - Google Calendar Integration (direct API now preferred)
-- Asana Integration (migrating to native tool in v2.1.0)
 
 > All of the above are now handled by direct API integrations in the Brain API and modular tool registry. See `ARCHITECTURE.md` and `README.md` for details.
 
@@ -34,24 +33,6 @@
 - `N8N_EXTRACT_WEBHOOK_URL`, `N8N_EXTRACT_AUTH_HEADER`, `N8N_EXTRACT_AUTH_TOKEN`: For file extraction
 - `MCP_TOOL_WEBHOOK_URL`, `MCP_TOOL_AUTH_HEADER`, `MCP_TOOL_AUTH_TOKEN`: For MCP agent integrations
 
-## Migration Status
-
-### Completed Migrations
-- Internal Knowledge Base Search
-- Web Search (Tavily)
-- Document Management
-- Google Calendar
-
-### In Progress
-- Asana Integration (v2.1.0)
-  - New native implementation in `lib/ai/tools/asanaTool.ts`
-  - Testing scripts in `scripts/` directory
-  - Both n8n and native implementations available during transition
-
-### Pending
-- File Extraction Service (planned for future version)
-
 ## References
 - See `ARCHITECTURE.md` for the current system overview.
-- See `/api/files/extract` and MCP tool files for integration details.
-- See `lib/ai/tools/asanaTool.ts` for the new native Asana implementation. 
+- See `/api/files/extract` and MCP tool files for integration details. 
