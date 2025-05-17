@@ -39,7 +39,7 @@ const DEFAULT_ENFORCED_TOOLS: Record<string, string[]> = {
   [ForceToolCallQueryType.Calendar]: ['n8nMcpGateway'],
   [ForceToolCallQueryType.Tasks]: ['n8nMcpGateway'],
   [ForceToolCallQueryType.Events]: ['n8nMcpGateway'],
-  [ForceToolCallQueryType.Asana]: ['n8nMcpGateway'],
+  [ForceToolCallQueryType.Asana]: ['nativeAsana'],
   [ForceToolCallQueryType.Email]: ['n8nMcpGateway'],
 };
 

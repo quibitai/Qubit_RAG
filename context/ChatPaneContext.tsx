@@ -364,6 +364,14 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
         return;
       }
 
+      // Add debounce to prevent rapid successive calls
+      if (isLoadingGlobalChats) {
+        console.log(
+          '[ChatPaneContext] Skipping loadGlobalChats - already loading',
+        );
+        return;
+      }
+
       try {
         setIsLoadingGlobalChats(true);
 
@@ -377,7 +385,10 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
             'Content-Type': 'application/json',
           },
           credentials: 'include',
-          cache: forceRefresh ? 'no-cache' : 'default', // Skip cache if forceRefresh is true
+          cache: forceRefresh ? 'no-cache' : 'force-cache', // Use force-cache by default
+          next: {
+            revalidate: forceRefresh ? 0 : 30, // Revalidate every 30 seconds unless force refresh
+          },
         });
 
         if (!response.ok) {
@@ -621,8 +632,9 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       if (last && last.role === 'assistant') {
         if (!isCurrentChatCommitted) {
           setIsCurrentChatCommitted(true);
+          // Only refresh history when a new chat is committed
+          refreshHistory();
         }
-        refreshHistory();
       }
       prevMessageCount.current = currCount;
     }

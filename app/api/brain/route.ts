@@ -1204,6 +1204,30 @@ async function getAvailableTools(clientConfig?: ClientConfig | null) {
         );
       }
 
+      // Configure Native Asana tool if present in client config
+      if (toolConfigs.nativeAsana) {
+        logger.info(
+          '[Brain API] Configuring Native Asana tool with client settings',
+        );
+
+        // Set configuration for Native Asana tool
+        global.CURRENT_TOOL_CONFIGS.nativeAsana = {
+          apiKey:
+            toolConfigs.nativeAsana.apiKey ||
+            process.env.NATIVE_ASANA_PAT ||
+            process.env.ASANA_PAT,
+          defaultWorkspaceGid:
+            toolConfigs.nativeAsana.defaultWorkspaceGid ||
+            process.env.ASANA_DEFAULT_WORKSPACE_GID,
+          // Additional configurations
+          ...toolConfigs.nativeAsana,
+        };
+
+        logger.info(
+          '[Brain API] Native Asana tool will use client-specific configuration',
+        );
+      }
+
       if (toolConfigs.tavily) {
         logger.info(
           '[Brain API] Configuring tavilySearch tool with client settings',

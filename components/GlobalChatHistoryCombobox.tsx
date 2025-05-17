@@ -47,10 +47,12 @@ export function GlobalChatHistoryCombobox() {
     '/api/history?limit=50',
     fetcher,
     {
-      refreshInterval: 15000, // Poll every 15 seconds - less aggressive
-      revalidateOnFocus: true,
+      refreshInterval: 30000, // Poll every 30 seconds instead of 15
+      revalidateOnFocus: false, // Disable revalidation on focus
       revalidateOnMount: true,
-      dedupingInterval: 10000, // Increase deduping interval
+      dedupingInterval: 30000, // Increase deduping interval to match refresh interval
+      revalidateIfStale: false, // Disable revalidation if stale
+      focusThrottleInterval: 30000, // Throttle focus events
     },
   );
 
