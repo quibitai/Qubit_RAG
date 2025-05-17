@@ -24,9 +24,10 @@ const N8nMcpGatewayToolInputSchema = z.object({
 class N8nMcpGatewayTool extends Tool {
   name = 'n8nMcpGateway';
   description =
-    'A multi-capability gateway that connects to external services like Google Calendar, Asana, and other business applications via an n8n workflow. ' +
+    'A multi-capability gateway that connects to external services via an n8n workflow. ' +
+    'IMPORTANT: This tool should now ONLY be used for Google Calendar operations. For Asana tasks, use the dedicated "asana" tool instead. ' +
     'Use this for tasks such as managing calendar events (creating, searching, updating, deleting), ' +
-    'handling Asana tasks (creating, listing, updating projects/tasks), or other operational tasks supported by the connected n8n workflow. ' +
+    'but NOT for Asana tasks or project management. ' +
     "The input must be an object containing a 'task_description' field with a clear, natural language description of the task.";
 
   zodSchema = N8nMcpGatewayToolInputSchema;

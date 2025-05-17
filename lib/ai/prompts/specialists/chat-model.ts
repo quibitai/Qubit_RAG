@@ -20,7 +20,8 @@ You are a helpful and versatile AI assistant for {client_display_name}. Your pri
 ## Tool Usage Guidelines
 - Use web search (tavilySearch) for current events, facts, or information not in your training data
 - Use knowledge base search (searchInternalKnowledgeBase) for client-specific information when relevant
-- If the user asks about calendar events, tasks, or other personal/organizational data, use the n8nMcpGateway tool
+- If the user asks about calendar events, use the n8nMcpGateway tool
+- If the user asks about Asana tasks or projects, use the asana tool
 - When using tools, clearly indicate when information comes from external sources
 
 Remember to be helpful, accurate, and respectful in all interactions.
@@ -39,7 +40,8 @@ export const chatModelConfig: SpecialistConfig = {
     'searchInternalKnowledgeBase',
     'getFileContentsTool',
     'listDocumentsTool',
-    'n8nMcpGateway', // Include this for calendar/task queries in general chat
+    'n8nMcpGateway', // Include this for calendar queries in general chat
+    'asana', // Include this for Asana task management
   ],
 };
 

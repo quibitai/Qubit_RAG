@@ -1184,6 +1184,26 @@ async function getAvailableTools(clientConfig?: ClientConfig | null) {
         );
       }
 
+      // Configure Asana tool if present in client config
+      if (toolConfigs.asana) {
+        logger.info('[Brain API] Configuring Asana tool with client settings');
+
+        // Set configuration for Asana tool
+        global.CURRENT_TOOL_CONFIGS.asana = {
+          webhookUrl:
+            toolConfigs.asana.webhookUrl || process.env.ASANA_WEBHOOK_URL,
+          apiKey: toolConfigs.asana.apiKey || process.env.ASANA_AUTH_TOKEN,
+          authHeader:
+            toolConfigs.asana.authHeader || process.env.ASANA_AUTH_HEADER,
+          // Additional configurations
+          ...toolConfigs.asana,
+        };
+
+        logger.info(
+          '[Brain API] Asana tool will use client-specific configuration',
+        );
+      }
+
       if (toolConfigs.tavily) {
         logger.info(
           '[Brain API] Configuring tavilySearch tool with client settings',

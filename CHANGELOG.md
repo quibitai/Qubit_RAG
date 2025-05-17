@@ -239,4 +239,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Resolved issues with garbled or repeated content in specialist messages
-- Fixed retrieval of the correct "most recent" message in global chat queries 
+- Fixed retrieval of the correct "most recent" message in global chat queries
+
+## [2.1.0] - 2024-03-26
+
+### Added
+- New native Asana tool implementation (`lib/ai/tools/asanaTool.ts`)
+- Direct Asana API integration scripts
+  - `scripts/direct-asana-fetch.js`
+  - `scripts/test-asana-tool.js`
+  - `scripts/test-direct-asana.js`
+  - `debug-asana-direct.sh`
+
+### Changed
+- Updated Asana integration to begin migration to native tool
+- Enhanced tool configuration system in `lib/ai/tools/index.ts`
+- Improved specialist prompts for better tool usage
+- Updated n8nMcpGateway tool configuration
+
+### Notes
+- Beginning migration of Asana integration from n8n to native tool implementation
+- This version includes both the legacy n8n integration and the new native implementation for testing
+- Future versions will complete the migration to the native Asana tool 

@@ -26,6 +26,10 @@ const toolInstructionMap: Record<string, string> = {
   createDocument: documentToolInstructions,
   updateDocument: documentToolInstructions,
 
+  // Integration Tools
+  n8nMcpGateway: `Use this tool ONLY for Google Calendar related tasks and operations. This tool is now dedicated to calendar management. For any calendar-related requests, provide a clear natural language description of what you need.`,
+  asana: `IMPORTANT: Use this tool for ALL Asana-related tasks and operations, such as creating, listing, or updating tasks and projects. This dedicated Asana integration connects to https://quibit.app.n8n.cloud/webhook/asana. Provide a clear, natural language description of what you need (e.g., "List all my incomplete tasks in Asana"). Do NOT use n8nMcpGateway for Asana - it will fail.`,
+
   // Other tools
   getMessagesFromOtherChat: `When retrieving messages from other chats, summarize the key points relevant to the user's current query. Note the source chat (e.g., "In the Echo Tango chat...").`,
   getWeather: `When providing weather information, state the location and key conditions (temperature, precipitation).`,
