@@ -239,7 +239,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Resolved issues with garbled or repeated content in specialist messages
-- Fixed retrieval of the correct "most recent" message in global chat queries
+- Fixed retrieval of the correct "most recent" message in global chat queries 
 
 ## [2.1.0] - 2024-03-26
 

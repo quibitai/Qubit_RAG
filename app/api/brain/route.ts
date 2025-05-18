@@ -2513,7 +2513,7 @@ ${extractedText}
                 '[BRAIN API DEBUG] Entered intermediateSteps processing loop',
               );
               for (const step of chunk.intermediateSteps) {
-                if (step.action && step.action.tool) {
+                if (step?.action?.tool) {
                   const toolArgs = step.action.toolInput || {};
                   const toolName = step.action.tool;
 

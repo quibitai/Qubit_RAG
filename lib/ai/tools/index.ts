@@ -14,7 +14,6 @@ import { updateDocumentTool } from './update-document';
 import { tavilySearchTool } from './tavily-search';
 import { getMessagesFromOtherChatTool } from './getMessagesFromOtherChatTool';
 import { n8nMcpGatewayTool } from './n8nMcpGatewayTool';
-import { asanaTool } from './asanaTool';
 import { nativeAsanaTool } from './nativeAsanaTool';
 
 // Export all available tools
@@ -29,7 +28,6 @@ export const availableTools = [
   tavilySearchTool,
   getMessagesFromOtherChatTool,
   n8nMcpGatewayTool,
-  asanaTool,
   nativeAsanaTool,
 ];
 
@@ -44,6 +42,5 @@ export {
   tavilySearchTool,
   getMessagesFromOtherChatTool,
   n8nMcpGatewayTool,
-  asanaTool,
   nativeAsanaTool,
 };

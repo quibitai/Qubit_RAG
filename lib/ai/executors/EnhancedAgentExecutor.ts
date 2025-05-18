@@ -1,6 +1,5 @@
-import { AgentExecutor } from 'langchain/agents';
+import type { AgentExecutor } from 'langchain/agents';
 import { AIMessage } from '@langchain/core/messages';
-import type { HumanMessage } from '@langchain/core/messages';
 import { z } from 'zod';
 import { DateTime } from 'luxon';
 
