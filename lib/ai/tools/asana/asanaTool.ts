@@ -9,7 +9,11 @@ import { parseIntent } from './intent-parser';
 import { AsanaOperationType } from './intent-parser/types';
 import { createAsanaClient } from './api-client';
 import type { AsanaApiClient } from './api-client';
+import { getUsersMe } from './api-client/operations/users';
 import { AsanaIntegrationError, logAndFormatError } from './utils/errorHandler';
+
+// Import formatters for response formatting
+import { formatUserInfo } from './formatters/responseFormatter';
 
 /**
  * Asana tool for LangChain
@@ -83,10 +87,14 @@ export class AsanaTool extends Tool {
     try {
       // Execute the appropriate operation based on the parsed intent
       switch (parsedIntent.operationType) {
-        case AsanaOperationType.GET_USER_INFO:
-          // Implementation of user info retrieval
-          // This is a placeholder
-          return `This operation is not yet implemented: Get User Info (Request ID: ${requestContext.requestId})`;
+        case AsanaOperationType.GET_USER_ME: {
+          // Get the current user's information
+          const userData = await getUsersMe(
+            this.client,
+            requestContext.requestId,
+          );
+          return formatUserInfo(userData, requestContext);
+        }
 
         case AsanaOperationType.CREATE_TASK:
           // Implementation of task creation

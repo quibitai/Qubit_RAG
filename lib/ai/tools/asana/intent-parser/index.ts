@@ -3,8 +3,8 @@
  * Coordinates intent classification and entity extraction
  */
 
-import type { ParsedIntent } from './types';
 import { AsanaOperationType } from './types';
+import type { ParsedIntent } from './types';
 import { classifyIntent } from './intent.classifier';
 import * as entityExtractor from './entity.extractor';
 import { generateRequestId } from '../types';
@@ -32,7 +32,7 @@ export function parseIntent(input: string): ParsedIntent {
 
   // Parse specific entities based on the operation type
   switch (operationType) {
-    case AsanaOperationType.GET_USER_INFO:
+    case AsanaOperationType.GET_USER_ME:
       return {
         operationType,
         requestContext,

@@ -9,7 +9,7 @@ import type { RequestContext } from '../types';
  */
 export enum AsanaOperationType {
   // User operations
-  GET_USER_INFO = 'getUserInfo',
+  GET_USER_ME = 'getUserMe',
 
   // Task operations
   CREATE_TASK = 'createTask',
@@ -39,8 +39,8 @@ export interface ParsedIntentBase {
 /**
  * Interface for parsed user info intent
  */
-export interface ParsedUserInfoIntent extends ParsedIntentBase {
-  operationType: AsanaOperationType.GET_USER_INFO;
+export interface ParsedUserMeIntent extends ParsedIntentBase {
+  operationType: AsanaOperationType.GET_USER_ME;
 }
 
 /**
@@ -155,7 +155,7 @@ export interface ParsedUnknownIntent extends ParsedIntentBase {
  * Union type for all parsed intents
  */
 export type ParsedIntent =
-  | ParsedUserInfoIntent
+  | ParsedUserMeIntent
   | ParsedCreateTaskIntent
   | ParsedUpdateTaskIntent
   | ParsedGetTaskDetailsIntent

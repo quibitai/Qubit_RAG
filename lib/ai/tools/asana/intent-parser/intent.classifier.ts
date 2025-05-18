@@ -7,7 +7,7 @@ import { AsanaOperationType } from './types';
 // Regex patterns for matching different intents
 const INTENT_PATTERNS = {
   // User info patterns
-  [AsanaOperationType.GET_USER_INFO]: [
+  [AsanaOperationType.GET_USER_ME]: [
     /(?:get|show|display|who).+(?:user|me|my).+(?:info|information|details|profile)/i,
     /who am i/i,
     /my (?:user|asana) (?:info|information|details|profile)/i,
