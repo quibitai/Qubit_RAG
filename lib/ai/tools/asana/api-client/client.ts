@@ -1,0 +1,228 @@
+/**
+ * Asana API client for making authenticated requests
+ */
+
+import { ASANA_API_BASE_URL } from '../constants';
+import { DEFAULT_HEADERS } from '../constants';
+import { ASANA_PAT, ASANA_REQUEST_TIMEOUT_MS } from '../config';
+import {
+  AsanaIntegrationError,
+  handleAsanaApiError,
+  logAndFormatError,
+} from '../utils/errorHandler';
+
+/**
+ * Base Asana API client class
+ */
+export class AsanaApiClient {
+  private apiBaseUrl: string;
+  private defaultHeaders: Record<string, string>;
+  private timeoutMs: number;
+
+  constructor(
+    private readonly apiKey: string = ASANA_PAT || '',
+    apiBaseUrl: string = ASANA_API_BASE_URL,
+    timeoutMs: number = ASANA_REQUEST_TIMEOUT_MS,
+  ) {
+    this.apiBaseUrl = apiBaseUrl;
+    this.timeoutMs = timeoutMs;
+
+    // Set up default headers with authentication
+    this.defaultHeaders = {
+      ...DEFAULT_HEADERS,
+      Authorization: `Bearer ${this.apiKey}`,
+    };
+
+    if (!this.apiKey) {
+      console.warn(
+        'AsanaApiClient initialized without API key. Requests will fail.',
+      );
+    }
+  }
+
+  /**
+   * Makes an authenticated request to the Asana API
+   *
+   * @param endpoint The API endpoint path (without base URL)
+   * @param method The HTTP method
+   * @param body Optional request body for POST/PUT requests
+   * @param queryParams Optional query parameters
+   * @param requestId Optional request ID for logging
+   * @returns The response from the API
+   * @throws AsanaIntegrationError if the request fails
+   */
+  public async request<T = any>(
+    endpoint: string,
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
+    body?: any,
+    queryParams?: Record<string, string | string[]>,
+    requestId?: string,
+  ): Promise<T> {
+    try {
+      // Construct the full URL with query parameters
+      let url = `${this.apiBaseUrl}/${endpoint.replace(/^\//, '')}`;
+
+      if (queryParams && Object.keys(queryParams).length > 0) {
+        const params = new URLSearchParams();
+
+        for (const [key, value] of Object.entries(queryParams)) {
+          if (Array.isArray(value)) {
+            for (const item of value) {
+              params.append(key, item);
+            }
+          } else {
+            params.append(key, value);
+          }
+        }
+
+        url = `${url}?${params.toString()}`;
+      }
+
+      console.log(
+        `[AsanaApiClient] [${requestId || 'no-id'}] ${method} ${url}`,
+      );
+
+      // Set up request options
+      const options: RequestInit = {
+        method,
+        headers: this.defaultHeaders,
+      };
+
+      // Add body for POST/PUT requests
+      if (body && (method === 'POST' || method === 'PUT')) {
+        options.body = JSON.stringify(body);
+      }
+
+      // Set up timeout promise
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Request to ${url} timed out after ${this.timeoutMs}ms`,
+              ),
+            ),
+          this.timeoutMs,
+        );
+      });
+
+      // Make the request with timeout
+      const response = (await Promise.race([
+        fetch(url, options),
+        timeoutPromise,
+      ])) as Response;
+
+      // Handle non-200 responses
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorData: any;
+
+        try {
+          errorData = JSON.parse(errorText);
+        } catch (e) {
+          errorData = { error: errorText };
+        }
+
+        throw new AsanaIntegrationError(
+          `API responded with status ${response.status}`,
+          `${method} ${endpoint}`,
+          errorData,
+          requestId,
+        );
+      }
+
+      // Parse JSON response
+      const responseData = await response.json();
+      return responseData.data as T;
+    } catch (error: any) {
+      if (error instanceof AsanaIntegrationError) {
+        throw error;
+      }
+
+      throw handleAsanaApiError(error, `${method} ${endpoint}`, requestId);
+    }
+  }
+
+  /**
+   * Get resource by GID
+   *
+   * @param resourceType The Asana resource type (tasks, projects, etc.)
+   * @param gid The resource GID
+   * @param fields Optional fields to include in the response
+   * @param requestId Optional request ID for logging
+   * @returns The resource data
+   */
+  public async getResourceByGid<T = any>(
+    resourceType: string,
+    gid: string,
+    fields?: string[],
+    requestId?: string,
+  ): Promise<T> {
+    const queryParams: Record<string, string | string[]> = {};
+
+    if (fields && fields.length > 0) {
+      queryParams.opt_fields = fields.join(',');
+    }
+
+    return this.request<T>(
+      `${resourceType}/${gid}`,
+      'GET',
+      undefined,
+      queryParams,
+      requestId,
+    );
+  }
+
+  /**
+   * Create a new resource
+   *
+   * @param resourceType The Asana resource type (tasks, projects, etc.)
+   * @param data The resource data
+   * @param requestId Optional request ID for logging
+   * @returns The created resource data
+   */
+  public async createResource<T = any, D = any>(
+    resourceType: string,
+    data: D,
+    requestId?: string,
+  ): Promise<T> {
+    return this.request<T>(
+      resourceType,
+      'POST',
+      { data },
+      undefined,
+      requestId,
+    );
+  }
+
+  /**
+   * Update an existing resource
+   *
+   * @param resourceType The Asana resource type (tasks, projects, etc.)
+   * @param gid The resource GID
+   * @param data The resource data to update
+   * @param requestId Optional request ID for logging
+   * @returns The updated resource data
+   */
+  public async updateResource<T = any, D = any>(
+    resourceType: string,
+    gid: string,
+    data: D,
+    requestId?: string,
+  ): Promise<T> {
+    return this.request<T>(
+      `${resourceType}/${gid}`,
+      'PUT',
+      { data },
+      undefined,
+      requestId,
+    );
+  }
+}
+
+/**
+ * Create a new Asana API client instance
+ */
+export function createAsanaClient(apiKey?: string): AsanaApiClient {
+  return new AsanaApiClient(apiKey);
+}

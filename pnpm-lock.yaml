@@ -300,6 +300,9 @@ importers:
       node-fetch:
         specifier: ^2.7.0
         version: 2.7.0
+      openapi-typescript:
+        specifier: ^7.8.0
+        version: 7.8.0(typescript@5.8.3)
       postcss:
         specifier: ^8
         version: 8.5.3
@@ -2175,6 +2178,16 @@ packages:
   '@radix-ui/rect@1.1.1':
     resolution: {integrity: sha512-HPwpGIzkl28mWyZqG52jiqDJ12waP11Pa1lGoiyUkIEuMLBP0oeK/C89esbXrxsky5we7dfd8U58nm0SgAWpVw==}
 
+  '@redocly/ajv@8.11.2':
+    resolution: {integrity: sha512-io1JpnwtIcvojV7QKDUSIuMN/ikdOUd1ReEnUnMKGfDVridQZ31J0MmIuqwuRjWDZfmvr+Q0MqCcfHM2gTivOg==}
+
+  '@redocly/config@0.22.2':
+    resolution: {integrity: sha512-roRDai8/zr2S9YfmzUfNhKjOF0NdcOIqF7bhf4MVC5UxpjIysDjyudvlAiVbpPHp3eDRWbdzUgtkK1a7YiDNyQ==}
+
+  '@redocly/openapi-core@1.34.3':
+    resolution: {integrity: sha512-3arRdUp1fNx55itnjKiUhO6t4Mf91TsrTIYINDNLAZPS0TPd5YpiXRctwjel0qqWoOOhjA34cZ3m4dksLDFUYg==}
+    engines: {node: '>=18.17.0', npm: '>=9.5.0'}
+
   '@rtsao/scc@1.1.0':
     resolution: {integrity: sha512-zt6OdqaDoOnJ1ZYsCYGt9YmWzDXl4vQdKTyJev62gFhRGKdx7mcT54V9KIjg+d2wi9EXsPvAPKe7i7WjfVWB8g==}
 
@@ -2515,6 +2528,10 @@ packages:
   ajv@6.12.6:
     resolution: {integrity: sha512-j3fVLgvTo527anyYyJOGTYJbG+vnnQYvE0m5mmkc1TK+nxAppkCLMIL0aZ4dblVCNoGShhm+kzE4ZUykBoMg4g==}
 
+  ansi-colors@4.1.3:
+    resolution: {integrity: sha512-/6w/C21Pm1A7aZitlI5Ni/2J6FFQN8i1Cvz3kHABAAbw93v/NlvKdVOqz7CCWz/3iv/JplRSEEZ83XION15ovw==}
+    engines: {node: '>=6'}
+
   ansi-regex@5.0.1:
     resolution: {integrity: sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==}
     engines: {node: '>=8'}
@@ -2718,6 +2735,9 @@ packages:
     resolution: {integrity: sha512-zgVZuo2WcZgfUEmsn6eO3kINexW8RAE4maiQ8QNs8CtpPCSyMiYsULR3HQYkm3w8FIA3SberyMJMSldGsW+U3w==}
     engines: {node: ^12.17.0 || ^14.13 || >=16.0.0}
 
+  change-case@5.4.4:
+    resolution: {integrity: sha512-HRQyTk2/YPEkt9TnUPbOpr64Uw3KOicFWPVBb+xiHvd6eBx/qPr9xqfBFDT8P2vWsvvz4jbEkfDe71W3VyNu2w==}
+
   character-entities-html4@2.1.0:
     resolution: {integrity: sha512-1v7fgQRj6hnSwFpq1Eu0ynr/CDEw0rXo2B61qXrLNdHZmPKgb7fqS1a2JwF0rISo9q77jDI8VMEHoApn8qDoZA==}
 
@@ -2773,6 +2793,9 @@ packages:
   color@4.2.3:
     resolution: {integrity: sha512-1rXeuUUiGGrykh+CeBdu5Ie7OJwinCgQY0bc7GCRxy5xVHy+moaqkpL/jqQq0MtQOeYcrqEz4abc5f0KtU7W4A==}
     engines: {node: '>=12.5.0'}
+
+  colorette@1.4.0:
+    resolution: {integrity: sha512-Y2oEozpomLn7Q3HFP7dpww7AtMJplbM9lGZP6RDfHqmbeRjiwRg4n6VM6j4KLmRke85uWEI7JqF17f3pqdRA0g==}
 
   combined-stream@1.0.8:
     resolution: {integrity: sha512-FQN4MRfuJeHf7cBbBMJFXhKSDq+2kAArBlmRBvcvFE5BB1HZKXtSFASDhdlz9zOYwxh8lDdnvmMOe/+5cdoEdg==}
@@ -3542,6 +3565,10 @@ packages:
     resolution: {integrity: sha512-JmXMZ6wuvDmLiHEml9ykzqO6lwFbof0GG4IkcGaENdCRDDmMVnny7s5HsIgHCbaq0w2MyPhDqkhTUgS2LU2PHA==}
     engines: {node: '>=0.8.19'}
 
+  index-to-position@1.1.0:
+    resolution: {integrity: sha512-XPdx9Dq4t9Qk1mTMbWONJqU7boCoumEH7fRET37HX5+khDUl3J2W6PdALxhILYlIYx2amlwYcRPp28p0tSiojg==}
+    engines: {node: '>=18'}
+
   inflight@1.0.6:
     resolution: {integrity: sha512-k92I/b08q4wvFscXCLvqfsHCrjrF7yiXsQuIVvVE7N82W3+aqpzuUdBbfhWcy/FZR3/4IgflMgKLOsvPDrGCJA==}
     deprecated: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
@@ -3729,6 +3756,10 @@ packages:
   jose@5.10.0:
     resolution: {integrity: sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg==}
 
+  js-levenshtein@1.1.6:
+    resolution: {integrity: sha512-X2BB11YZtrRqY4EnQcLX5Rh373zbK4alC1FW7D7MBhL2gtcC17cTnr6DmfHZeS0s2rTHjUTMMHfG7gO8SSdw+g==}
+    engines: {node: '>=0.10.0'}
+
   js-tiktoken@1.0.20:
     resolution: {integrity: sha512-Xlaqhhs8VfCd6Sh7a1cFkZHQbYTLCwVJJWiHVxBYzLPxW0XsoxBy1hitmjkdIjD3Aon5BXLHFwU5O8WUx6HH+A==}
 
@@ -3762,6 +3793,9 @@ packages:
 
   json-schema-traverse@0.4.1:
     resolution: {integrity: sha512-xbbCH5dCYU5T8LcEhhuh7HJ88HXuW3qsI3Y0zOZFKfZEHcpWiHU/Jxzk629Brsab/mMiHQti9wMP+845RPe3Vg==}
+
+  json-schema-traverse@1.0.0:
+    resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
 
   json-schema@0.4.0:
     resolution: {integrity: sha512-es94M3nTIfsEPisRafak+HDLfHXnKBhV3vU5eqPcS3flIWqcxJWgXHXiey3YrpaNsanY5ei1VoYEbOzijuq9BA==}
@@ -4136,6 +4170,10 @@ packages:
   minimatch@3.1.2:
     resolution: {integrity: sha512-J7p63hRiAjw1NDEww1W7i37+ByIrOWO5XQQAzZ3VOcL0PNybwpfmV/N05zFAzwQ9USyEcX6t3UO+K5aqBQOIHw==}
 
+  minimatch@5.1.6:
+    resolution: {integrity: sha512-lKwV/1brpG6mBUFHtb7NUmtABCb2WZZmm2wNiOA5hAb8VdCS4B3dtMWyvcoViccwAW/COERjXLt0zP1zXUN26g==}
+    engines: {node: '>=10'}
+
   minimatch@9.0.3:
     resolution: {integrity: sha512-RHiac9mvaRw0x3AYRgDC1CxAP7HTcNrrECeA8YYJeWnpo+2Q5CegtZjaotWTWxDG3UeGA1coE05iH1mPjT/2mg==}
     engines: {node: '>=16 || 14 >=14.17'}
@@ -4316,6 +4354,12 @@ packages:
   openapi-types@12.1.3:
     resolution: {integrity: sha512-N4YtSYJqghVu4iek2ZUvcN/0aqH1kRDuNqzcycDxhOUpg7GdvLa2F3DgS6yBNhInhv2r/6I0Flkn7CqL8+nIcw==}
 
+  openapi-typescript@7.8.0:
+    resolution: {integrity: sha512-1EeVWmDzi16A+siQlo/SwSGIT7HwaFAVjvMA7/jG5HMLSnrUOzPL7uSTRZZa4v/LCRxHTApHKtNY6glApEoiUQ==}
+    hasBin: true
+    peerDependencies:
+      typescript: ^5.x
+
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
     engines: {node: '>= 0.8.0'}
@@ -4375,6 +4419,10 @@ packages:
 
   parse-entities@4.0.2:
     resolution: {integrity: sha512-GG2AQYWoLgL877gQIKeRPGO1xF9+eG1ujIb5soS5gPvLQ1y2o8FL90w2QWNdf9I361Mpp7726c+lj3U0qK1uGw==}
+
+  parse-json@8.3.0:
+    resolution: {integrity: sha512-ybiGyvspI+fAoRQbIPRddCcSTV9/LsJbf0e/S85VLowVGzRmokfneg2kwVW/KU5rOXrPSbF1qAKPMgNTqqROQQ==}
+    engines: {node: '>=18'}
 
   path-exists@3.0.0:
     resolution: {integrity: sha512-bpC7GYwiDYQ4wYLe+FA8lhRjhQCMcQGuSgGGqDkg/QerRWw9CmGRT0iSOVRSZJ29NMLZgIzqaljJ63oaL4NIJQ==}
@@ -4458,6 +4506,10 @@ packages:
     resolution: {integrity: sha512-JAwMNMBlxJ2oD1kce4KPtMkDeKGHQstdpFPcPH3maElAXon/QZeTvtsfXmTMRyO9TslfoYOXkSsvao2nE1ilTw==}
     engines: {node: '>=18'}
     hasBin: true
+
+  pluralize@8.0.0:
+    resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
+    engines: {node: '>=4'}
 
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
@@ -4733,6 +4785,10 @@ packages:
   remark-stringify@11.0.0:
     resolution: {integrity: sha512-1OSmLd3awB/t8qdoEOMazZkNsfVTeY4fTsgzcQFdXNq8ToTN4ZGwrMnlda4K6smTFKD+GRV6O48i6Z4iKgPPpw==}
 
+  require-from-string@2.0.2:
+    resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
+    engines: {node: '>=0.10.0'}
+
   requires-port@1.0.0:
     resolution: {integrity: sha512-KigOCHcocU3XODJxsu8i/j8T9tzT4adHiecwORRQ0ZZFcp7ahwXuRU1m+yuO90C5ZUyGeGfocHDI14M3L3yDAQ==}
 
@@ -4983,6 +5039,10 @@ packages:
     engines: {node: '>=16 || 14 >=14.17'}
     hasBin: true
 
+  supports-color@10.0.0:
+    resolution: {integrity: sha512-HRVVSbCCMbj7/kdWF9Q+bbckjBHLtHMEoJWlkmYzzdwhYMkjkOwubLM6t7NbWKjgKamGDrWL1++KrjUO1t9oAQ==}
+    engines: {node: '>=18'}
+
   supports-color@7.2.0:
     resolution: {integrity: sha512-qpCAvRl9stuOHveKsn7HncJRvv501qIacKzQlO/+Lwxc9+0q2wLyv4Dfvt80/DPn2pqOBsJdDiogXGR9+OvwRw==}
     engines: {node: '>=8'}
@@ -5089,6 +5149,10 @@ packages:
     resolution: {integrity: sha512-Ne+eE4r0/iWnpAxD852z3A+N0Bt5RN//NjJwRd2VFHEmrywxf5vsZlh4R6lixl6B+wz/8d+maTSAkN1FIkI3LQ==}
     engines: {node: '>=10'}
 
+  type-fest@4.41.0:
+    resolution: {integrity: sha512-TeTSQ6H5YHvpqVwBRcnLDCBnDOHWYu7IvGbHT6N8AOymcr9PJGjc1GTtiWZTYg0NCgYwvnYWEkVChQAr9bjfwA==}
+    engines: {node: '>=16'}
+
   typed-array-buffer@1.0.3:
     resolution: {integrity: sha512-nAYYwfY3qnzX30IkA6AQZjVbtK6duGontcQm1WSG1MD94YLqK0515GNApXkoxKOWMusVssAHWLh9SeaoefYFGw==}
     engines: {node: '>= 0.4'}
@@ -5157,6 +5221,9 @@ packages:
     hasBin: true
     peerDependencies:
       browserslist: '>= 4.21.0'
+
+  uri-js-replace@1.0.1:
+    resolution: {integrity: sha512-W+C9NWNLFOoBI2QWDp4UT9pv65r2w5Cx+3sTYFvtMdDBxkKt1syCqsUdSFAChbEe1uK5TfS04wt/nGwmaeIQ0g==}
 
   uri-js@4.4.1:
     resolution: {integrity: sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==}
@@ -5287,10 +5354,17 @@ packages:
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
 
+  yaml-ast-parser@0.0.43:
+    resolution: {integrity: sha512-2PTINUwsRqSd+s8XxKaJWQlUuEMHJQyEuh2edBbW8KNJz0SJPwUSD2zRWqezFEdN7IzAgeuYHFUCF7o8zRdZ0A==}
+
   yaml@2.7.1:
     resolution: {integrity: sha512-10ULxpnOCQXxJvBgxsn9ptjq6uviG/htZKk9veJGhlqn3w/DxQ631zFF+nlQXLwmImeS5amR2dl2U8sg6U9jsQ==}
     engines: {node: '>= 14'}
     hasBin: true
+
+  yargs-parser@21.1.1:
+    resolution: {integrity: sha512-tVpsJW7DdjecAiFpbIB1e3qxIQsE6NoPc5/eTdrbbIC4h0LVsWhnoa3g+m2HclBIujHzsxZ4VJVA+GUuc2/LBw==}
+    engines: {node: '>=12'}
 
   yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
@@ -5424,7 +5498,7 @@ snapshots:
       '@babel/traverse': 7.27.1
       '@babel/types': 7.27.1
       convert-source-map: 2.0.0
-      debug: 4.4.0
+      debug: 4.4.0(supports-color@10.0.0)
       gensync: 1.0.0-beta.2
       json5: 2.2.3
       semver: 6.3.1
@@ -5633,7 +5707,7 @@ snapshots:
       '@babel/parser': 7.27.2
       '@babel/template': 7.27.2
       '@babel/types': 7.27.1
-      debug: 4.4.0
+      debug: 4.4.0(supports-color@10.0.0)
       globals: 11.12.0
     transitivePeerDependencies:
       - supports-color
@@ -6026,7 +6100,7 @@ snapshots:
   '@eslint/eslintrc@2.1.4':
     dependencies:
       ajv: 6.12.6
-      debug: 4.4.0
+      debug: 4.4.0(supports-color@10.0.0)
       espree: 9.6.1
       globals: 13.24.0
       ignore: 5.3.2
@@ -6061,7 +6135,7 @@ snapshots:
   '@humanwhocodes/config-array@0.13.0':
     dependencies:
       '@humanwhocodes/object-schema': 2.0.3
-      debug: 4.4.0
+      debug: 4.4.0(supports-color@10.0.0)
       minimatch: 3.1.2
     transitivePeerDependencies:
       - supports-color
@@ -6737,6 +6811,29 @@ snapshots:
 
   '@radix-ui/rect@1.1.1': {}
 
+  '@redocly/ajv@8.11.2':
+    dependencies:
+      fast-deep-equal: 3.1.3
+      json-schema-traverse: 1.0.0
+      require-from-string: 2.0.2
+      uri-js-replace: 1.0.1
+
+  '@redocly/config@0.22.2': {}
+
+  '@redocly/openapi-core@1.34.3(supports-color@10.0.0)':
+    dependencies:
+      '@redocly/ajv': 8.11.2
+      '@redocly/config': 0.22.2
+      colorette: 1.4.0
+      https-proxy-agent: 7.0.6(supports-color@10.0.0)
+      js-levenshtein: 1.1.6
+      js-yaml: 4.1.0
+      minimatch: 5.1.6
+      pluralize: 8.0.0
+      yaml-ast-parser: 0.0.43
+    transitivePeerDependencies:
+      - supports-color
+
   '@rtsao/scc@1.1.0': {}
 
   '@rushstack/eslint-patch@1.11.0': {}
@@ -6917,7 +7014,7 @@ snapshots:
       '@typescript-eslint/types': 7.2.0
       '@typescript-eslint/typescript-estree': 7.2.0(typescript@5.8.3)
       '@typescript-eslint/visitor-keys': 7.2.0
-      debug: 4.4.0
+      debug: 4.4.0(supports-color@10.0.0)
       eslint: 8.57.1
     optionalDependencies:
       typescript: 5.8.3
@@ -6935,7 +7032,7 @@ snapshots:
     dependencies:
       '@typescript-eslint/types': 7.2.0
       '@typescript-eslint/visitor-keys': 7.2.0
-      debug: 4.4.0
+      debug: 4.4.0(supports-color@10.0.0)
       globby: 11.1.0
       is-glob: 4.0.3
       minimatch: 9.0.3
@@ -7060,6 +7157,8 @@ snapshots:
       fast-json-stable-stringify: 2.1.0
       json-schema-traverse: 0.4.1
       uri-js: 4.4.1
+
+  ansi-colors@4.1.3: {}
 
   ansi-regex@5.0.1: {}
 
@@ -7272,6 +7371,8 @@ snapshots:
 
   chalk@5.4.1: {}
 
+  change-case@5.4.4: {}
+
   character-entities-html4@2.1.0: {}
 
   character-entities-legacy@3.0.0: {}
@@ -7348,6 +7449,8 @@ snapshots:
       color-string: 1.9.1
     optional: true
 
+  colorette@1.4.0: {}
+
   combined-stream@1.0.8:
     dependencies:
       delayed-stream: 1.0.0
@@ -7408,9 +7511,11 @@ snapshots:
     dependencies:
       ms: 2.1.3
 
-  debug@4.4.0:
+  debug@4.4.0(supports-color@10.0.0):
     dependencies:
       ms: 2.1.3
+    optionalDependencies:
+      supports-color: 10.0.0
 
   decamelize@1.2.0: {}
 
@@ -7606,7 +7711,7 @@ snapshots:
 
   esbuild-register@3.6.0(esbuild@0.19.12):
     dependencies:
-      debug: 4.4.0
+      debug: 4.4.0(supports-color@10.0.0)
       esbuild: 0.19.12
     transitivePeerDependencies:
       - supports-color
@@ -7730,7 +7835,7 @@ snapshots:
   eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.31.0)(eslint@8.57.1):
     dependencies:
       '@nolyfill/is-core-module': 1.0.39
-      debug: 4.4.0
+      debug: 4.4.0(supports-color@10.0.0)
       eslint: 8.57.1
       get-tsconfig: 4.10.0
       is-bun-module: 2.0.0
@@ -7853,7 +7958,7 @@ snapshots:
       ajv: 6.12.6
       chalk: 4.1.2
       cross-spawn: 7.0.6
-      debug: 4.4.0
+      debug: 4.4.0(supports-color@10.0.0)
       doctrine: 3.0.0
       escape-string-regexp: 4.0.0
       eslint-scope: 7.2.2
@@ -7980,7 +8085,7 @@ snapshots:
 
   follow-redirects@1.15.9(debug@4.4.0):
     optionalDependencies:
-      debug: 4.4.0
+      debug: 4.4.0(supports-color@10.0.0)
 
   for-each@0.3.5:
     dependencies:
@@ -8044,7 +8149,7 @@ snapshots:
   gaxios@6.7.1:
     dependencies:
       extend: 3.0.2
-      https-proxy-agent: 7.0.6
+      https-proxy-agent: 7.0.6(supports-color@10.0.0)
       is-stream: 2.0.1
       node-fetch: 2.7.0
       uuid: 9.0.1
@@ -8247,10 +8352,10 @@ snapshots:
 
   html-url-attributes@3.0.1: {}
 
-  https-proxy-agent@7.0.6:
+  https-proxy-agent@7.0.6(supports-color@10.0.0):
     dependencies:
       agent-base: 7.1.3
-      debug: 4.4.0
+      debug: 4.4.0(supports-color@10.0.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -8265,7 +8370,7 @@ snapshots:
       '@types/tough-cookie': 4.0.5
       axios: 1.9.0(debug@4.4.0)
       camelcase: 6.3.0
-      debug: 4.4.0
+      debug: 4.4.0(supports-color@10.0.0)
       dotenv: 16.5.0
       extend: 3.0.2
       file-type: 16.5.4
@@ -8288,6 +8393,8 @@ snapshots:
       resolve-from: 4.0.0
 
   imurmurhash@0.1.4: {}
+
+  index-to-position@1.1.0: {}
 
   inflight@1.0.6:
     dependencies:
@@ -8478,6 +8585,8 @@ snapshots:
 
   jose@5.10.0: {}
 
+  js-levenshtein@1.1.6: {}
+
   js-tiktoken@1.0.20:
     dependencies:
       base64-js: 1.5.1
@@ -8520,6 +8629,8 @@ snapshots:
   json-buffer@3.0.1: {}
 
   json-schema-traverse@0.4.1: {}
+
+  json-schema-traverse@1.0.0: {}
 
   json-schema@0.4.0: {}
 
@@ -9054,7 +9165,7 @@ snapshots:
   micromark@4.0.2:
     dependencies:
       '@types/debug': 4.1.12
-      debug: 4.4.0
+      debug: 4.4.0(supports-color@10.0.0)
       decode-named-character-reference: 1.1.0
       devlop: 1.1.0
       micromark-core-commonmark: 2.0.3
@@ -9087,6 +9198,10 @@ snapshots:
   minimatch@3.1.2:
     dependencies:
       brace-expansion: 1.1.11
+
+  minimatch@5.1.6:
+    dependencies:
+      brace-expansion: 2.0.1
 
   minimatch@9.0.3:
     dependencies:
@@ -9245,6 +9360,16 @@ snapshots:
 
   openapi-types@12.1.3: {}
 
+  openapi-typescript@7.8.0(typescript@5.8.3):
+    dependencies:
+      '@redocly/openapi-core': 1.34.3(supports-color@10.0.0)
+      ansi-colors: 4.1.3
+      change-case: 5.4.4
+      parse-json: 8.3.0
+      supports-color: 10.0.0
+      typescript: 5.8.3
+      yargs-parser: 21.1.1
+
   optionator@0.9.4:
     dependencies:
       deep-is: 0.1.4
@@ -9314,6 +9439,12 @@ snapshots:
       is-decimal: 2.0.1
       is-hexadecimal: 2.0.1
 
+  parse-json@8.3.0:
+    dependencies:
+      '@babel/code-frame': 7.27.1
+      index-to-position: 1.1.0
+      type-fest: 4.41.0
+
   path-exists@3.0.0: {}
 
   path-exists@4.0.0: {}
@@ -9372,6 +9503,8 @@ snapshots:
       playwright-core: 1.52.0
     optionalDependencies:
       fsevents: 2.3.2
+
+  pluralize@8.0.0: {}
 
   possible-typed-array-names@1.1.0: {}
 
@@ -9720,6 +9853,8 @@ snapshots:
       mdast-util-to-markdown: 2.1.2
       unified: 11.0.5
 
+  require-from-string@2.0.2: {}
+
   requires-port@1.0.0: {}
 
   resolve-from@4.0.0: {}
@@ -10022,6 +10157,8 @@ snapshots:
       pirates: 4.0.7
       ts-interface-checker: 0.1.13
 
+  supports-color@10.0.0: {}
+
   supports-color@7.2.0:
     dependencies:
       has-flag: 4.0.0
@@ -10145,6 +10282,8 @@ snapshots:
 
   type-fest@0.20.2: {}
 
+  type-fest@4.41.0: {}
+
   typed-array-buffer@1.0.3:
     dependencies:
       call-bound: 1.0.4
@@ -10259,6 +10398,8 @@ snapshots:
       browserslist: 4.24.5
       escalade: 3.2.0
       picocolors: 1.1.1
+
+  uri-js-replace@1.0.1: {}
 
   uri-js@4.4.1:
     dependencies:
@@ -10396,7 +10537,11 @@ snapshots:
 
   yallist@3.1.1: {}
 
+  yaml-ast-parser@0.0.43: {}
+
   yaml@2.7.1: {}
+
+  yargs-parser@21.1.1: {}
 
   yocto-queue@0.1.0: {}
 
