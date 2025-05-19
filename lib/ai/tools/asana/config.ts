@@ -23,6 +23,29 @@ export const ASANA_REQUEST_TIMEOUT_MS = Number.parseInt(
   10,
 );
 
+/**
+ * Get the configured workspace GID
+ *
+ * @returns The configured workspace GID or undefined if not configured
+ */
+export function getWorkspaceGid(): string | undefined {
+  return ASANA_DEFAULT_WORKSPACE_GID === 'undefined' ||
+    !ASANA_DEFAULT_WORKSPACE_GID
+    ? undefined
+    : ASANA_DEFAULT_WORKSPACE_GID;
+}
+
+/**
+ * Get the configured team GID
+ *
+ * @returns The configured team GID or undefined if not configured
+ */
+export function getTeamGid(): string | undefined {
+  return ASANA_DEFAULT_TEAM_GID === 'undefined' || !ASANA_DEFAULT_TEAM_GID
+    ? undefined
+    : ASANA_DEFAULT_TEAM_GID;
+}
+
 // Validation and warnings
 if (!ASANA_PAT) {
   console.warn(

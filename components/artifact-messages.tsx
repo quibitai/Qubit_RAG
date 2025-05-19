@@ -52,10 +52,7 @@ function PureArtifactMessages({
         />
       ))}
 
-      <div
-        ref={messagesEndRef}
-        className="shrink-0 min-w-[24px] min-h-[24px]"
-      />
+      <div ref={messagesEndRef} className="shrink-0 min-h-[24px]" />
     </div>
   );
 }

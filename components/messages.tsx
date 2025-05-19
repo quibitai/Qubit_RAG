@@ -61,7 +61,7 @@ function PureMessages(props: MessagesProps) {
   return (
     <div
       ref={messagesContainerRef}
-      className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll pt-4"
+      className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll overflow-x-hidden pt-4"
     >
       {messages.length === 0 && <Greeting />}
 
@@ -108,10 +108,7 @@ function PureMessages(props: MessagesProps) {
         messages.length > 0 &&
         messages[messages.length - 1].role === 'user' && <ThinkingMessage />}
 
-      <div
-        ref={messagesEndRef}
-        className="shrink-0 min-w-[24px] min-h-[24px]"
-      />
+      <div ref={messagesEndRef} className="shrink-0 min-h-[24px]" />
     </div>
   );
 }

@@ -56,7 +56,7 @@ export const echoTangoConfig: SpecialistConfig = {
     'updateDocument',
     'getMessagesFromOtherChat', // Important for context awareness
     'n8nMcpGateway', // Added to enable calendar capabilities
-    'nativeAsana', // Use the native Asana tool instead of N8N webhook
+    'asana', // Use the new modular Asana tool
     // Add or remove tools like 'getWeather', 'queryDocumentRows' as needed for this specialist
   ],
 };

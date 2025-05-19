@@ -5,6 +5,28 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2024-03-27
+
+### Added
+- Comprehensive Asana testing infrastructure
+  - New test suite for Asana API client operations
+  - Unit tests for task creation, project listing, and task listing
+  - Mock data and test utilities for Asana API testing
+- Enhanced Asana tool documentation
+  - Added TESTING.md with detailed testing guidelines
+  - Improved API client operation documentation
+  - Better error handling and type safety
+
+### Changed
+- Refactored Asana API client operations for better modularity
+- Updated Asana tool configuration for improved reliability
+- Enhanced error handling in Asana operations
+
+### Fixed
+- Improved type safety in Asana API client
+- Enhanced error handling for API rate limits
+- Fixed task creation validation
+
 ## [2.0.0] - 2024-07-23
 
 ### Added

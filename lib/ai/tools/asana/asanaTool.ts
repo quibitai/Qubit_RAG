@@ -10,10 +10,21 @@ import { AsanaOperationType } from './intent-parser/types';
 import { createAsanaClient } from './api-client';
 import type { AsanaApiClient } from './api-client';
 import { getUsersMe } from './api-client/operations/users';
+import { createTask, listTasks } from './api-client/operations/tasks';
+import {
+  listProjects,
+  findProjectGidByName,
+} from './api-client/operations/projects';
 import { AsanaIntegrationError, logAndFormatError } from './utils/errorHandler';
+import { getWorkspaceGid } from './config';
 
 // Import formatters for response formatting
-import { formatUserInfo } from './formatters/responseFormatter';
+import {
+  formatUserInfo,
+  formatTaskCreation,
+  formatProjectList,
+  formatTaskList,
+} from './formatters/responseFormatter';
 
 /**
  * Asana tool for LangChain
@@ -96,10 +107,84 @@ export class AsanaTool extends Tool {
           return formatUserInfo(userData, requestContext);
         }
 
-        case AsanaOperationType.CREATE_TASK:
-          // Implementation of task creation
-          // This is a placeholder
-          return `This operation is not yet implemented: Create Task (Request ID: ${requestContext.requestId})`;
+        case AsanaOperationType.CREATE_TASK: {
+          // Get the create task intent
+          const createTaskIntent = parsedIntent as any;
+
+          // Get the workspace GID
+          const workspaceGid = getWorkspaceGid();
+          if (!workspaceGid) {
+            return `Error: Default Asana workspace is not configured. Please configure ASANA_DEFAULT_WORKSPACE_GID in your environment. (Request ID: ${requestContext.requestId})`;
+          }
+
+          // Extract parameters from the intent
+          const { taskName, taskNotes, projectName, assigneeName } =
+            createTaskIntent;
+
+          if (!taskName) {
+            return `Error: Task name is required to create a task. (Request ID: ${requestContext.requestId})`;
+          }
+
+          // Create task params
+          const createTaskParams: any = {
+            name: taskName,
+            workspace: workspaceGid,
+          };
+
+          // Add optional params
+          if (taskNotes) {
+            createTaskParams.notes = taskNotes;
+          }
+
+          // If project name is specified, resolve it to a GID
+          if (projectName) {
+            try {
+              const projectGid = await findProjectGidByName(
+                this.client,
+                projectName,
+                workspaceGid,
+                requestContext.requestId,
+              );
+
+              if (projectGid === 'ambiguous') {
+                return `Error: Multiple projects found matching '${projectName}'. Please be more specific. (Request ID: ${requestContext.requestId})`;
+              }
+
+              if (projectGid) {
+                createTaskParams.projects = [projectGid];
+              } else {
+                // Project not found but we'll still create the task
+                if (createTaskParams.notes) {
+                  createTaskParams.notes += `\n\n(Note: Intended for project "${projectName}" but project not found)`;
+                } else {
+                  createTaskParams.notes = `(Note: Intended for project "${projectName}" but project not found)`;
+                }
+              }
+            } catch (error) {
+              console.error(`[AsanaTool] Error resolving project: ${error}`);
+              // Continue without project assignment
+              if (createTaskParams.notes) {
+                createTaskParams.notes += `\n\n(Note: Error finding project "${projectName}")`;
+              } else {
+                createTaskParams.notes = `(Note: Error finding project "${projectName}")`;
+              }
+            }
+          }
+
+          // Handle assignee - for now only support "me"
+          if (assigneeName === 'me') {
+            createTaskParams.assignee = 'me';
+          }
+
+          // Create the task
+          const taskData = await createTask(
+            this.client,
+            createTaskParams,
+            requestContext.requestId,
+          );
+
+          return formatTaskCreation(taskData, requestContext);
+        }
 
         case AsanaOperationType.UPDATE_TASK:
           // Implementation of task update
@@ -111,10 +196,77 @@ export class AsanaTool extends Tool {
           // This is a placeholder
           return `This operation is not yet implemented: Get Task Details (Request ID: ${requestContext.requestId})`;
 
-        case AsanaOperationType.LIST_TASKS:
-          // Implementation of task listing
-          // This is a placeholder
-          return `This operation is not yet implemented: List Tasks (Request ID: ${requestContext.requestId})`;
+        case AsanaOperationType.LIST_TASKS: {
+          // Get the list tasks intent
+          const listTasksIntent = parsedIntent as any;
+
+          // Get the workspace GID
+          const workspaceGid = getWorkspaceGid();
+          if (!workspaceGid) {
+            return `Error: Default Asana workspace is not configured. Please configure ASANA_DEFAULT_WORKSPACE_GID in your environment. (Request ID: ${requestContext.requestId})`;
+          }
+
+          // Prepare list tasks params
+          const listTasksParams: any = {
+            workspace: workspaceGid,
+          };
+
+          // Add filters
+          if (listTasksIntent.assignedToMe) {
+            listTasksParams.assignee = 'me';
+          }
+
+          if (listTasksIntent.completed === true) {
+            // To get completed tasks, we don't set completed_since
+            listTasksParams.completed_since = undefined;
+          } else {
+            // Default to incomplete tasks
+            listTasksParams.completed_since = 'now';
+          }
+
+          // If project name is specified, resolve it to a GID
+          if (listTasksIntent.projectName) {
+            try {
+              const projectGid = await findProjectGidByName(
+                this.client,
+                listTasksIntent.projectName,
+                workspaceGid,
+                requestContext.requestId,
+              );
+
+              if (projectGid === 'ambiguous') {
+                return `Error: Multiple projects found matching '${listTasksIntent.projectName}'. Please be more specific. (Request ID: ${requestContext.requestId})`;
+              }
+
+              if (projectGid) {
+                listTasksParams.project = projectGid;
+              } else {
+                // Project not found, so return a helpful message
+                return `No project found matching "${listTasksIntent.projectName}". Please check the project name and try again. (Request ID: ${requestContext.requestId})`;
+              }
+            } catch (error) {
+              console.error(`[AsanaTool] Error resolving project: ${error}`);
+              return `Error finding project "${listTasksIntent.projectName}". (Request ID: ${requestContext.requestId})`;
+            }
+          }
+
+          // List the tasks
+          const tasksData = await listTasks(
+            this.client,
+            listTasksParams,
+            requestContext.requestId,
+          );
+
+          return formatTaskList(
+            tasksData,
+            {
+              projectName: listTasksIntent.projectName,
+              assignedToMe: listTasksIntent.assignedToMe,
+              completed: listTasksIntent.completed,
+            },
+            requestContext,
+          );
+        }
 
         case AsanaOperationType.COMPLETE_TASK:
           // Implementation of task completion
@@ -131,10 +283,36 @@ export class AsanaTool extends Tool {
           // This is a placeholder
           return `This operation is not yet implemented: Update Project (Request ID: ${requestContext.requestId})`;
 
-        case AsanaOperationType.LIST_PROJECTS:
-          // Implementation of project listing
-          // This is a placeholder
-          return `This operation is not yet implemented: List Projects (Request ID: ${requestContext.requestId})`;
+        case AsanaOperationType.LIST_PROJECTS: {
+          // Get the workspace GID
+          const workspaceGid = getWorkspaceGid();
+          if (!workspaceGid) {
+            return `Error: Default Asana workspace is not configured. Please configure ASANA_DEFAULT_WORKSPACE_GID in your environment. (Request ID: ${requestContext.requestId})`;
+          }
+
+          // Get the list projects intent
+          const listProjectsIntent = parsedIntent as any;
+
+          // Get archived parameter
+          const archived = listProjectsIntent.archived || false;
+
+          // List the projects
+          const projectsData = await listProjects(
+            this.client,
+            workspaceGid,
+            archived,
+            requestContext.requestId,
+          );
+
+          return formatProjectList(
+            projectsData,
+            {
+              teamName: listProjectsIntent.teamName,
+              archived,
+            },
+            requestContext,
+          );
+        }
 
         case AsanaOperationType.UNKNOWN:
         default:

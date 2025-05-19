@@ -189,3 +189,27 @@
 .space-y-0\.5 > * + * {
   margin-top: 0.125rem !important;
 }
+
+/* --- Custom scrollbar fix for chat and all scrollable containers --- */
+/* Applies to all elements with overflow-y-scroll or overflow-auto */
+::-webkit-scrollbar {
+  width: 8px;
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* For Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+/* Ensure chat containers do not have unintended background */
+.flex-1, .overflow-y-scroll, .overflow-x-hidden {
+  background: transparent !important;
+}
