@@ -1,9 +1,14 @@
+export const runtime = 'nodejs';
+
 import { compare } from 'bcrypt-ts';
 import NextAuth, { type User, type Session } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
+import Asana from '@/lib/auth/providers/asana';
+import { DrizzleAdapter } from '@auth/drizzle-adapter';
 
 import { getUser } from '@/lib/db/queries';
 import { logger } from '@/lib/logger';
+import { db } from '@/lib/db/client';
 
 import { authConfig } from './auth.config';
 
@@ -40,18 +45,20 @@ logger.debug(
   },
 );
 
-// Extended User interface to include clientId
+// Extended User interface to include clientId and Asana info
 interface ExtendedUser extends User {
   clientId?: string;
+  asanaProviderAccountId?: string;
 }
 
-// Extended Session interface to include clientId in the user object
+// Extended Session interface to include clientId and Asana info
 interface ExtendedSession extends Session {
   user: {
     id: string;
     email: string;
-    name?: string;
+    name?: string | null;
     clientId?: string;
+    asanaProviderAccountId?: string;
   };
 }
 
@@ -59,6 +66,24 @@ interface ExtendedSession extends Session {
 logger.debug(
   'Auth',
   'About to merge callbacks - will preserve authorized callback from authConfig',
+);
+
+// Create a custom table mapping options for DrizzleAdapter
+// Using type assertion to avoid linter errors
+const customTableMappings = {
+  // Use lowercase names to match PostgreSQL's convention of converting unquoted identifiers to lowercase
+  tablePrefix: '',
+  usersTable: 'User',
+  accountsTable: 'Account',
+  sessionsTable: 'Session',
+  verificationTokensTable: 'VerificationToken',
+} as any;
+
+// Initialize the DrizzleAdapter with custom mappings
+logger.debug(
+  'Auth',
+  'Initializing DrizzleAdapter with custom table names',
+  customTableMappings,
 );
 
 export const {
@@ -69,16 +94,49 @@ export const {
 } = NextAuth({
   ...authConfig,
   secret: authSecret,
+  adapter: DrizzleAdapter(db, customTableMappings),
   providers: [
     Credentials({
       credentials: {},
       async authorize({ email, password }: any) {
         const users = await getUser(email);
         if (users.length === 0) return null;
-        // biome-ignore lint: Forbidden non-null assertion.
-        const passwordsMatch = await compare(password, users[0].password!);
+        const passwordsMatch = await compare(password, users[0].password ?? '');
         if (!passwordsMatch) return null;
         return users[0] as any;
+      },
+    }),
+    Asana({
+      clientId: process.env.ASANA_OAUTH_CLIENT_ID ?? '',
+      clientSecret: process.env.ASANA_OAUTH_CLIENT_SECRET ?? '',
+      authorization: {
+        url:
+          process.env.ASANA_OAUTH_AUTHORIZATION_URL ??
+          'https://app.asana.com/-/oauth_authorize',
+        params: {
+          scope: process.env.ASANA_OAUTH_SCOPES ?? 'default',
+          response_type: 'code',
+          access_type: process.env.ASANA_OAUTH_ACCESS_TYPE ?? 'offline',
+        },
+      },
+      token:
+        process.env.ASANA_OAUTH_TOKEN_URL ??
+        'https://app.asana.com/-/oauth_token',
+      userinfo: 'https://app.asana.com/api/1.0/users/me',
+      profile(profile: any) {
+        logger.debug('AsanaProvider', 'Processing profile data', {
+          profileId: profile.data?.gid,
+          profileName: profile.data?.name,
+          hasEmail: !!profile.data?.email,
+          hasPhoto: !!profile.data?.photo,
+        });
+
+        return {
+          id: profile.data.gid,
+          name: profile.data.name,
+          email: profile.data.email,
+          image: profile.data.photo?.image_128x128,
+        };
       },
     }),
   ],
@@ -87,7 +145,14 @@ export const {
     authorized: authConfig.callbacks.authorized,
 
     // Add the JWT and session callbacks
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
+      logger.debug('Auth', 'JWT callback called', {
+        userId: token.id || user?.id,
+        hasUserObject: !!user,
+        hasAccountObject: !!account,
+        accountProvider: account?.provider,
+      });
+
       if (user) {
         token.id = user.id;
         // Add clientId to the token if available
@@ -99,7 +164,7 @@ export const {
           token.clientId = user.clientId;
         } else {
           logger.debug('Auth', 'User object does not contain clientId');
-          // You might want to fetch the clientId from the database here if not included in the user object
+          // Fetch the clientId from the database if not included in the user object
           const users = await getUser(user.email as string);
           if (users.length > 0 && 'clientId' in users[0]) {
             logger.debug(
@@ -110,6 +175,15 @@ export const {
           } else {
             logger.warn('Auth', 'No clientId found for user in database');
           }
+        }
+
+        // If this is an Asana OAuth sign-in, store the provider account ID
+        if (account?.provider === 'asana') {
+          logger.debug(
+            'Auth',
+            `Adding Asana provider account ID to token: ${account.providerAccountId}`,
+          );
+          token.asanaProviderAccountId = account.providerAccountId;
         }
       }
 
@@ -123,12 +197,26 @@ export const {
       session: ExtendedSession;
       token: any;
     }) {
+      logger.debug('Auth', 'Session callback called', {
+        hasSessionUser: !!session?.user,
+        hasTokenId: !!token?.id,
+        tokenKeys: Object.keys(token || {}),
+      });
+
       if (session.user) {
         session.user.id = token.id as string;
         // Add clientId to the session.user object if available in token
         if (token.clientId) {
           logger.debug('Auth', `Adding clientId to session: ${token.clientId}`);
           session.user.clientId = token.clientId as string;
+        }
+        // Add Asana provider account ID if available
+        if (token.asanaProviderAccountId) {
+          logger.debug(
+            'Auth',
+            `Adding Asana provider account ID to session: ${token.asanaProviderAccountId}`,
+          );
+          session.user.asanaProviderAccountId = token.asanaProviderAccountId;
         }
       }
 

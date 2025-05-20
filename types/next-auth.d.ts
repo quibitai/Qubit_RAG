@@ -1,4 +1,5 @@
 import type { DefaultSession } from 'next-auth';
+import 'next-auth';
 
 declare module 'next-auth' {
   /**
@@ -7,12 +8,13 @@ declare module 'next-auth' {
   interface Session {
     user: {
       /** Default fields from NextAuth */
-      id?: string;
+      id: string;
+      email: string;
       name?: string | null;
-      email?: string | null;
       image?: string | null;
       /** Custom fields */
       clientId?: string;
+      asanaProviderAccountId?: string;
     } & DefaultSession['user'];
   }
 
