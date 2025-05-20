@@ -1,9 +1,9 @@
 /**
- * Debug script to test the n8nMcpGatewayTool directly
+ * Debug script to test the googleCalendarTool directly
  */
 
 // Import the tool
-const { n8nMcpGatewayTool } = require('./lib/ai/tools/n8nMcpGatewayTool');
+const { googleCalendarTool } = require('./lib/ai/tools/googleCalendarTool');
 
 // Mock different argument formats
 const testCases = [
@@ -38,7 +38,7 @@ const testCases = [
 
 // Run the tests sequentially
 async function runTests() {
-  console.log('Starting n8nMcpGatewayTool debug tests...\n');
+  console.log('Starting googleCalendarTool debug tests...\n');
 
   for (const test of testCases) {
     console.log(`\n------ TEST CASE: ${test.name} ------`);
@@ -46,7 +46,7 @@ async function runTests() {
 
     try {
       console.log('Calling tool...');
-      const result = await n8nMcpGatewayTool.invoke(test.args);
+      const result = await googleCalendarTool.invoke(test.args);
       console.log('Result:', result);
     } catch (error) {
       console.error('Error in tool call:', error);

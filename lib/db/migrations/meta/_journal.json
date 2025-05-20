@@ -71,6 +71,13 @@
       "when": 1747066815575,
       "tag": "0009_sweet_morgan_stark",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1747693636708,
+      "tag": "0010_handy_slayback",
+      "breakpoints": true
     }
   ]
 }

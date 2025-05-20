@@ -35,11 +35,11 @@ export interface EnhancedAgentExecutorConfig {
  * Default configuration for enforced tools
  */
 const DEFAULT_ENFORCED_TOOLS: Record<string, string[]> = {
-  [ForceToolCallQueryType.Calendar]: ['n8nMcpGateway'],
-  [ForceToolCallQueryType.Tasks]: ['n8nMcpGateway'],
-  [ForceToolCallQueryType.Events]: ['n8nMcpGateway'],
-  [ForceToolCallQueryType.Asana]: ['nativeAsana'],
-  [ForceToolCallQueryType.Email]: ['n8nMcpGateway'],
+  [ForceToolCallQueryType.Calendar]: ['googleCalendar'],
+  [ForceToolCallQueryType.Tasks]: ['asanaMcp'],
+  [ForceToolCallQueryType.Events]: ['googleCalendar'],
+  [ForceToolCallQueryType.Asana]: ['asanaMcp'],
+  [ForceToolCallQueryType.Email]: ['googleCalendar'], // Keep temporarily until a dedicated email tool is created
 };
 
 /**

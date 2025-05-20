@@ -13,12 +13,12 @@ import { requestSuggestionsTool } from './request-suggestions';
 import { updateDocumentTool } from './update-document';
 import { tavilySearchTool } from './tavily-search';
 import { getMessagesFromOtherChatTool } from './getMessagesFromOtherChatTool';
-import { n8nMcpGatewayTool } from './n8nMcpGatewayTool';
-// import { nativeAsanaTool } from './nativeAsanaTool'; // Old Asana tool
-import { asanaTool } from './asana'; // New modular Asana tool
+import { googleCalendarTool } from './googleCalendarTool';
+import { asanaMcpTool } from './asanaMcpTool';
+import { Tool } from '@langchain/core/tools';
 
 // Export all available tools
-export const availableTools = [
+export const availableTools: Tool[] = [
   listDocumentsTool,
   getFileContentsTool,
   searchInternalKnowledgeBase,
@@ -28,9 +28,8 @@ export const availableTools = [
   updateDocumentTool,
   tavilySearchTool,
   getMessagesFromOtherChatTool,
-  n8nMcpGatewayTool,
-  // nativeAsanaTool, // Old Asana tool
-  asanaTool, // New modular Asana tool
+  googleCalendarTool,
+  asanaMcpTool,
 ];
 
 export {
@@ -43,7 +42,6 @@ export {
   updateDocumentTool,
   tavilySearchTool,
   getMessagesFromOtherChatTool,
-  n8nMcpGatewayTool,
-  // nativeAsanaTool, // Old Asana tool
-  asanaTool, // New modular Asana tool
+  googleCalendarTool,
+  asanaMcpTool,
 };

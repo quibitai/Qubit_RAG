@@ -1,3 +1,5 @@
+export const runtime = 'nodejs';
+
 import { logger } from './lib/logger';
 
 logger.debug('Middleware', 'Middleware file execution');
@@ -26,16 +28,17 @@ if (process.env.NEXTAUTH_SECRET) {
 // Export directly from auth module
 export { auth as middleware } from '@/app/(auth)/auth';
 
-// TEMPORARILY SIMPLIFIED MATCHER FOR TESTING:
+// Export a matcher that excludes static files and API routes that need to bypass auth
 export const config = {
   matcher: [
     /*
      * Match all request paths except for the ones starting with:
+     * - api/auth (NextAuth's own routes)
      * - _next/ (Next.js internals)
      * - favicon.ico (favicon file)
      * - public files (images, etc.)
      * - api routes that need to bypass auth
      */
-    '/((?!_next|favicon.ico|api/brain|api/chat-actions|api/ping).*)',
+    '/((?!_next|favicon.ico|api/auth|api/brain|api/chat-actions|api/ping).*)',
   ],
 };

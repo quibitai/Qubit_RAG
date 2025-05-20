@@ -2162,85 +2162,84 @@ ${extractedText}
                   `[Brain API] Saving assistant message ${assistantMessageToSave.id} for chat ${normalizedChatId}`,
                 );
 
-                // First, check if there's an existing message with the same ID pattern but empty content
+                // Only create a new message if we didn't find an empty one to update
                 try {
-                  // Look for existing messages with this chat ID that are empty and from assistant
-                  const existingEmptyMessages = await sql<
-                    { id: string; parts: any }[]
-                  >`
-              SELECT id, parts FROM "Message_v2" 
-              WHERE "chatId" = ${normalizedChatId} 
-              AND role = 'assistant' 
-              AND (
-                parts::text = '[{"type":"text","text":""}]' 
-                OR parts::text = '[]'
-                OR parts::text IS NULL
-                OR (parts::text)::jsonb->0->>'text' = ''
-              )
-            `;
+                  // First check if the chat exists
+                  const chatExists = await sql`
+                    SELECT 1 FROM "Chat" WHERE id = ${assistantMessageToSave.chatId} LIMIT 1
+                  `;
 
-                  if (
-                    existingEmptyMessages &&
-                    existingEmptyMessages.length > 0
-                  ) {
+                  // If chat doesn't exist, create it first
+                  if (!chatExists || chatExists.length === 0) {
                     logger.info(
-                      `[Brain API] Found ${existingEmptyMessages.length} empty assistant messages for this chat, will update one instead of creating new`,
+                      `[Brain API] Creating new chat ${assistantMessageToSave.chatId} as it doesn't exist yet`,
                     );
 
-                    // Use the first empty message ID instead of creating a new one
-                    const emptyMsgId = existingEmptyMessages[0].id;
-                    logger.info(
-                      `[Brain API] Updating empty message ${emptyMsgId} with content instead of creating new`,
-                    );
-
-                    // Update the existing empty message with our content
                     await sql`
-                UPDATE "Message_v2"
-                SET parts = ${JSON.stringify(assistantMessageToSave.parts)}
-                WHERE id = ${emptyMsgId} AND "chatId" = ${normalizedChatId}
-              `;
+                      INSERT INTO "Chat" (
+                        id,
+                        "createdAt",
+                        "updatedAt",
+                        title,
+                        "userId",
+                        visibility,
+                        "clientId"
+                      ) VALUES (
+                        ${assistantMessageToSave.chatId},
+                        ${new Date().toISOString()},
+                        ${new Date().toISOString()},
+                        'New conversation',
+                        ${effectiveUserId},
+                        'private',
+                        ${effectiveClientId}
+                      )
+                    `;
 
                     logger.info(
-                      `[Brain API] Successfully updated empty message ${emptyMsgId} with content`,
-                    );
-                    return;
-                  } else {
-                    logger.info(
-                      `[Brain API] No empty messages found, creating new message`,
+                      `[Brain API] Successfully created chat ${assistantMessageToSave.chatId}`,
                     );
                   }
-                } catch (err) {
-                  logger.error(
-                    `[Brain API] Error checking for empty messages:`,
-                    err,
+
+                  // Now insert the message
+                  await sql`
+                    INSERT INTO "Message_v2" (
+                      id, 
+                      "chatId", 
+                      role, 
+                      parts, 
+                      attachments, 
+                      "createdAt",
+                      client_id
+                    ) VALUES (
+                      ${assistantMessageToSave.id}, 
+                      ${assistantMessageToSave.chatId}, 
+                      ${assistantMessageToSave.role}, 
+                      ${JSON.stringify(assistantMessageToSave.parts)}, 
+                      ${JSON.stringify(assistantMessageToSave.attachments)}, 
+                      ${assistantMessageToSave.createdAt.toISOString()},
+                      ${effectiveClientId}
+                    )
+                  `;
+
+                  logger.info(
+                    `[Brain API] Successfully saved assistant message ${assistantMessageToSave.id}`,
                   );
-                  // Continue with normal message creation since checking failed
+                } catch (dbError: any) {
+                  logger.error(
+                    `[Brain API] FAILED to save assistant message:`,
+                    dbError,
+                  );
+                  logger.error(
+                    `[Brain API] Assistant message save error details:`,
+                    {
+                      message: dbError?.message,
+                      name: dbError?.name,
+                      stack: dbError?.stack?.split('\n').slice(0, 3),
+                    },
+                  );
+                  // Log error, but don't block response as stream already finished
+                  // Do not reset assistantMessageSaved flag here to prevent duplicate save attempts
                 }
-
-                // Only create a new message if we didn't find an empty one to update
-                await sql`
-            INSERT INTO "Message_v2" (
-              id, 
-              "chatId", 
-              role, 
-              parts, 
-              attachments, 
-              "createdAt",
-              client_id
-            ) VALUES (
-              ${assistantMessageToSave.id}, 
-              ${assistantMessageToSave.chatId}, 
-              ${assistantMessageToSave.role}, 
-              ${JSON.stringify(assistantMessageToSave.parts)}, 
-              ${JSON.stringify(assistantMessageToSave.attachments)}, 
-              ${assistantMessageToSave.createdAt.toISOString()},
-              ${effectiveClientId}
-            )
-          `;
-
-                logger.info(
-                  `[Brain API] Successfully saved assistant message ${assistantMessageToSave.id}`,
-                );
               } catch (dbError: any) {
                 logger.error(
                   `[Brain API] FAILED to save assistant message:`,

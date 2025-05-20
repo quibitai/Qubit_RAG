@@ -15,6 +15,7 @@ import { Bot, ArrowRight, Brain, FileEdit } from 'lucide-react';
 import { ChatPaneToggle } from '@/components/ChatPaneToggle';
 import { useSidebar } from '@/components/ui/sidebar';
 import { DEFAULT_CHAT_MODEL } from '@/lib/ai/models';
+import { AsanaAuthControl } from '@/components/asana-auth-control';
 
 /**
  * Dashboard page component.
@@ -97,6 +98,10 @@ export default function DashboardPage() {
           sidebarState === 'collapsed' ? 'md:pl-14' : ''
         }`}
       >
+        <div className="mb-6">
+          <AsanaAuthControl />
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {modelCards.map((model) => (
             <Card
