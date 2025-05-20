@@ -1,9 +1,11 @@
 import { BaseMcpClient, McpError } from './baseMcpClient';
 import type { BaseMcpClientConfig } from './baseMcpClient';
 import { logger } from '@/lib/logger';
+// Import the eventsource package directly for Node.js environment
+import EventSourcePolyfill from 'eventsource';
 
 /**
- * Default configuration for AsanaMcpClient
+ * Default configuration for Real AsanaMcpClient
  */
 const DEFAULT_CONFIG: BaseMcpClientConfig = {
   baseUrl: process.env.ASANA_MCP_SERVER_URL ?? 'https://mcp.asana.com/sse',
@@ -23,15 +25,19 @@ interface AsanaMcpCommandMessage {
 }
 
 /**
- * AsanaMcpClient - Handles communication with Asana MCP server via SSE
- * Extends BaseMcpClient with Asana-specific functionality
+ * RealAsanaMcpClient - Forces a real connection to the Asana MCP server
+ * regardless of environment, bypassing development/test mode checks
  */
-export class AsanaMcpClient extends BaseMcpClient {
+export class RealAsanaMcpClient extends BaseMcpClient {
   // Track connection initialization state
   private connectionInitialized = false;
 
   constructor(accessToken: string, config: Partial<BaseMcpClientConfig> = {}) {
     super(accessToken, config);
+    logger.info(
+      this.getLoggerName(),
+      '🔴 Initializing REAL Asana MCP client that will attempt actual connection',
+    );
   }
 
   /**
@@ -45,35 +51,52 @@ export class AsanaMcpClient extends BaseMcpClient {
    * Get the logger name for this MCP client
    */
   protected getLoggerName(): string {
-    return 'AsanaMcpClient';
+    return 'RealAsanaMcpClient';
   }
 
   /**
-   * Override connect method to add Asana-specific connection handling
+   * Override connect method to force real connection to Asana MCP server
    */
   public async connect(): Promise<void> {
     try {
-      logger.debug(this.getLoggerName(), 'Connecting to Asana MCP server', {
-        baseUrl: this.config.baseUrl,
-      });
+      logger.info(
+        this.getLoggerName(),
+        '🔴 Forcibly connecting to REAL Asana MCP server',
+        {
+          baseUrl: this.config.baseUrl,
+        },
+      );
 
-      // Check if we're in development/test mode
-      if (
-        process.env.NODE_ENV === 'development' ||
-        process.env.NODE_ENV === 'test'
-      ) {
-        logger.info(
-          this.getLoggerName(),
-          'Test mode: Simulating connection to Asana MCP',
+      // Create a direct connection using the EventSource polyfill
+      try {
+        this.eventSource = new EventSourcePolyfill(this.config.baseUrl, {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+          },
+        });
+
+        this.setupEventHandlers();
+
+        // Set up message handlers
+        this.eventSource.addEventListener(
+          'message',
+          this.handleMessage.bind(this),
         );
-        // In test mode, just pretend we're connected
-        this.isConnected = true;
-        this.connectionInitialized = true;
-        return;
+        this.eventSource.addEventListener('error', this.handleError.bind(this));
+        this.eventSource.addEventListener(
+          'command_ack',
+          this.handleCommandAck.bind(this),
+        );
+        this.eventSource.addEventListener(
+          'command_complete',
+          this.handleCommandComplete.bind(this),
+        );
+      } catch (error) {
+        throw new McpError(
+          `Failed to create EventSource: ${error instanceof Error ? error.message : String(error)}`,
+          'INITIALIZATION_ERROR',
+        );
       }
-
-      // Call the parent connect method
-      await super.connect();
 
       // Add a short delay to ensure connection is fully established
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -81,7 +104,7 @@ export class AsanaMcpClient extends BaseMcpClient {
       // Verify connection is actually working
       if (
         !this.eventSource ||
-        this.eventSource.readyState !== EventSource.OPEN
+        this.eventSource.readyState !== EventSourcePolyfill.OPEN
       ) {
         throw new McpError(
           'Failed to establish connection to Asana MCP server',
@@ -90,14 +113,15 @@ export class AsanaMcpClient extends BaseMcpClient {
       }
 
       this.connectionInitialized = true;
+      this.isConnected = true;
       logger.info(
         this.getLoggerName(),
-        'Successfully connected to Asana MCP server',
+        '✅ Successfully connected to REAL Asana MCP server',
       );
     } catch (error) {
       logger.error(
         this.getLoggerName(),
-        'Failed to connect to Asana MCP server',
+        '❌ Failed to connect to REAL Asana MCP server',
         {
           error: error instanceof Error ? error.message : String(error),
           code: error instanceof McpError ? error.code : 'UNKNOWN_ERROR',
@@ -116,43 +140,7 @@ export class AsanaMcpClient extends BaseMcpClient {
    * @param requestId The request ID for tracking
    */
   protected executeCommand(command: string | object, requestId: string): void {
-    // Check if we're in development/test mode
-    if (
-      process.env.NODE_ENV === 'development' ||
-      process.env.NODE_ENV === 'test' ||
-      !this.eventSource
-    ) {
-      logger.debug(this.getLoggerName(), 'Test mode: Simulating response', {
-        requestId,
-      });
-
-      // Simulate a successful response after a short delay
-      setTimeout(() => {
-        // Create a compatible mock event
-        const mockEventData = JSON.stringify({
-          requestId,
-          success: true,
-          data: {
-            message:
-              'This is a mock response. The Asana MCP integration is still being configured.',
-            action:
-              typeof command === 'string' ? command : JSON.stringify(command),
-          },
-        });
-
-        // Use type assertion to make TypeScript happy
-        this.handleCommandComplete({
-          data: mockEventData,
-          type: 'command_complete',
-          lastEventId: '',
-          origin: '',
-          ports: [] as ReadonlyArray<MessagePort>,
-          source: null,
-        } as any);
-      }, 1000);
-      return;
-    }
-
+    // No development mode checks - always try to connect for real
     try {
       // Format the command message
       const message: AsanaMcpCommandMessage = {
@@ -160,11 +148,15 @@ export class AsanaMcpClient extends BaseMcpClient {
         command,
       };
 
-      logger.debug(this.getLoggerName(), 'Sending command to Asana MCP:', {
-        requestId,
-        command:
-          typeof command === 'string' ? command : JSON.stringify(command),
-      });
+      logger.info(
+        this.getLoggerName(),
+        '🔴 Sending REAL command to Asana MCP:',
+        {
+          requestId,
+          command:
+            typeof command === 'string' ? command : JSON.stringify(command),
+        },
+      );
 
       // Use a POST request to send commands to the Asana MCP command endpoint
       const commandEndpoint = `${this.config.baseUrl.replace('/sse', '')}/commands`;
@@ -177,11 +169,15 @@ export class AsanaMcpClient extends BaseMcpClient {
         },
         body: JSON.stringify(message),
       }).catch((error) => {
-        logger.error(this.getLoggerName(), 'Error sending command via POST:', {
-          requestId,
-          error: error instanceof Error ? error.message : String(error),
-          endpoint: commandEndpoint,
-        });
+        logger.error(
+          this.getLoggerName(),
+          '❌ Error sending REAL command via POST:',
+          {
+            requestId,
+            error: error instanceof Error ? error.message : String(error),
+            endpoint: commandEndpoint,
+          },
+        );
 
         const pendingCommand = this.pendingCommands.get(requestId);
         if (pendingCommand) {
@@ -197,7 +193,7 @@ export class AsanaMcpClient extends BaseMcpClient {
         }
       });
     } catch (error) {
-      logger.error(this.getLoggerName(), 'Error preparing command:', {
+      logger.error(this.getLoggerName(), '❌ Error preparing REAL command:', {
         requestId,
         error: error instanceof Error ? error.message : String(error),
       });

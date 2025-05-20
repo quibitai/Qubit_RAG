@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 
 import { AppSidebar } from '@/components/app-sidebar';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
@@ -20,6 +21,12 @@ export default async function Layout({
 
   const isCollapsed = cookieStore.get('sidebar:state')?.value !== 'true';
 
+  // Ensure we have a valid session before rendering
+  if (!session?.user?.id) {
+    console.warn('[Chat Layout] No valid session found, redirecting to login');
+    redirect('/login');
+  }
+
   return (
     <>
       <Script
@@ -27,7 +34,7 @@ export default async function Layout({
         strategy="beforeInteractive"
       />
       <SidebarProvider defaultOpen={true}>
-        <AppSidebar user={session?.user} />
+        <AppSidebar user={session.user} />
         <SidebarInset>{children}</SidebarInset>
       </SidebarProvider>
     </>

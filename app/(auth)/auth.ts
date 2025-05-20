@@ -68,23 +68,32 @@ logger.debug(
   'About to merge callbacks - will preserve authorized callback from authConfig',
 );
 
-// Create a custom table mapping options for DrizzleAdapter
-// Using type assertion to avoid linter errors
-const customTableMappings = {
-  // Use lowercase names to match PostgreSQL's convention of converting unquoted identifiers to lowercase
-  tablePrefix: '',
-  usersTable: 'User',
-  accountsTable: 'Account',
-  sessionsTable: 'Session',
-  verificationTokensTable: 'VerificationToken',
-} as any;
+// Initialize the DrizzleAdapter with default schema
+logger.debug('Auth', 'Initializing DrizzleAdapter with schema tables');
 
-// Initialize the DrizzleAdapter with custom mappings
-logger.debug(
-  'Auth',
-  'Initializing DrizzleAdapter with custom table names',
-  customTableMappings,
-);
+// Create a custom debug logger to monitor adapter operations
+function logAdapterOperation(
+  operation: string,
+  params?: any,
+  result?: any,
+  error?: any,
+) {
+  if (error) {
+    logger.error('AuthAdapter', `${operation} failed`, { params, error });
+    return;
+  }
+
+  if (result !== undefined) {
+    logger.debug('AuthAdapter', `${operation} completed`, {
+      params,
+      resultType: typeof result,
+      resultIsArray: Array.isArray(result),
+      resultLength: Array.isArray(result) ? result.length : null,
+    });
+  } else {
+    logger.debug('AuthAdapter', `${operation} called`, { params });
+  }
+}
 
 export const {
   handlers: { GET, POST },
@@ -94,16 +103,38 @@ export const {
 } = NextAuth({
   ...authConfig,
   secret: authSecret,
-  adapter: DrizzleAdapter(db, customTableMappings),
+  debug: true, // Enable full NextAuth debugging
+  adapter: DrizzleAdapter(db),
   providers: [
     Credentials({
-      credentials: {},
+      credentials: {
+        email: { label: 'Email', type: 'email' },
+        password: { label: 'Password', type: 'password' },
+      },
       async authorize({ email, password }: any) {
+        logger.debug('Auth', 'Credentials authorize called', { email });
         const users = await getUser(email);
-        if (users.length === 0) return null;
-        const passwordsMatch = await compare(password, users[0].password ?? '');
-        if (!passwordsMatch) return null;
-        return users[0] as any;
+        if (users.length === 0) {
+          logger.debug('Auth', 'No user found for email', { email });
+          return null;
+        }
+        const user = users[0];
+        if (!user.password) {
+          logger.debug('Auth', 'User has no password set', { email });
+          return null;
+        }
+        const passwordsMatch = await compare(password, user.password);
+        if (!passwordsMatch) {
+          logger.debug('Auth', 'Password does not match', { email });
+          return null;
+        }
+        logger.debug('Auth', 'User authenticated successfully', { email });
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          image: user.image,
+        };
       },
     }),
     Asana({
@@ -151,31 +182,16 @@ export const {
         hasUserObject: !!user,
         hasAccountObject: !!account,
         accountProvider: account?.provider,
+        tokenKeys: Object.keys(token),
       });
 
       if (user) {
         token.id = user.id;
-        // Add clientId to the token if available
-        if ('clientId' in user) {
-          logger.debug(
-            'Auth',
-            `Adding clientId to JWT token: ${user.clientId}`,
-          );
-          token.clientId = user.clientId;
-        } else {
-          logger.debug('Auth', 'User object does not contain clientId');
-          // Fetch the clientId from the database if not included in the user object
-          const users = await getUser(user.email as string);
-          if (users.length > 0 && 'clientId' in users[0]) {
-            logger.debug(
-              'Auth',
-              `Retrieved clientId from database: ${users[0].clientId}`,
-            );
-            token.clientId = users[0].clientId;
-          } else {
-            logger.warn('Auth', 'No clientId found for user in database');
-          }
-        }
+        // Temporarily comment out clientId handling
+        // if (token.clientId) {
+        //   logger.debug('Auth', `Adding clientId to session: ${token.clientId}`);
+        //   session.user.clientId = token.clientId as string;
+        // }
 
         // If this is an Asana OAuth sign-in, store the provider account ID
         if (account?.provider === 'asana') {
@@ -205,11 +221,11 @@ export const {
 
       if (session.user) {
         session.user.id = token.id as string;
-        // Add clientId to the session.user object if available in token
-        if (token.clientId) {
-          logger.debug('Auth', `Adding clientId to session: ${token.clientId}`);
-          session.user.clientId = token.clientId as string;
-        }
+        // Temporarily comment out clientId handling
+        // if (token.clientId) {
+        //   logger.debug('Auth', `Adding clientId to session: ${token.clientId}`);
+        //   session.user.clientId = token.clientId as string;
+        // }
         // Add Asana provider account ID if available
         if (token.asanaProviderAccountId) {
           logger.debug(

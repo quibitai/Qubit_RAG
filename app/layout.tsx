@@ -16,18 +16,20 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  maximumScale: 1, // Disable auto-zoom on mobile Safari
+  colorScheme: 'dark light',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: 'white' },
+    { media: '(prefers-color-scheme: dark)', color: 'black' },
+  ],
 };
 
 const geist = Geist({
   subsets: ['latin'],
-  display: 'swap',
   variable: '--font-geist',
 });
 
 const geistMono = Geist_Mono({
   subsets: ['latin'],
-  display: 'swap',
   variable: '--font-geist-mono',
 });
 
@@ -53,9 +55,9 @@ const THEME_COLOR_SCRIPT = `\
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html
       lang="en"
@@ -64,7 +66,7 @@ export default function RootLayout({
       // prop is necessary to avoid the React hydration mismatch warning.
       // https://github.com/pacocoursey/next-themes?tab=readme-ov-file#with-app
       suppressHydrationWarning
-      className={`${geist.variable} ${geistMono.variable}`}
+      className={`${geist.variable} ${geistMono.variable} font-sans antialiased`}
     >
       <head>
         <script
@@ -73,22 +75,21 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="antialiased">
-        <NextAuthProvider>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
-            <Toaster position="top-right" richColors closeButton />
-            <DocumentProvider>
-              <ChatPaneProvider>
+      <body>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <NextAuthProvider>
+            <ChatPaneProvider>
+              <DocumentProvider>
                 <ClientLayout>{children}</ClientLayout>
-              </ChatPaneProvider>
-            </DocumentProvider>
-          </ThemeProvider>
-        </NextAuthProvider>
+              </DocumentProvider>
+            </ChatPaneProvider>
+          </NextAuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

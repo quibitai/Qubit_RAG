@@ -9,7 +9,7 @@ import {
   primaryKey,
   foreignKey,
   boolean,
-  integer,
+  bigint,
 } from 'drizzle-orm/pg-core';
 
 // New Clients table
@@ -27,13 +27,18 @@ export const clients = pgTable('Clients', {
 
 export type Client = InferSelectModel<typeof clients>;
 
-export const user = pgTable('User', {
+// NextAuth.js adapter tables - use lowercase names to avoid case issues with PostgreSQL
+export const user = pgTable('user', {
   id: uuid('id').primaryKey().notNull().defaultRandom(),
-  email: varchar('email', { length: 64 }).notNull(),
-  password: varchar('password', { length: 64 }),
-  clientId: text('client_id')
-    .notNull()
-    .references(() => clients.id),
+  name: varchar('name', { length: 255 }),
+  email: varchar('email', { length: 255 }).notNull().unique(),
+  emailVerified: timestamp('emailVerified', { mode: 'date' }),
+  image: varchar('image', { length: 255 }),
+  password: varchar('password', { length: 255 }), // Add password field for credentials provider
+  // Temporarily comment out custom fields for testing
+  // clientId: text('client_id')
+  //   .notNull()
+  //   .references(() => clients.id),
 });
 
 export type User = InferSelectModel<typeof user>;
@@ -153,9 +158,9 @@ export const suggestion = pgTable(
 
 export type Suggestion = InferSelectModel<typeof suggestion>;
 
-// NextAuth.js adapter tables
+// NextAuth.js adapter tables - use lowercase names
 export const account = pgTable(
-  'Account',
+  'account',
   {
     id: uuid('id').primaryKey().notNull().defaultRandom(),
     userId: uuid('userId')
@@ -166,7 +171,7 @@ export const account = pgTable(
     providerAccountId: varchar('providerAccountId', { length: 255 }).notNull(),
     refresh_token: text('refresh_token'),
     access_token: text('access_token'),
-    expires_at: integer('expires_at'),
+    expires_at: bigint('expires_at', { mode: 'bigint' }),
     token_type: varchar('token_type', { length: 255 }),
     scope: varchar('scope', { length: 255 }),
     id_token: text('id_token'),
@@ -179,7 +184,7 @@ export const account = pgTable(
   }),
 );
 
-export const session = pgTable('Session', {
+export const session = pgTable('session', {
   id: uuid('id').primaryKey().notNull().defaultRandom(),
   sessionToken: varchar('sessionToken', { length: 255 }).notNull().unique(),
   userId: uuid('userId')
@@ -189,7 +194,7 @@ export const session = pgTable('Session', {
 });
 
 export const verificationToken = pgTable(
-  'VerificationToken',
+  'verificationtoken',
   {
     identifier: varchar('identifier', { length: 255 }).notNull(),
     token: varchar('token', { length: 255 }).notNull(),

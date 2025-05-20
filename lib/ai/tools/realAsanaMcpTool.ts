@@ -1,15 +1,3 @@
-/**
- * ⚠️ WARNING: REAL MCP CONNECTION ENABLED ⚠️
- * This file has been modified by the enable-real-asana-mcp.ts script
- * to use RealAsanaMcpClient instead of AsanaMcpClient.
- * 
- * This means it will attempt to connect to the real Asana MCP server
- * even in development mode.
- * 
- * To revert to the original file, run:
- * `npx tsx scripts/disable-real-asana-mcp.ts`
- */
-
 import { Tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
@@ -23,8 +11,8 @@ import { auth } from '@/app/(auth)/auth';
 import { McpError } from '@/lib/ai/clients/baseMcpClient';
 import type { McpResponse } from '@/lib/ai/clients/baseMcpClient';
 
-// Define the input schema for the Asana MCP tool
-const AsanaMcpToolInputSchema = z.object({
+// Define the input schema for the Real Asana MCP tool
+const RealAsanaMcpToolInputSchema = z.object({
   action_description: z
     .string()
     .describe(
@@ -48,47 +36,51 @@ const AsanaMcpToolInputSchema = z.object({
 });
 
 /**
- * AsanaMcpTool - A LangChain tool for interacting with Asana via the Model Context Protocol (MCP)
- * This tool requires the user to have connected their Asana account through OAuth.
+ * RealAsanaMcpTool - A LangChain tool for interacting with Asana via the REAL Model Context Protocol (MCP)
+ * This bypasses development mode checks and always attempts a real connection
  */
-class AsanaMcpTool extends Tool {
-  name = 'asanaMcp';
+class RealAsanaMcpTool extends Tool {
+  name = 'realAsanaMcp';
   description =
-    'A tool that connects to Asana via the official Asana MCP server to perform operations. ' +
+    'A tool that forces a real connection to Asana via the official Asana MCP server to perform operations. ' +
     'Use this for managing Asana tasks and projects, such as creating, listing, updating tasks, ' +
     'or getting project statuses. Use natural language to describe the desired operation. ' +
     'Requires the user to have connected their Asana account. ' +
     "Example input: \"Create a task 'Review Q1 report' in the 'Marketing' project.\"";
 
-  zodSchema = AsanaMcpToolInputSchema;
+  zodSchema = RealAsanaMcpToolInputSchema;
 
   /**
-   * Execute the Asana MCP operation
+   * Execute the Asana MCP operation with real connection
    * @param args The tool input arguments
    * @returns A promise that resolves to the operation result as a string
    */
   protected async _call(
-    args: z.infer<typeof AsanaMcpToolInputSchema>,
+    args: z.infer<typeof RealAsanaMcpToolInputSchema>,
   ): Promise<string> {
     const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
     // Add initial logging
-    logger.debug('AsanaMcpTool', 'Starting Asana MCP tool execution', {
-      requestId,
-      timestamp: new Date().toISOString(),
-      args: JSON.stringify(args),
-    });
+    logger.debug(
+      'RealAsanaMcpTool',
+      '🔴 Starting REAL Asana MCP tool execution',
+      {
+        requestId,
+        timestamp: new Date().toISOString(),
+        args: JSON.stringify(args),
+      },
+    );
 
     try {
       // Get the current user's session
-      logger.debug('AsanaMcpTool', 'Attempting to get session', {
+      logger.debug('RealAsanaMcpTool', 'Attempting to get session', {
         requestId,
         timestamp: new Date().toISOString(),
       });
 
       const session = await auth();
 
-      logger.debug('AsanaMcpTool', 'Session retrieved', {
+      logger.debug('RealAsanaMcpTool', 'Session retrieved', {
         requestId,
         hasSession: !!session,
         hasUser: !!session?.user,
@@ -99,7 +91,7 @@ class AsanaMcpTool extends Tool {
       if (!session?.user?.id) {
         const errorMsg =
           'User not authenticated. Please sign in to use Asana features.';
-        logger.error('AsanaMcpTool', errorMsg, {
+        logger.error('RealAsanaMcpTool', errorMsg, {
           requestId,
           sessionState: {
             hasSession: !!session,
@@ -111,7 +103,7 @@ class AsanaMcpTool extends Tool {
       }
 
       const userId = session.user.id;
-      logger.debug('AsanaMcpTool', 'Using authenticated userId:', {
+      logger.debug('RealAsanaMcpTool', 'Using authenticated userId:', {
         requestId,
         userId,
       });
@@ -120,7 +112,7 @@ class AsanaMcpTool extends Tool {
       let actionDescription: string;
       if (args === null || args === undefined) {
         const errorMsg = `Error: Received null or undefined input`;
-        logger.error('AsanaMcpTool', errorMsg, { requestId });
+        logger.error('RealAsanaMcpTool', errorMsg, { requestId });
         return errorMsg;
       }
 
@@ -140,7 +132,7 @@ class AsanaMcpTool extends Tool {
             .action_description;
         } else {
           const errorMsg = `Error: Invalid input: Missing 'action_description', 'input', or valid 'toolInput' field`;
-          logger.error('AsanaMcpTool', errorMsg, {
+          logger.error('RealAsanaMcpTool', errorMsg, {
             requestId,
             args: JSON.stringify(args),
           });
@@ -148,24 +140,24 @@ class AsanaMcpTool extends Tool {
         }
       } else {
         const errorMsg = `Error: Invalid input: Expected string or object, but received ${typeof args}`;
-        logger.error('AsanaMcpTool', errorMsg, { requestId });
+        logger.error('RealAsanaMcpTool', errorMsg, { requestId });
         return errorMsg;
       }
 
       if (!actionDescription) {
         const errorMsg = `Error: No action description provided. Cannot determine the Asana request.`;
-        logger.error('AsanaMcpTool', errorMsg, { requestId });
+        logger.error('RealAsanaMcpTool', errorMsg, { requestId });
         return errorMsg;
       }
 
-      logger.debug('AsanaMcpTool', 'Using action description:', {
+      logger.debug('RealAsanaMcpTool', 'Using action description:', {
         requestId,
         actionDescription,
       });
 
       // Check if user has connected Asana account
       logger.debug(
-        'AsanaMcpTool',
+        'RealAsanaMcpTool',
         'Querying account table for Asana credentials',
         {
           requestId,
@@ -184,7 +176,7 @@ class AsanaMcpTool extends Tool {
       });
 
       // Enhanced debugging for account lookup
-      logger.debug('AsanaMcpTool', 'Account lookup result', {
+      logger.debug('RealAsanaMcpTool', 'Account lookup result', {
         requestId,
         userId,
         provider: 'asana',
@@ -203,33 +195,10 @@ class AsanaMcpTool extends Tool {
           : null,
       });
 
-      // If no account is found, try to get a raw dump of accounts to diagnose
       if (!userAsanaAccount) {
-        try {
-          const rawAccounts = await db.select().from(account).execute();
-          logger.debug('AsanaMcpTool', 'Raw accounts in database:', {
-            requestId,
-            totalAccounts: rawAccounts.length,
-            asanaAccounts: rawAccounts.filter((acc) => acc.provider === 'asana')
-              .length,
-            providers: Array.from(
-              new Set(rawAccounts.map((acc) => acc.provider)),
-            ).join(', '),
-            userIds:
-              Array.from(new Set(rawAccounts.map((acc) => acc.userId)))
-                .slice(0, 5)
-                .join(', ') + (rawAccounts.length > 5 ? '...' : ''),
-          });
-        } catch (err) {
-          logger.error('AsanaMcpTool', 'Error getting raw accounts', {
-            requestId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-
         const errorMsg =
           'Asana account not connected. Please connect your Asana account through the application settings.';
-        logger.error('AsanaMcpTool', errorMsg, { requestId });
+        logger.error('RealAsanaMcpTool', errorMsg, { requestId });
         return errorMsg;
       }
 
@@ -237,7 +206,7 @@ class AsanaMcpTool extends Tool {
       let tokenData: TokenData;
       try {
         logger.debug(
-          'AsanaMcpTool',
+          'RealAsanaMcpTool',
           'Retrieving Asana token from TokenManager',
           {
             requestId,
@@ -249,7 +218,7 @@ class AsanaMcpTool extends Tool {
 
         tokenData = await tokenManager.getToken(userId, 'asana');
 
-        logger.debug('AsanaMcpTool', 'Token retrieved successfully', {
+        logger.debug('RealAsanaMcpTool', 'Token retrieved successfully', {
           requestId,
           hasAccessToken: !!tokenData.access_token,
           accessTokenLength: tokenData.access_token?.length || 0,
@@ -261,7 +230,7 @@ class AsanaMcpTool extends Tool {
       } catch (error) {
         const errorMsg =
           'Failed to obtain Asana token. Please try reconnecting your Asana account.';
-        logger.error('AsanaMcpTool', errorMsg, {
+        logger.error('RealAsanaMcpTool', errorMsg, {
           requestId,
           error,
           errorMessage: error instanceof Error ? error.message : String(error),
@@ -271,14 +240,14 @@ class AsanaMcpTool extends Tool {
         return errorMsg;
       }
 
-      // Initialize and use AsanaMcpClient
+      // Initialize and use RealAsanaMcpClient
       const client = new RealAsanaMcpClient(tokenData.access_token);
       let mcpResponse: McpResponse;
 
       try {
-        logger.debug(
-          'AsanaMcpTool',
-          'Attempting to connect to Asana MCP server',
+        logger.info(
+          'RealAsanaMcpTool',
+          '🔴 Attempting to connect to REAL Asana MCP server',
           {
             requestId,
             tokenType: tokenData.token_type,
@@ -288,9 +257,9 @@ class AsanaMcpTool extends Tool {
 
         await client.connect();
 
-        logger.debug(
-          'AsanaMcpTool',
-          'Successfully connected to Asana MCP server',
+        logger.info(
+          'RealAsanaMcpTool',
+          '✅ Successfully connected to REAL Asana MCP server',
           {
             requestId,
           },
@@ -303,39 +272,43 @@ class AsanaMcpTool extends Tool {
         let userGuidance = '';
 
         if (error instanceof McpError) {
-          logger.error('AsanaMcpTool', `Asana MCP Error: ${error.message}`, {
-            requestId,
-            errorCode: error.code,
-            errorDetails: error,
-          });
+          logger.error(
+            'RealAsanaMcpTool',
+            `REAL Asana MCP Error: ${error.message}`,
+            {
+              requestId,
+              errorCode: error.code,
+              errorDetails: error,
+            },
+          );
 
           // Provide specific guidance based on error code
           switch (error.code) {
             case 'NOT_CONNECTED':
               errorMsg = `Unable to connect to Asana's server.`;
-              userGuidance = `Please try again in a few moments or reconnect your Asana account in settings.`;
+              userGuidance = `Please check that the Asana MCP server URL is correctly configured and that your access token has the necessary permissions.`;
               break;
             case 'CONNECTION_FAILED':
               errorMsg = `Failed to establish connection to Asana MCP server.`;
-              userGuidance = `Please check your internet connection and try again. If the problem persists, please reconnect your Asana account.`;
+              userGuidance = `Please check your internet connection and the Asana MCP server URL. The server might be unavailable or the URL might be incorrect.`;
               break;
             case 'TIMEOUT':
               errorMsg = `The request to Asana timed out.`;
-              userGuidance = `This might be due to temporary server issues. Please try again.`;
+              userGuidance = `This might be due to server issues or network latency. Please try again with a simpler request.`;
               break;
             case 'SEND_ERROR':
               errorMsg = `Failed to send your request to Asana.`;
-              userGuidance = `Please try again. If the issue persists, try reconnecting your Asana account.`;
+              userGuidance = `The request format might be incorrect or the Asana MCP server endpoint might be misconfigured.`;
               break;
             default:
               errorMsg = `Asana MCP Error: ${error.message}`;
-              userGuidance = `Please try again or reconnect your Asana account if the problem persists.`;
+              userGuidance = `Please check the Asana API documentation for more information about this error.`;
           }
         } else {
           errorMsg = `Error communicating with Asana: ${error instanceof Error ? error.message : 'Unknown error'}`;
-          userGuidance = `This might be a temporary issue. Please try again later.`;
+          userGuidance = `This might be due to misconfiguration or Asana API changes. Please check server logs for more details.`;
 
-          logger.error('AsanaMcpTool', errorMsg, {
+          logger.error('RealAsanaMcpTool', errorMsg, {
             requestId,
             error: error instanceof Error ? error.stack : String(error),
           });
@@ -347,14 +320,14 @@ class AsanaMcpTool extends Tool {
       }
 
       if (mcpResponse.success) {
-        logger.debug('AsanaMcpTool', 'Command successful:', {
+        logger.debug('RealAsanaMcpTool', 'Command successful:', {
           requestId,
           response: mcpResponse.data,
         });
         return `Success: ${JSON.stringify(mcpResponse.data)}`;
       } else {
         const errorMsg = `Error: ${mcpResponse.error || 'Unknown error occurred'}`;
-        logger.error('AsanaMcpTool', errorMsg, {
+        logger.error('RealAsanaMcpTool', errorMsg, {
           requestId,
           error: mcpResponse.error,
         });
@@ -362,10 +335,10 @@ class AsanaMcpTool extends Tool {
       }
     } catch (error) {
       const errorMsg = `Error processing Asana request: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      logger.error('AsanaMcpTool', errorMsg, { requestId, error });
+      logger.error('RealAsanaMcpTool', errorMsg, { requestId, error });
       return errorMsg;
     }
   }
 }
 
-export const asanaMcpTool = new AsanaMcpTool();
+export const realAsanaMcpTool = new RealAsanaMcpTool();

@@ -1,19 +1,7 @@
-/**
- * ⚠️ WARNING: REAL MCP CONNECTION ENABLED ⚠️
- * This file has been modified by the enable-real-asana-mcp.ts script
- * to use RealAsanaMcpClient instead of AsanaMcpClient.
- * 
- * This means it will attempt to connect to the real Asana MCP server
- * even in development mode.
- * 
- * To revert to the original file, run:
- * `npx tsx scripts/disable-real-asana-mcp.ts`
- */
-
 import { Tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
-import { RealAsanaMcpClient } from '@/lib/ai/clients/asanaMcpClientReal';
+import { AsanaMcpClient } from '@/lib/ai/clients/asanaMcpClient';
 import { db } from '@/lib/db/client';
 import { account } from '@/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
@@ -272,7 +260,7 @@ class AsanaMcpTool extends Tool {
       }
 
       // Initialize and use AsanaMcpClient
-      const client = new RealAsanaMcpClient(tokenData.access_token);
+      const client = new AsanaMcpClient(tokenData.access_token);
       let mcpResponse: McpResponse;
 
       try {

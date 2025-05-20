@@ -592,7 +592,17 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       );
 
       // Use loadAllSpecialistChats to ensure the sidebar is properly populated
-      loadAllSpecialistChats();
+      loadAllSpecialistChats(true); // Force fresh data on initial load
+
+      // Also set up a periodic refresh to ensure data stays current
+      const intervalId = setInterval(() => {
+        console.log('[ChatPaneContext] Running periodic chat history refresh');
+        loadAllSpecialistChats();
+      }, 30000); // Refresh every 30 seconds
+
+      return () => {
+        clearInterval(intervalId);
+      };
     } else if (sessionStatus === 'loading') {
       console.log(
         '[ChatPaneContext] Session is loading, will defer sidebar chat load.',
@@ -603,6 +613,26 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       );
     }
   }, [sessionStatus, currentActiveSpecialistId, loadAllSpecialistChats]);
+
+  // Add event listener for session changes that might happen after initial load
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+      if (
+        event.key?.includes('next-auth') &&
+        sessionStatus === 'authenticated'
+      ) {
+        console.log(
+          '[ChatPaneContext] Auth storage change detected, refreshing chat history',
+        );
+        loadAllSpecialistChats(true);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [sessionStatus, loadAllSpecialistChats]);
 
   // Cleaned-up message watcher: lock dropdown and refresh sidebar on assistant reply
   const prevMessageCount = useRef(0);

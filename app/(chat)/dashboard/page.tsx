@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useChatPane } from '@/context/ChatPaneContext';
 import {
@@ -11,11 +11,12 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Bot, ArrowRight, Brain, FileEdit } from 'lucide-react';
+import { Bot, Brain, FileEdit } from 'lucide-react';
 import { ChatPaneToggle } from '@/components/ChatPaneToggle';
 import { useSidebar } from '@/components/ui/sidebar';
 import { DEFAULT_CHAT_MODEL } from '@/lib/ai/models';
 import { AsanaAuthControl } from '@/components/asana-auth-control';
+import { useSession } from 'next-auth/react';
 
 /**
  * Dashboard page component.
@@ -30,16 +31,19 @@ export default function DashboardPage() {
   const { setMessages } = chatState;
   const { state: sidebarState } = useSidebar();
   const modelId = DEFAULT_CHAT_MODEL;
+  const { status } = useSession();
 
   // When this component mounts, set the appropriate context
   useEffect(() => {
-    // Set the bit context to the default model
-    console.log(`[Dashboard] Setting currentActiveSpecialistId to ${modelId}`);
+    // Set the active specialist ID
     setCurrentActiveSpecialistId(modelId);
 
     // Clear any active document ID
     setActiveDocId(null);
-  }, [modelId, setCurrentActiveSpecialistId, setActiveDocId]);
+
+    // Log dashboard component load and session status
+    console.log(`[Dashboard] Component loaded, session status: ${status}`);
+  }, [modelId, setCurrentActiveSpecialistId, setActiveDocId, status]);
 
   const handleBitSelection = (modelId: string) => {
     // Update the active bit context in the global context
@@ -98,9 +102,11 @@ export default function DashboardPage() {
           sidebarState === 'collapsed' ? 'md:pl-14' : ''
         }`}
       >
-        <div className="mb-6">
-          <AsanaAuthControl />
-        </div>
+        {status === 'authenticated' && (
+          <div className="mb-6">
+            <AsanaAuthControl />
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {modelCards.map((model) => (
@@ -123,7 +129,7 @@ export default function DashboardPage() {
               </CardContent>
               <CardFooter className="flex justify-end mt-auto pt-4">
                 <div className="flex items-center text-primary text-sm font-medium">
-                  Start chatting <ArrowRight size={14} className="ml-1" />
+                  Start chatting
                 </div>
               </CardFooter>
             </Card>

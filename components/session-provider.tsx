@@ -9,11 +9,15 @@ interface Props {
 }
 
 export default function NextAuthProvider({ children }: Props) {
-  // Consistent with NextAuth best practices for client components
-  // The SessionProvider will handle authentication state for the entire app
-  // This helps ensure session state is properly shared across all components
+  // Configure the SessionProvider with settings that ensure
+  // session state is properly synchronized across the application
   return (
-    <SessionProvider refetchInterval={0} refetchOnWindowFocus={false}>
+    <SessionProvider
+      // Check for session updates every 5 minutes
+      refetchInterval={5 * 60}
+      // Enable refetch on window focus to keep session fresh
+      refetchOnWindowFocus={true}
+    >
       {children}
     </SessionProvider>
   );
