@@ -9,8 +9,10 @@ import { DrizzleAdapter } from '@auth/drizzle-adapter';
 import { getUser } from '@/lib/db/queries';
 import { logger } from '@/lib/logger';
 import { db } from '@/lib/db/client';
+import { account } from '@/lib/db/schema';
 
 import { authConfig } from './auth.config';
+import { and, eq } from 'drizzle-orm';
 
 // Add top-level log to check if this file is being loaded
 logger.debug('Auth', 'auth.ts file is being loaded');
@@ -237,6 +239,96 @@ export const {
       }
 
       return session;
+    },
+  },
+  events: {
+    async linkAccount(message) {
+      console.log(
+        '[AUTH_EVENT_DEBUG] linkAccount - message.account received by event:',
+        JSON.stringify(message.account, null, 2),
+      );
+
+      // Check if this is an Asana account
+      if (message.account?.provider === 'asana') {
+        let scopeValue = message.account.scope;
+
+        // First try to use the scope from the message if it exists
+        if (scopeValue) {
+          logger.debug('Auth', 'Using scope from OAuth flow:', {
+            scope: scopeValue,
+          });
+        }
+        // If no scope in the message, try to extract from JWT
+        else if (message.account?.access_token) {
+          try {
+            const jwt = message.account.access_token.split('.')[1];
+            const padded = jwt.padEnd(
+              jwt.length + ((4 - (jwt.length % 4)) % 4),
+              '=',
+            );
+            const payload = Buffer.from(padded, 'base64').toString('utf-8');
+            const data = JSON.parse(payload);
+
+            if (data?.scope) {
+              scopeValue = data.scope;
+              logger.debug('Auth', 'Extracted scope from JWT:', {
+                scope: scopeValue,
+              });
+            }
+          } catch (e) {
+            logger.error('Auth', 'Failed to extract scope from JWT', {
+              error: e,
+            });
+          }
+        }
+
+        // If we still don't have a scope, use the one from environment
+        if (!scopeValue && process.env.ASANA_OAUTH_SCOPES) {
+          scopeValue = process.env.ASANA_OAUTH_SCOPES;
+          logger.debug('Auth', 'Using scope from environment variables:', {
+            scope: scopeValue,
+          });
+        }
+
+        // Now update the account with the scope value (if we have one)
+        if (scopeValue) {
+          try {
+            logger.info('Auth', 'Updating Asana account with scope:', {
+              provider: message.account.provider,
+              providerAccountId: message.account.providerAccountId,
+              scope: scopeValue,
+            });
+
+            // Use Drizzle ORM to update the account record
+            const updateResult = await db
+              .update(account)
+              .set({ scope: scopeValue })
+              .where(
+                and(
+                  eq(account.provider, message.account.provider),
+                  eq(
+                    account.providerAccountId,
+                    message.account.providerAccountId,
+                  ),
+                ),
+              )
+              .returning();
+
+            logger.debug('Auth', 'Scope update result:', { updateResult });
+          } catch (e) {
+            logger.error(
+              'Auth',
+              'Failed to update account with scope in database',
+              { error: e },
+            );
+          }
+        } else {
+          logger.warn('Auth', 'No scope found to update for Asana account', {
+            provider: message.account.provider,
+            providerAccountId: message.account.providerAccountId,
+          });
+        }
+      }
     },
   },
 });

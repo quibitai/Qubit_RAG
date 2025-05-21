@@ -1,10 +1,10 @@
 import { config } from 'dotenv';
-import { RealAsanaMcpClient } from '../lib/ai/clients/asanaMcpClientReal';
-import { tokenManager } from '../lib/auth/tokenManager';
-import { db } from '../lib/db/client';
-import { account } from '../lib/db/schema';
+import { AsanaMcpClient } from '../../lib/ai/clients/asanaMcpClient';
+import { tokenManager } from '../../lib/auth/tokenManager';
+import { db } from '../../lib/db/client';
+import { account } from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { logger } from '../lib/logger';
+import { logger } from '../../lib/logger';
 
 // Load environment variables
 config({
@@ -51,23 +51,17 @@ async function testRealAsanaMcpConnection() {
       tokenType: tokenData.token_type,
     });
 
-    // Create a real Asana MCP client that bypasses development mode checks
-    const client = new RealAsanaMcpClient(tokenData.access_token);
-    logger.info('SCRIPT', '✅ Created RealAsanaMcpClient instance');
+    // Create an Asana MCP client
+    const client = new AsanaMcpClient(tokenData.access_token);
+    logger.info('SCRIPT', '✅ Created AsanaMcpClient instance');
 
-    // Attempt to connect to the real Asana MCP server
+    // Attempt to connect to the Asana MCP server
     try {
-      logger.info(
-        'SCRIPT',
-        '🔄 Attempting to connect to real Asana MCP server...',
-      );
+      logger.info('SCRIPT', '🔄 Attempting to connect to Asana MCP server...');
       await client.connect();
-      logger.info(
-        'SCRIPT',
-        '✅ Successfully connected to real Asana MCP server',
-      );
+      logger.info('SCRIPT', '✅ Successfully connected to Asana MCP server');
     } catch (error) {
-      logger.error('SCRIPT', '❌ Failed to connect to real Asana MCP server', {
+      logger.error('SCRIPT', '❌ Failed to connect to Asana MCP server', {
         error: error instanceof Error ? error.message : String(error),
       });
       console.error(
@@ -76,29 +70,25 @@ async function testRealAsanaMcpConnection() {
       throw error;
     }
 
-    // Attempt to send a command to the real Asana MCP server
+    // Attempt to send a command to the Asana MCP server
     try {
       const commandText = 'List all my tasks and projects';
-      logger.info('SCRIPT', '🔄 Sending command to real Asana MCP server', {
+      logger.info('SCRIPT', '🔄 Sending command to Asana MCP server', {
         command: commandText,
       });
       const response = await client.sendCommand(commandText);
 
       logger.info(
         'SCRIPT',
-        '✅ Successfully received response from real Asana MCP server',
+        '✅ Successfully received response from Asana MCP server',
         { response },
       );
-      console.log('\n✅ Success! Real Asana MCP server responded:');
+      console.log('\n✅ Success! Asana MCP server responded:');
       console.log(JSON.stringify(response, null, 2));
     } catch (error) {
-      logger.error(
-        'SCRIPT',
-        '❌ Error sending command to real Asana MCP server',
-        {
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
+      logger.error('SCRIPT', '❌ Error sending command to Asana MCP server', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       console.error(
         `❌ Command Error: ${error instanceof Error ? error.message : String(error)}`,
       );

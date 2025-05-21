@@ -1,0 +1,17 @@
+# Fixed Asana OAuth Scopes
+# Add the new scope: workspaces.typeahead:read
+
+# Replace your current ASANA_OAUTH_SCOPES line in .env.local with this:
+ASANA_OAUTH_SCOPES="attachments:write goals:read projects:delete projects:read projects:write stories:read tasks:delete tasks:read tasks:write teams:read users:read workspaces:read workspaces.typeahead:read openid email profile"
+
+# Instructions:
+# 1. Open your .env.local file
+# 2. Find the ASANA_OAUTH_SCOPES line
+# 3. Replace it with the line above
+# 4. Save the file
+# 5. Restart your application
+# 6. Try reconnecting to Asana
+
+# Note: After fixing the scopes, you should:
+# - Disconnect your Asana account from the application
+# - Reconnect it to get a new token with the correct scopes 

@@ -1,19 +1,13 @@
 /**
- * ⚠️ WARNING: REAL MCP CONNECTION ENABLED ⚠️
- * This file has been modified by the enable-real-asana-mcp.ts script
- * to use RealAsanaMcpClient instead of AsanaMcpClient.
- * 
- * This means it will attempt to connect to the real Asana MCP server
- * even in development mode.
- * 
- * To revert to the original file, run:
- * `npx tsx scripts/disable-real-asana-mcp.ts`
+ * Asana MCP Tool
+ * This tool connects to the Asana Model Context Protocol (MCP) server
+ * to perform operations on Asana tasks and projects.
  */
 
 import { Tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
-import { RealAsanaMcpClient } from '@/lib/ai/clients/asanaMcpClientReal';
+import { AsanaMcpClient } from '@/lib/ai/clients/asanaMcpClient';
 import { db } from '@/lib/db/client';
 import { account } from '@/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
@@ -183,52 +177,38 @@ class AsanaMcpTool extends Tool {
         where: and(eq(account.userId, userId), eq(account.provider, 'asana')),
       });
 
-      // Enhanced debugging for account lookup
       logger.debug('AsanaMcpTool', 'Account lookup result', {
         requestId,
-        userId,
-        provider: 'asana',
-        accountFound: !!userAsanaAccount,
-        tableName: 'account',
-        accountDetails: userAsanaAccount
-          ? {
-              id: userAsanaAccount.id,
-              providerAccountId: userAsanaAccount.providerAccountId,
-              hasAccessToken: !!userAsanaAccount.access_token,
-              hasRefreshToken: !!userAsanaAccount.refresh_token,
-              expiresAt: userAsanaAccount.expires_at,
-              tokenType: userAsanaAccount.token_type,
-              scope: userAsanaAccount.scope,
-            }
-          : null,
+        hasAccount: !!userAsanaAccount,
+        accountId: userAsanaAccount?.id,
       });
 
-      // If no account is found, try to get a raw dump of accounts to diagnose
       if (!userAsanaAccount) {
+        const errorMsg =
+          'You need to connect your Asana account first. Please go to Settings > Connected Accounts to add Asana.';
+
         try {
-          const rawAccounts = await db.select().from(account).execute();
+          // Additional diagnostics: Check raw accounts in database
+          const rawAccounts = await db.query.account.findMany({
+            where: eq(account.userId, userId),
+          });
+
           logger.debug('AsanaMcpTool', 'Raw accounts in database:', {
             requestId,
-            totalAccounts: rawAccounts.length,
-            asanaAccounts: rawAccounts.filter((acc) => acc.provider === 'asana')
-              .length,
-            providers: Array.from(
-              new Set(rawAccounts.map((acc) => acc.provider)),
-            ).join(', '),
-            userIds:
-              Array.from(new Set(rawAccounts.map((acc) => acc.userId)))
-                .slice(0, 5)
-                .join(', ') + (rawAccounts.length > 5 ? '...' : ''),
+            userId,
+            accountCount: rawAccounts.length,
+            accounts: rawAccounts.map((a) => ({
+              id: a.id,
+              provider: a.provider,
+            })),
           });
-        } catch (err) {
+        } catch (dbError) {
           logger.error('AsanaMcpTool', 'Error getting raw accounts', {
             requestId,
-            error: err instanceof Error ? err.message : String(err),
+            error: dbError,
           });
         }
 
-        const errorMsg =
-          'Asana account not connected. Please connect your Asana account through the application settings.';
         logger.error('AsanaMcpTool', errorMsg, { requestId });
         return errorMsg;
       }
@@ -271,8 +251,8 @@ class AsanaMcpTool extends Tool {
         return errorMsg;
       }
 
-      // Initialize and use AsanaMcpClient
-      const client = new RealAsanaMcpClient(tokenData.access_token);
+      // Initialize Asana MCP client
+      const client = new AsanaMcpClient(tokenData.access_token);
       let mcpResponse: McpResponse;
 
       try {

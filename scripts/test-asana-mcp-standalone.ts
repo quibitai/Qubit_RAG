@@ -1,5 +1,5 @@
 import { config } from 'dotenv';
-import { RealAsanaMcpClient } from '../lib/ai/clients/asanaMcpClientReal';
+import { AsanaMcpClient } from '../lib/ai/clients/asanaMcpClient';
 import EventSource from 'eventsource';
 
 // Import just the types we need without database dependencies
@@ -86,13 +86,13 @@ async function testSimpleAsanaMcpConnection() {
  * Test function using our client implementation
  */
 async function testAsanaMcpClientConnection() {
-  console.log('\n🚀 Testing RealAsanaMcpClient implementation');
+  console.log('\n🚀 Testing AsanaMcpClient implementation');
 
-  // Create a real Asana MCP client
-  const client = new RealAsanaMcpClient(ASANA_ACCESS_TOKEN, {
+  // Create an Asana MCP client
+  const client = new AsanaMcpClient(ASANA_ACCESS_TOKEN, {
     baseUrl: ASANA_MCP_URL,
   });
-  console.log('✅ Created RealAsanaMcpClient instance');
+  console.log('✅ Created AsanaMcpClient instance');
 
   try {
     // Connect to Asana MCP server
@@ -147,7 +147,7 @@ async function runTests() {
   }
 
   // Then test client implementation
-  console.log('\n📋 TEST 2: RealAsanaMcpClient Implementation');
+  console.log('\n📋 TEST 2: AsanaMcpClient Implementation');
   console.log('--------------------------------------------------');
   try {
     const clientResult = await testAsanaMcpClientConnection();

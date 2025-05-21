@@ -103,7 +103,19 @@ export class TokenManager {
     }
 
     // Create a new token request
-    const tokenPromise = this.fetchToken(userId, provider, options);
+    const tokenPromise = this.fetchToken(userId, provider, options).then(
+      (tokenData) => {
+        const expiryStr = tokenData.expires_at
+          ? new Date(Number(tokenData.expires_at) * 1000).toISOString()
+          : 'unknown';
+        const tokenTail = tokenData.access_token?.slice(-8);
+        logger.debug(
+          'TokenManager',
+          `Returning token. Expires at: ${expiryStr}, Token tail: ${tokenTail}`,
+        );
+        return tokenData;
+      },
+    );
 
     // Cache the promise to prevent duplicate requests
     this.requestCache.set(cacheKey, tokenPromise);

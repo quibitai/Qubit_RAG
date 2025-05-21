@@ -1,6 +1,8 @@
 import { BaseMcpClient, McpError } from './baseMcpClient';
 import type { BaseMcpClientConfig } from './baseMcpClient';
 import { logger } from '@/lib/logger';
+// Import the eventsource package directly for Node.js environment
+import EventSourcePolyfill from 'eventsource';
 
 /**
  * Default configuration for AsanaMcpClient
@@ -23,8 +25,7 @@ interface AsanaMcpCommandMessage {
 }
 
 /**
- * AsanaMcpClient - Handles communication with Asana MCP server via SSE
- * Extends BaseMcpClient with Asana-specific functionality
+ * AsanaMcpClient - Client for connecting to the Asana MCP server
  */
 export class AsanaMcpClient extends BaseMcpClient {
   // Track connection initialization state
@@ -32,6 +33,7 @@ export class AsanaMcpClient extends BaseMcpClient {
 
   constructor(accessToken: string, config: Partial<BaseMcpClientConfig> = {}) {
     super(accessToken, config);
+    logger.info(this.getLoggerName(), 'Initializing Asana MCP client');
   }
 
   /**
@@ -49,31 +51,49 @@ export class AsanaMcpClient extends BaseMcpClient {
   }
 
   /**
-   * Override connect method to add Asana-specific connection handling
+   * Override connect method to establish connection to Asana MCP server
    */
   public async connect(): Promise<void> {
     try {
-      logger.debug(this.getLoggerName(), 'Connecting to Asana MCP server', {
+      logger.info(this.getLoggerName(), 'Connecting to Asana MCP server', {
         baseUrl: this.config.baseUrl,
       });
 
-      // Check if we're in development/test mode
-      if (
-        process.env.NODE_ENV === 'development' ||
-        process.env.NODE_ENV === 'test'
-      ) {
-        logger.info(
-          this.getLoggerName(),
-          'Test mode: Simulating connection to Asana MCP',
-        );
-        // In test mode, just pretend we're connected
-        this.isConnected = true;
-        this.connectionInitialized = true;
-        return;
-      }
+      // Create a direct connection using the EventSource polyfill
+      logger.debug(
+        this.getLoggerName(),
+        'Connecting to MCP SSE with Access Token (tail):',
+        this.accessToken.slice(-8),
+      );
+      try {
+        this.eventSource = new EventSourcePolyfill(this.config.baseUrl, {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+          },
+        });
 
-      // Call the parent connect method
-      await super.connect();
+        this.setupEventHandlers();
+
+        // Set up message handlers
+        this.eventSource.addEventListener(
+          'message',
+          this.handleMessage.bind(this),
+        );
+        this.eventSource.addEventListener('error', this.handleError.bind(this));
+        this.eventSource.addEventListener(
+          'command_ack',
+          this.handleCommandAck.bind(this),
+        );
+        this.eventSource.addEventListener(
+          'command_complete',
+          this.handleCommandComplete.bind(this),
+        );
+      } catch (error) {
+        throw new McpError(
+          `Failed to create EventSource: ${error instanceof Error ? error.message : String(error)}`,
+          'INITIALIZATION_ERROR',
+        );
+      }
 
       // Add a short delay to ensure connection is fully established
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -81,7 +101,7 @@ export class AsanaMcpClient extends BaseMcpClient {
       // Verify connection is actually working
       if (
         !this.eventSource ||
-        this.eventSource.readyState !== EventSource.OPEN
+        this.eventSource.readyState !== EventSourcePolyfill.OPEN
       ) {
         throw new McpError(
           'Failed to establish connection to Asana MCP server',
@@ -90,6 +110,7 @@ export class AsanaMcpClient extends BaseMcpClient {
       }
 
       this.connectionInitialized = true;
+      this.isConnected = true;
       logger.info(
         this.getLoggerName(),
         'Successfully connected to Asana MCP server',
@@ -116,43 +137,6 @@ export class AsanaMcpClient extends BaseMcpClient {
    * @param requestId The request ID for tracking
    */
   protected executeCommand(command: string | object, requestId: string): void {
-    // Check if we're in development/test mode
-    if (
-      process.env.NODE_ENV === 'development' ||
-      process.env.NODE_ENV === 'test' ||
-      !this.eventSource
-    ) {
-      logger.debug(this.getLoggerName(), 'Test mode: Simulating response', {
-        requestId,
-      });
-
-      // Simulate a successful response after a short delay
-      setTimeout(() => {
-        // Create a compatible mock event
-        const mockEventData = JSON.stringify({
-          requestId,
-          success: true,
-          data: {
-            message:
-              'This is a mock response. The Asana MCP integration is still being configured.',
-            action:
-              typeof command === 'string' ? command : JSON.stringify(command),
-          },
-        });
-
-        // Use type assertion to make TypeScript happy
-        this.handleCommandComplete({
-          data: mockEventData,
-          type: 'command_complete',
-          lastEventId: '',
-          origin: '',
-          ports: [] as ReadonlyArray<MessagePort>,
-          source: null,
-        } as any);
-      }, 1000);
-      return;
-    }
-
     try {
       // Format the command message
       const message: AsanaMcpCommandMessage = {
@@ -160,7 +144,7 @@ export class AsanaMcpClient extends BaseMcpClient {
         command,
       };
 
-      logger.debug(this.getLoggerName(), 'Sending command to Asana MCP:', {
+      logger.info(this.getLoggerName(), 'Sending command to Asana MCP:', {
         requestId,
         command:
           typeof command === 'string' ? command : JSON.stringify(command),

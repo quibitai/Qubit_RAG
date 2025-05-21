@@ -276,6 +276,9 @@ importers:
       '@types/node':
         specifier: ^22.13.10
         version: 22.15.17
+      '@types/node-fetch':
+        specifier: ^2.6.12
+        version: 2.6.12
       '@types/papaparse':
         specifier: ^5.3.15
         version: 5.3.16
@@ -8875,7 +8878,7 @@ snapshots:
       isstream: 0.1.2
       jsonwebtoken: 9.0.2
       mime-types: 2.1.35
-      retry-axios: 2.6.0(axios@1.9.0(debug@4.4.0))
+      retry-axios: 2.6.0(axios@1.9.0)
       tough-cookie: 4.1.4
     transitivePeerDependencies:
       - supports-color
@@ -10392,7 +10395,7 @@ snapshots:
       path-parse: 1.0.7
       supports-preserve-symlinks-flag: 1.0.0
 
-  retry-axios@2.6.0(axios@1.9.0(debug@4.4.0)):
+  retry-axios@2.6.0(axios@1.9.0):
     dependencies:
       axios: 1.9.0(debug@4.4.0)
 
