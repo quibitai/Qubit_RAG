@@ -147,7 +147,7 @@ export const {
           process.env.ASANA_OAUTH_AUTHORIZATION_URL ??
           'https://app.asana.com/-/oauth_authorize',
         params: {
-          scope: process.env.ASANA_OAUTH_SCOPES || '',
+          scope: 'projects:read tasks:read users:read openid', // Simplified scopes
           response_type: 'code',
           access_type: process.env.ASANA_OAUTH_ACCESS_TYPE ?? 'offline',
         },
@@ -282,10 +282,10 @@ export const {
           }
         }
 
-        // If we still don't have a scope, use the one from environment
-        if (!scopeValue && process.env.ASANA_OAUTH_SCOPES) {
-          scopeValue = process.env.ASANA_OAUTH_SCOPES;
-          logger.debug('Auth', 'Using scope from environment variables:', {
+        // If we still don't have a scope, use the simplified scope
+        if (!scopeValue) {
+          scopeValue = 'projects:read tasks:read users:read openid';
+          logger.debug('Auth', 'Using simplified scope:', {
             scope: scopeValue,
           });
         }

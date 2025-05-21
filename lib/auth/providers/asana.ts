@@ -64,7 +64,7 @@ export default function Asana<P extends AsanaProfile>(
     authorization: {
       url: 'https://app.asana.com/oauth2/authorize',
       params: {
-        scope: process.env.ASANA_OAUTH_SCOPES || '',
+        scope: 'projects:read tasks:read users:read openid',
         response_type: 'code',
         approval_prompt: 'auto',
       },
@@ -151,7 +151,8 @@ export default function Asana<P extends AsanaProfile>(
               token_type: resBody.token_type,
               expires_in: resBody.expires_in,
               refresh_token: resBody.refresh_token,
-              scope: resBody.scope || process.env.ASANA_OAUTH_SCOPES || '',
+              scope:
+                resBody.scope || 'projects:read tasks:read users:read openid',
               id_token: resBody.id_token,
             } as TokenSet,
           };
