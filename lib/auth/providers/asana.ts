@@ -124,8 +124,8 @@ export default function Asana<P extends AsanaProfile>(
     id: 'asana',
     name: 'Asana',
     type: 'oauth',
-    // Override Asana provider to use MCP-specific endpoints
-    issuer: 'https://mcp.asana.com',
+    // Use MCP-specific endpoints but keep the standard Asana issuer
+    issuer: 'https://app.asana.com/api/1.0',
     authorization: {
       url: 'https://mcp.asana.com/authorize',
       params: {
