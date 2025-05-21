@@ -127,7 +127,7 @@ export default function Asana<P extends AsanaProfile>(
     // Use MCP-specific endpoints but keep the standard Asana issuer
     issuer: 'https://app.asana.com/api/1.0',
     authorization: {
-      url: 'https://mcp.asana.com/authorize',
+      url: 'https://app.asana.com/-/oauth_authorize',
       params: {
         scope: 'projects:read tasks:read users:read openid',
         response_type: 'code',
@@ -136,7 +136,7 @@ export default function Asana<P extends AsanaProfile>(
       },
     },
     token: {
-      url: 'https://mcp.asana.com/token',
+      url: 'https://app.asana.com/-/oauth_token',
       async request({
         params,
         provider,
@@ -178,6 +178,7 @@ export default function Asana<P extends AsanaProfile>(
 
           // Log raw response for debugging
           const responseText = await response.text();
+          logger.info('AsanaProvider', 'Full OAuth response', { responseText });
           let resBody: Record<string, any>;
           try {
             resBody = JSON.parse(responseText);
