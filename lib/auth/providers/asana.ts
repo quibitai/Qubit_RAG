@@ -1,4 +1,7 @@
-import crypto from 'node:crypto';
+export const runtime = 'nodejs';
+
+// Replace node:crypto with a Web Crypto API compatible solution
+import { createHash, randomBytes } from 'crypto';
 import type { OAuthConfig, OAuthUserConfig } from 'next-auth/providers';
 import { logger } from '@/lib/logger';
 
@@ -19,14 +22,14 @@ interface TokenSet {
  * Generate a cryptographically secure string for PKCE auth
  */
 function generateVerifier() {
-  return crypto.randomBytes(32).toString('base64url');
+  return randomBytes(32).toString('base64url');
 }
 
 /**
  * Generate a code challenge using the S256 method
  */
 function generateChallenge(verifier: string) {
-  return crypto.createHash('sha256').update(verifier).digest('base64url');
+  return createHash('sha256').update(verifier).digest('base64url');
 }
 
 /**
