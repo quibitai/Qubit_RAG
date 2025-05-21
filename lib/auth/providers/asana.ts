@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { OAuthConfig, OAuthUserConfig } from 'next-auth/providers';
 import { logger } from '@/lib/logger';
 
@@ -12,6 +13,20 @@ interface TokenSet {
   scope?: string;
   expires_in?: number;
   expires_at?: number;
+}
+
+/**
+ * Generate a cryptographically secure string for PKCE auth
+ */
+function generateVerifier() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+/**
+ * Generate a code challenge using the S256 method
+ */
+function generateChallenge(verifier: string) {
+  return crypto.createHash('sha256').update(verifier).digest('base64url');
 }
 
 /**
@@ -55,22 +70,32 @@ export default function Asana<P extends AsanaProfile>(
     requestedScopes: process.env.ASANA_OAUTH_SCOPES,
   });
 
+  // Generate PKCE values
+  const codeVerifier = generateVerifier();
+  const codeChallenge = generateChallenge(codeVerifier);
+
+  logger.debug('AsanaProvider', 'Generated PKCE values', {
+    verifierLength: codeVerifier.length,
+    challengeLength: codeChallenge.length,
+  });
+
   return {
     id: 'asana',
     name: 'Asana',
     type: 'oauth',
-    // Override Asana provider with correct issuer
-    issuer: 'https://app.asana.com/api/1.0',
+    // Override Asana provider to use MCP-specific endpoints
+    issuer: 'https://mcp.asana.com',
     authorization: {
-      url: 'https://app.asana.com/oauth2/authorize',
+      url: 'https://mcp.asana.com/authorize',
       params: {
         scope: 'projects:read tasks:read users:read openid',
         response_type: 'code',
-        approval_prompt: 'auto',
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
       },
     },
     token: {
-      url: 'https://app.asana.com/oauth2/token',
+      url: 'https://mcp.asana.com/token',
       async request({
         params,
         provider,
@@ -89,6 +114,12 @@ export default function Asana<P extends AsanaProfile>(
             providerTokenUrl: provider.token?.url,
           });
 
+          // Add PKCE code_verifier to the request
+          const requestParams = {
+            ...params,
+            code_verifier: codeVerifier,
+          };
+
           // Make the token request
           const response = await fetch(provider.token?.url as string, {
             method: 'POST',
@@ -99,7 +130,7 @@ export default function Asana<P extends AsanaProfile>(
             body: new URLSearchParams({
               client_id: provider.clientId as string,
               client_secret: provider.clientSecret as string,
-              ...params,
+              ...requestParams,
             }),
           });
 
