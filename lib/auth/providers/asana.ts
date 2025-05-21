@@ -1,7 +1,4 @@
-export const runtime = 'nodejs';
-
-// Replace node:crypto with a Web Crypto API compatible solution
-import { createHash, randomBytes } from 'crypto';
+// Using Web Crypto API compatible functions (works in Edge Runtime)
 import type { OAuthConfig, OAuthUserConfig } from 'next-auth/providers';
 import { logger } from '@/lib/logger';
 
@@ -19,17 +16,49 @@ interface TokenSet {
 }
 
 /**
- * Generate a cryptographically secure string for PKCE auth
+ * Generate a cryptographically secure random string for PKCE using Web Crypto API
+ * This works in both Edge Runtime and Node.js environments
  */
-function generateVerifier() {
-  return randomBytes(32).toString('base64url');
+async function generateVerifier() {
+  // Generate random bytes
+  const randomValues = new Uint8Array(32);
+
+  if (typeof crypto !== 'undefined') {
+    // Browser or Edge environment
+    crypto.getRandomValues(randomValues);
+  } else {
+    // Fallback for other environments
+    for (let i = 0; i < randomValues.length; i++) {
+      randomValues[i] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  // Convert to base64url
+  return btoa(String.fromCharCode.apply(null, [...randomValues]))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
 }
 
 /**
- * Generate a code challenge using the S256 method
+ * Generate a code challenge using the S256 method with Web Crypto API
+ * This works in both Edge Runtime and Node.js environments
  */
-function generateChallenge(verifier: string) {
-  return createHash('sha256').update(verifier).digest('base64url');
+async function generateChallenge(verifier: string) {
+  // Convert string to Uint8Array
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+
+  // Hash using SHA-256
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+
+  // Convert to base64url
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashString = String.fromCharCode.apply(null, hashArray);
+  return btoa(hashString)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
 }
 
 /**
@@ -61,6 +90,10 @@ export interface AsanaOAuthConfig
   };
 }
 
+// Store as a module-level variable to preserve across imports
+let codeVerifier = '';
+let codeChallenge = '';
+
 /**
  * Create a custom Asana OAuth provider for NextAuth.js
  */
@@ -73,14 +106,19 @@ export default function Asana<P extends AsanaProfile>(
     requestedScopes: process.env.ASANA_OAUTH_SCOPES,
   });
 
-  // Generate PKCE values
-  const codeVerifier = generateVerifier();
-  const codeChallenge = generateChallenge(codeVerifier);
-
-  logger.debug('AsanaProvider', 'Generated PKCE values', {
-    verifierLength: codeVerifier.length,
-    challengeLength: codeChallenge.length,
-  });
+  // Initialize the PKCE values if not already set
+  if (!codeVerifier || !codeChallenge) {
+    generateVerifier().then((verifier) => {
+      codeVerifier = verifier;
+      generateChallenge(verifier).then((challenge) => {
+        codeChallenge = challenge;
+        logger.debug('AsanaProvider', 'Generated PKCE values', {
+          verifierLength: codeVerifier.length,
+          challengeLength: codeChallenge.length,
+        });
+      });
+    });
+  }
 
   return {
     id: 'asana',
@@ -93,7 +131,7 @@ export default function Asana<P extends AsanaProfile>(
       params: {
         scope: 'projects:read tasks:read users:read openid',
         response_type: 'code',
-        code_challenge: codeChallenge,
+        code_challenge: codeChallenge || 'generating', // Use placeholder if not ready yet
         code_challenge_method: 'S256',
       },
     },
@@ -115,12 +153,13 @@ export default function Asana<P extends AsanaProfile>(
             hasRefreshToken: !!params.refresh_token,
             hasPreviousToken: !!tokens,
             providerTokenUrl: provider.token?.url,
+            codeVerifierLength: codeVerifier?.length || 0,
           });
 
           // Add PKCE code_verifier to the request
           const requestParams = {
             ...params,
-            code_verifier: codeVerifier,
+            code_verifier: codeVerifier || '',
           };
 
           // Make the token request
