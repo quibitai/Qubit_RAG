@@ -147,7 +147,7 @@ export const {
           process.env.ASANA_OAUTH_AUTHORIZATION_URL ??
           'https://app.asana.com/-/oauth_authorize',
         params: {
-          scope: process.env.ASANA_OAUTH_SCOPES ?? 'default',
+          scope: process.env.ASANA_OAUTH_SCOPES || '',
           response_type: 'code',
           access_type: process.env.ASANA_OAUTH_ACCESS_TYPE ?? 'offline',
         },
