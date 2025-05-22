@@ -29,6 +29,113 @@ if (authSecret) {
   );
 }
 
+// Instantiate and modify Asana provider
+const asanaProviderConfig = Asana({
+  clientId: process.env.ASANA_OAUTH_CLIENT_ID ?? '',
+  clientSecret: process.env.ASANA_OAUTH_CLIENT_SECRET ?? '',
+  authorization: {
+    params: {
+      scope: 'default', // Explicitly set scope to 'default'
+      response_type: 'code',
+      access_type: process.env.ASANA_OAUTH_ACCESS_TYPE ?? 'offline',
+    },
+  },
+  // We provide the token and userinfo endpoint details here, so they are part of the 'provider' object
+  // passed to the custom request handlers, but we will delete the direct .url from the .token and .userinfo objects
+  // that NextAuth sees at the top level.
+  token:
+    process.env.ASANA_OAUTH_TOKEN_URL ?? 'https://app.asana.com/-/oauth_token',
+  userinfo: 'https://app.asana.com/api/1.0/users/me',
+  profile(profile: any) {
+    logger.debug('AsanaProvider', 'Processing profile data (v5)', {
+      // Log marker v5
+      profileId: profile.data?.gid,
+      profileName: profile.data?.name,
+      hasEmail: !!profile.data?.email,
+      hasPhoto: !!profile.data?.photo,
+    });
+
+    return {
+      id: profile.data.gid,
+      name: profile.data.name,
+      email: profile.data.email,
+      image: profile.data.photo?.image_128x128,
+    };
+  },
+});
+
+// Attempt to force custom request handlers by modifying the provider config
+if (
+  typeof asanaProviderConfig.token === 'object' &&
+  asanaProviderConfig.token !== null
+) {
+  const { url, ...tokenWithoutUrl } = asanaProviderConfig.token as {
+    url?: string;
+    request?: any;
+  }; // Include request
+  asanaProviderConfig.token = tokenWithoutUrl;
+  logger.debug('Auth', 'Reconfigured asanaProviderConfig.token without url', {
+    keys: Object.keys(asanaProviderConfig.token),
+  });
+} else if (typeof asanaProviderConfig.token === 'string') {
+  // If it was a string (URL), replace it with an object containing only the request function from the original provider definition
+  // This relies on the original Asana provider factory in asana.ts defining token.request
+  const originalProvider = Asana({}); // Get a default instance to access its request function
+  if (
+    typeof originalProvider.token === 'object' &&
+    originalProvider.token?.request
+  ) {
+    asanaProviderConfig.token = { request: originalProvider.token.request };
+    logger.debug(
+      'Auth',
+      'Replaced asanaProviderConfig.token string with request handler object',
+    );
+  } else {
+    logger.warn(
+      'Auth',
+      'Could not find original token.request handler to override string token URL',
+    );
+  }
+}
+
+if (
+  typeof asanaProviderConfig.userinfo === 'object' &&
+  asanaProviderConfig.userinfo !== null
+) {
+  const { url, ...userinfoWithoutUrl } = asanaProviderConfig.userinfo as {
+    url?: string;
+    request?: any;
+  }; // Include request
+  asanaProviderConfig.userinfo = userinfoWithoutUrl;
+  logger.debug(
+    'Auth',
+    'Reconfigured asanaProviderConfig.userinfo without url',
+    { keys: Object.keys(asanaProviderConfig.userinfo) },
+  );
+} else if (typeof asanaProviderConfig.userinfo === 'string') {
+  const originalProvider = Asana({});
+  if (
+    typeof originalProvider.userinfo === 'object' &&
+    originalProvider.userinfo?.request
+  ) {
+    asanaProviderConfig.userinfo = {
+      request: originalProvider.userinfo.request,
+    };
+    logger.debug(
+      'Auth',
+      'Replaced asanaProviderConfig.userinfo string with request handler object',
+    );
+  } else {
+    logger.warn(
+      'Auth',
+      'Could not find original userinfo.request handler to override string userinfo URL',
+    );
+  }
+}
+
+// Add a console.log inside the custom Asana provider token.request and userinfo.request to confirm execution (v5)
+// This will be done in the asana.ts file directly as it's cleaner.
+
 // Inspect authConfig for debugging
 logger.debug(
   'Auth',
@@ -139,39 +246,8 @@ export const {
         };
       },
     }),
-    Asana({
-      clientId: process.env.ASANA_OAUTH_CLIENT_ID ?? '',
-      clientSecret: process.env.ASANA_OAUTH_CLIENT_SECRET ?? '',
-      authorization: {
-        url:
-          process.env.ASANA_OAUTH_AUTHORIZATION_URL ??
-          'https://app.asana.com/-/oauth_authorize',
-        params: {
-          scope: 'projects:read tasks:read users:read openid', // Simplified scopes
-          response_type: 'code',
-          access_type: process.env.ASANA_OAUTH_ACCESS_TYPE ?? 'offline',
-        },
-      },
-      token:
-        process.env.ASANA_OAUTH_TOKEN_URL ??
-        'https://app.asana.com/-/oauth_token',
-      userinfo: 'https://app.asana.com/api/1.0/users/me',
-      profile(profile: any) {
-        logger.debug('AsanaProvider', 'Processing profile data', {
-          profileId: profile.data?.gid,
-          profileName: profile.data?.name,
-          hasEmail: !!profile.data?.email,
-          hasPhoto: !!profile.data?.photo,
-        });
-
-        return {
-          id: profile.data.gid,
-          name: profile.data.name,
-          email: profile.data.email,
-          image: profile.data.photo?.image_128x128,
-        };
-      },
-    }),
+    // Pass the modified Asana provider
+    asanaProviderConfig,
   ],
   callbacks: {
     // Preserve the authorized callback from authConfig
@@ -189,19 +265,57 @@ export const {
 
       if (user) {
         token.id = user.id;
-        // Temporarily comment out clientId handling
-        // if (token.clientId) {
-        //   logger.debug('Auth', `Adding clientId to session: ${token.clientId}`);
-        //   session.user.clientId = token.clientId as string;
-        // }
 
-        // If this is an Asana OAuth sign-in, store the provider account ID
+        // If this is an Asana OAuth sign-in, handle the tokens and provider account ID
         if (account?.provider === 'asana') {
+          // Debug logging for Asana token inspection
+          console.log(
+            'ASANA_DEBUG: account.access_token:',
+            account.access_token,
+          );
+          console.log(
+            'ASANA_DEBUG: account.refresh_token:',
+            account.refresh_token,
+          );
+          console.log(
+            'ASANA_DEBUG: account.expires_at (from provider):',
+            account.expires_at,
+          );
+          console.log(
+            'ASANA_DEBUG: typeof account.access_token:',
+            typeof account.access_token,
+          );
+
+          // Store the Asana provider account ID
           logger.debug(
             'Auth',
             `Adding Asana provider account ID to token: ${account.providerAccountId}`,
           );
           token.asanaProviderAccountId = account.providerAccountId;
+
+          // Store the access token
+          token.accessToken = account.access_token;
+
+          // Store the refresh token if provided
+          if (account.refresh_token) {
+            token.refreshToken = account.refresh_token;
+          }
+
+          // Convert expires_at to milliseconds timestamp and store
+          if (account.expires_at) {
+            // account.expires_at is already an absolute timestamp in seconds from Asana
+            token.accessTokenExpires = (account.expires_at as number) * 1000;
+            console.log(
+              'ASANA_DEBUG: token.accessTokenExpires (calculated):',
+              token.accessTokenExpires,
+            );
+          }
+
+          logger.debug('Auth', 'Asana token details stored in JWT', {
+            hasAccessToken: !!token.accessToken,
+            hasRefreshToken: !!token.refreshToken,
+            accessTokenExpires: token.accessTokenExpires,
+          });
         }
       }
 
@@ -284,7 +398,7 @@ export const {
 
         // If we still don't have a scope, use the simplified scope
         if (!scopeValue) {
-          scopeValue = 'projects:read tasks:read users:read openid';
+          scopeValue = 'projects:read tasks:read users:read';
           logger.debug('Auth', 'Using simplified scope:', {
             scope: scopeValue,
           });

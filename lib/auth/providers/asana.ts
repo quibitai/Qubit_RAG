@@ -103,7 +103,7 @@ export default function Asana<P extends AsanaProfile>(
   logger.debug('AsanaProvider', 'Creating Asana Provider', {
     clientId: !!options.clientId,
     hasClientSecret: !!options.clientSecret,
-    requestedScopes: process.env.ASANA_OAUTH_SCOPES,
+    requestedScopes: process.env.ASANA_OAUTH_SCOPES || 'default',
   });
 
   // Initialize the PKCE values if not already set
@@ -116,6 +116,8 @@ export default function Asana<P extends AsanaProfile>(
           verifierLength: codeVerifier.length,
           challengeLength: codeChallenge.length,
         });
+
+        // Debug log removed - served its purpose
       });
     });
   }
@@ -129,14 +131,15 @@ export default function Asana<P extends AsanaProfile>(
     authorization: {
       url: 'https://app.asana.com/-/oauth_authorize',
       params: {
-        scope: 'projects:read tasks:read users:read openid',
+        scope: 'default',
         response_type: 'code',
         code_challenge: codeChallenge || 'generating', // Use placeholder if not ready yet
         code_challenge_method: 'S256',
       },
     },
+    // Debug log removed - served its purpose
     token: {
-      url: 'https://app.asana.com/-/oauth_token',
+      // url: 'https://app.asana.com/-/oauth_token', // Removed to try and force request handler
       async request({
         params,
         provider,
@@ -146,6 +149,17 @@ export default function Asana<P extends AsanaProfile>(
         provider: OAuthConfig<P>;
         tokens: TokenSet | null;
       }) {
+        // --- START VERY OBVIOUS DEBUG LOG ---
+        console.log(
+          '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
+        );
+        console.log(
+          'ASANA PROVIDER TOKEN.REQUEST METHOD ENTERED (v5) - THIS IS A KEY DEBUG STEP',
+        );
+        console.log(
+          '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
+        );
+        // --- END VERY OBVIOUS DEBUG LOG ---
         try {
           // Log the parameters and tokens received
           logger.debug('AsanaProvider', 'Token request', {
@@ -178,10 +192,23 @@ export default function Asana<P extends AsanaProfile>(
 
           // Log raw response for debugging
           const responseText = await response.text();
+          // --- START TEMPORARY DEBUG LOG ---
+          console.log('ASANA_PROVIDER_RAW_RESPONSE_TEXT (v5):', responseText);
+          // --- END TEMPORARY DEBUG LOG ---
           logger.info('AsanaProvider', 'Full OAuth response', { responseText });
           let resBody: Record<string, any>;
           try {
             resBody = JSON.parse(responseText);
+            // --- START TEMPORARY DEBUG LOG ---
+            console.log(
+              'ASANA_PROVIDER_PARSED_RESBODY_ACCESS_TOKEN (v5):',
+              resBody.access_token,
+            );
+            console.log(
+              'ASANA_PROVIDER_PARSED_RESBODY_ALL_KEYS (v5):',
+              Object.keys(resBody),
+            );
+            // --- END TEMPORARY DEBUG LOG ---
             logger.debug('AsanaProvider', 'Raw OAuth response body', {
               responseTextLength: responseText.length,
               responseFields: Object.keys(resBody),
@@ -218,6 +245,8 @@ export default function Asana<P extends AsanaProfile>(
               : 'undefined',
           });
 
+          // Debug log removed - served its purpose
+
           // Return the token set without any JWT checking or transformation
           return {
             tokens: {
@@ -225,8 +254,7 @@ export default function Asana<P extends AsanaProfile>(
               token_type: resBody.token_type,
               expires_in: resBody.expires_in,
               refresh_token: resBody.refresh_token,
-              scope:
-                resBody.scope || 'projects:read tasks:read users:read openid',
+              scope: resBody.scope || 'projects:read tasks:read users:read',
               id_token: resBody.id_token,
             } as TokenSet,
           };
@@ -240,11 +268,20 @@ export default function Asana<P extends AsanaProfile>(
       },
     },
     userinfo: {
-      url: 'https://app.asana.com/api/1.0/users/me',
+      // url: 'https://app.asana.com/api/1.0/users/me', // Removed to try and force request handler
       async request({
         tokens,
         provider,
       }: { tokens: TokenSet; provider: OAuthConfig<P> }) {
+        // --- START VERY OBVIOUS USERINFO DEBUG LOG ---
+        console.log(
+          '**************************************************************************',
+        );
+        console.log('ASANA PROVIDER USERINFO.REQUEST METHOD ENTERED (v5)');
+        console.log(
+          '**************************************************************************',
+        );
+        // --- END VERY OBVIOUS USERINFO DEBUG LOG ---
         try {
           logger.debug('AsanaProvider', 'Requesting userinfo', {
             provider: provider.id,
@@ -307,6 +344,7 @@ export default function Asana<P extends AsanaProfile>(
       bg: '#FC636B',
       text: '#fff',
     },
+    wellKnown: undefined,
     options,
   };
 }
