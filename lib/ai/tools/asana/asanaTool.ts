@@ -21,6 +21,8 @@ import {
   updateTask,
   addFollowerToTask,
   removeFollowerFromTask,
+  addDependency,
+  removeDependency,
   type UpdateTaskParams,
   type CreateTaskParams,
   getSubtasks,
@@ -29,6 +31,12 @@ import {
   listProjects,
   findProjectGidByName,
 } from './api-client/operations/projects';
+import {
+  getProjectSections,
+  createSectionInProject,
+  addTaskToSection,
+  findSectionGidByName,
+} from './api-client/operations/sections';
 import { AsanaIntegrationError, logAndFormatError } from './utils/errorHandler';
 import { getWorkspaceGid } from './config';
 import {
@@ -38,9 +46,13 @@ import {
   extractTaskAndUserIdentifiers,
   extractTaskAndDueDate,
   extractSubtaskCreationDetails,
+  extractTaskDependencyDetails,
+  extractProjectAndSectionIdentifiers,
+  extractSectionCreationDetails,
+  extractTaskAndSectionIdentifiers,
 } from './intent-parser/entity.extractor';
 import { typeaheadSearch } from './api-client/operations/search';
-import * as chrono from 'chrono-node';
+import { parseDateTime } from './utils/dateTimeParser';
 
 // Import formatters for response formatting
 import {
@@ -53,6 +65,9 @@ import {
   formatSearchResults,
   formatAddFollowerResponse,
   formatRemoveFollowerResponse,
+  formatSectionList,
+  formatSectionCreation,
+  formatTaskMoveToSection,
 } from './formatters/responseFormatter';
 
 /**
@@ -367,29 +382,19 @@ export class AsanaTool extends Tool {
           }
 
           if (updateFields.dueDate) {
-            const parsedDate = chrono.parseDate(
+            const parsedResult = parseDateTime(
               updateFields.dueDate,
               new Date(),
-              {
-                forwardDate: true,
-              },
             );
-            if (!parsedDate) {
-              return `Error: Could not understand the due date "${updateFields.dueDate}" for the update. Please try a different format. (Request ID: ${requestContext.requestId})`;
+            if (!parsedResult.success) {
+              return `Error: Could not understand the due date "${updateFields.dueDate}". ${parsedResult.errorMessage}${parsedResult.suggestions ? `\n\n${parsedResult.suggestions.join('\n')}` : ''} (Request ID: ${requestContext.requestId})`;
             }
-            const knownTimeComponents = (
-              chrono.parse(updateFields.dueDate)[0]?.start as any
-            )?.knownValues;
 
-            if (knownTimeComponents?.hour !== undefined) {
-              updatePayload.due_at = parsedDate.toISOString();
+            // Use the formatted result from our enhanced parser
+            if (parsedResult.hasTime) {
+              updatePayload.due_at = parsedResult.formattedForAsana.due_at;
             } else {
-              const year = parsedDate.getFullYear();
-              const month = (parsedDate.getMonth() + 1)
-                .toString()
-                .padStart(2, '0');
-              const day = parsedDate.getDate().toString().padStart(2, '0');
-              updatePayload.due_on = `${year}-${month}-${day}`;
+              updatePayload.due_on = parsedResult.formattedForAsana.due_on;
             }
           }
 
@@ -874,30 +879,19 @@ export class AsanaTool extends Tool {
             return `Error: Could not identify the task. (Request ID: ${requestContext.requestId})`;
           }
 
-          const parsedDate = chrono.parseDate(dueDateExpression, new Date(), {
-            forwardDate: true,
-          });
+          const parsedResult = parseDateTime(dueDateExpression, new Date());
 
-          if (!parsedDate) {
-            return `Error: Could not understand the due date "${dueDateExpression}". Please try a different format (e.g., "tomorrow at 5pm", "next Friday", "YYYY-MM-DD"). (Request ID: ${requestContext.requestId})`;
+          if (!parsedResult.success) {
+            return `Error: Could not understand the due date "${dueDateExpression}". ${parsedResult.errorMessage}${parsedResult.suggestions ? `\n\n${parsedResult.suggestions.join('\n')}` : ''} (Request ID: ${requestContext.requestId})`;
           }
 
           const updatePayload: { due_on?: string; due_at?: string } = {};
-          const knownTimeComponents =
-            // Explicitly use `any` for now to bypass potential complex type inference issues with chrono-node
-            // Runtime behavior is expected to be correct as `knownValues` is a valid property.
-            (chrono.parse(dueDateExpression)[0]?.start as any)?.knownValues;
 
-          if (knownTimeComponents?.hour !== undefined) {
-            updatePayload.due_at = parsedDate.toISOString();
+          // Use the formatted result from our enhanced parser
+          if (parsedResult.hasTime) {
+            updatePayload.due_at = parsedResult.formattedForAsana.due_at;
           } else {
-            // Format as YYYY-MM-DD for due_on
-            const year = parsedDate.getFullYear();
-            const month = (parsedDate.getMonth() + 1)
-              .toString()
-              .padStart(2, '0');
-            const day = parsedDate.getDate().toString().padStart(2, '0');
-            updatePayload.due_on = `${year}-${month}-${day}`;
+            updatePayload.due_on = parsedResult.formattedForAsana.due_on;
           }
 
           const updatedTask = await updateTask(
@@ -1049,6 +1043,328 @@ export class AsanaTool extends Tool {
             requestContext,
           );
           return `${listTitle}:\n${formattedSubtaskList.substring(formattedSubtaskList.indexOf(':\n') + 2)}`; // Attempt to clean up original title
+        }
+
+        case AsanaOperationType.ADD_TASK_DEPENDENCY:
+        case AsanaOperationType.REMOVE_TASK_DEPENDENCY: {
+          const {
+            dependentTaskGid: dependentGidFromInput,
+            dependentTaskName,
+            dependencyTaskGid: dependencyGidFromInput,
+            dependencyTaskName,
+            projectName: projectContext,
+          } = extractTaskDependencyDetails(actionDescription);
+
+          const workspaceGid = getWorkspaceGid();
+          if (!workspaceGid) {
+            return `Error: Default Asana workspace GID is not configured. (Request ID: ${requestContext.requestId})`;
+          }
+
+          // Resolve dependent task GID
+          let actualDependentTaskGid = dependentGidFromInput;
+          if (!actualDependentTaskGid && dependentTaskName) {
+            const dependentTaskLookup = await findTaskGidByName(
+              this.client,
+              dependentTaskName,
+              workspaceGid,
+              projectContext,
+              true, // Search for task regardless of completion status
+              requestContext.requestId,
+            );
+            if (dependentTaskLookup.type === 'found') {
+              actualDependentTaskGid = dependentTaskLookup.gid;
+            } else if (dependentTaskLookup.type === 'ambiguous') {
+              return `Error: Dependent task "${dependentTaskName}" is ambiguous: ${dependentTaskLookup.message} (Request ID: ${requestContext.requestId})`;
+            } else {
+              return `Error: Dependent task "${dependentTaskName}" not found. (Request ID: ${requestContext.requestId})`;
+            }
+          }
+
+          // Resolve dependency task GID
+          let actualDependencyTaskGid = dependencyGidFromInput;
+          if (!actualDependencyTaskGid && dependencyTaskName) {
+            const dependencyTaskLookup = await findTaskGidByName(
+              this.client,
+              dependencyTaskName,
+              workspaceGid,
+              projectContext,
+              true, // Search for task regardless of completion status
+              requestContext.requestId,
+            );
+            if (dependencyTaskLookup.type === 'found') {
+              actualDependencyTaskGid = dependencyTaskLookup.gid;
+            } else if (dependencyTaskLookup.type === 'ambiguous') {
+              return `Error: Dependency task "${dependencyTaskName}" is ambiguous: ${dependencyTaskLookup.message} (Request ID: ${requestContext.requestId})`;
+            } else {
+              return `Error: Dependency task "${dependencyTaskName}" not found. (Request ID: ${requestContext.requestId})`;
+            }
+          }
+
+          if (!actualDependentTaskGid) {
+            return `Error: Could not identify the dependent task. Please provide a task GID or clear name. (Request ID: ${requestContext.requestId})`;
+          }
+
+          if (!actualDependencyTaskGid) {
+            return `Error: Could not identify the dependency task. Please provide a task GID or clear name. (Request ID: ${requestContext.requestId})`;
+          }
+
+          // Perform the dependency operation
+          try {
+            if (
+              parsedIntent.operationType ===
+              AsanaOperationType.ADD_TASK_DEPENDENCY
+            ) {
+              const updatedTask = await addDependency(
+                this.client,
+                actualDependentTaskGid,
+                actualDependencyTaskGid,
+                requestContext.requestId,
+              );
+              return `Successfully added dependency: task "${dependentTaskName || actualDependentTaskGid}" now depends on task "${dependencyTaskName || actualDependencyTaskGid}".
+${updatedTask.permalink_url ? `View dependent task at: ${updatedTask.permalink_url}` : ''}
+(Request ID: ${requestContext.requestId})`;
+            } else {
+              const updatedTask = await removeDependency(
+                this.client,
+                actualDependentTaskGid,
+                actualDependencyTaskGid,
+                requestContext.requestId,
+              );
+              return `Successfully removed dependency: task "${dependentTaskName || actualDependentTaskGid}" is no longer dependent on task "${dependencyTaskName || actualDependencyTaskGid}".
+${updatedTask.permalink_url ? `View task at: ${updatedTask.permalink_url}` : ''}
+(Request ID: ${requestContext.requestId})`;
+            }
+          } catch (error) {
+            const operation =
+              parsedIntent.operationType ===
+              AsanaOperationType.ADD_TASK_DEPENDENCY
+                ? 'adding'
+                : 'removing';
+            return `Error ${operation} dependency between tasks: ${error instanceof Error ? error.message : 'Unknown error'} (Request ID: ${requestContext.requestId})`;
+          }
+        }
+
+        case AsanaOperationType.LIST_PROJECT_SECTIONS: {
+          const {
+            projectGid: projectGidFromInput,
+            projectName: projectNameFromInput,
+          } = extractProjectAndSectionIdentifiers(actionDescription);
+
+          const workspaceGid = getWorkspaceGid();
+          if (!workspaceGid) {
+            return `Error: Default Asana workspace GID is not configured. (Request ID: ${requestContext.requestId})`;
+          }
+
+          let actualProjectGid = projectGidFromInput;
+          const resolvedProjectName = projectNameFromInput;
+
+          if (!actualProjectGid && projectNameFromInput) {
+            const projectLookup = await findProjectGidByName(
+              this.client,
+              projectNameFromInput,
+              workspaceGid,
+              requestContext.requestId,
+            );
+            if (projectLookup === 'ambiguous') {
+              return `Error: Project "${projectNameFromInput}" is ambiguous. Please specify which project by GID or a more specific name. (Request ID: ${requestContext.requestId})`;
+            }
+            if (!projectLookup) {
+              return `Error: Project "${projectNameFromInput}" not found. (Request ID: ${requestContext.requestId})`;
+            }
+            actualProjectGid = projectLookup;
+          }
+
+          if (!actualProjectGid) {
+            return `Error: Could not identify the project to list sections for. Please provide a project GID or clear name. (Request ID: ${requestContext.requestId})`;
+          }
+
+          const sectionsData = await getProjectSections(
+            this.client,
+            actualProjectGid,
+            undefined, // Use default opt_fields
+            requestContext.requestId,
+          );
+
+          return formatSectionList(
+            sectionsData,
+            {
+              projectName: resolvedProjectName,
+              projectGid: actualProjectGid,
+            },
+            requestContext,
+          );
+        }
+
+        case AsanaOperationType.CREATE_PROJECT_SECTION: {
+          const {
+            projectGid: projectGidFromInput,
+            projectName: projectNameFromInput,
+            sectionName,
+          } = extractSectionCreationDetails(actionDescription);
+
+          if (!sectionName) {
+            return `Error: Section name is required to create a section. (Request ID: ${requestContext.requestId})`;
+          }
+
+          const workspaceGid = getWorkspaceGid();
+          if (!workspaceGid) {
+            return `Error: Default Asana workspace GID is not configured. (Request ID: ${requestContext.requestId})`;
+          }
+
+          let actualProjectGid = projectGidFromInput;
+          const resolvedProjectName = projectNameFromInput;
+
+          if (!actualProjectGid && projectNameFromInput) {
+            const projectLookup = await findProjectGidByName(
+              this.client,
+              projectNameFromInput,
+              workspaceGid,
+              requestContext.requestId,
+            );
+            if (projectLookup === 'ambiguous') {
+              return `Error: Project "${projectNameFromInput}" is ambiguous. Please specify which project by GID or a more specific name. (Request ID: ${requestContext.requestId})`;
+            }
+            if (!projectLookup) {
+              return `Error: Project "${projectNameFromInput}" not found. (Request ID: ${requestContext.requestId})`;
+            }
+            actualProjectGid = projectLookup;
+          }
+
+          if (!actualProjectGid) {
+            return `Error: Could not identify the project to create a section in. Please provide a project GID or clear name. (Request ID: ${requestContext.requestId})`;
+          }
+
+          const createdSection = await createSectionInProject(
+            this.client,
+            {
+              name: sectionName,
+              projectGid: actualProjectGid,
+            },
+            requestContext.requestId,
+          );
+
+          return formatSectionCreation(
+            createdSection,
+            {
+              projectName: resolvedProjectName,
+              projectGid: actualProjectGid,
+            },
+            requestContext,
+          );
+        }
+
+        case AsanaOperationType.MOVE_TASK_TO_SECTION: {
+          const {
+            taskGid: taskGidFromInput,
+            taskName: taskNameFromInput,
+            taskProjectName,
+            sectionGid: sectionGidFromInput,
+            sectionName: sectionNameFromInput,
+          } = extractTaskAndSectionIdentifiers(actionDescription);
+
+          const workspaceGid = getWorkspaceGid();
+          if (!workspaceGid) {
+            return `Error: Default Asana workspace GID is not configured. (Request ID: ${requestContext.requestId})`;
+          }
+
+          let actualTaskGid = taskGidFromInput;
+          if (!actualTaskGid && taskNameFromInput) {
+            const taskLookup = await findTaskGidByName(
+              this.client,
+              taskNameFromInput,
+              workspaceGid,
+              taskProjectName,
+              true, // Include completed tasks
+              requestContext.requestId,
+            );
+            if (taskLookup.type === 'found') {
+              actualTaskGid = taskLookup.gid;
+            } else if (taskLookup.type === 'ambiguous') {
+              return `Error: Task "${taskNameFromInput}" is ambiguous: ${taskLookup.message} (Request ID: ${requestContext.requestId})`;
+            } else {
+              return `Error: Task "${taskNameFromInput}" not found. (Request ID: ${requestContext.requestId})`;
+            }
+          }
+
+          if (!actualTaskGid) {
+            return `Error: Could not identify the task to move. Please provide a task GID or clear name. (Request ID: ${requestContext.requestId})`;
+          }
+
+          let actualSectionGid = sectionGidFromInput;
+          const resolvedSectionName = sectionNameFromInput;
+
+          if (!actualSectionGid && sectionNameFromInput) {
+            // Need to find the section, but we need the project GID for that
+            // Try to get project GID from the task details first
+            let projectGidForSection: string | undefined;
+
+            if (taskProjectName) {
+              const projectLookup = await findProjectGidByName(
+                this.client,
+                taskProjectName,
+                workspaceGid,
+                requestContext.requestId,
+              );
+              if (projectLookup && projectLookup !== 'ambiguous') {
+                projectGidForSection = projectLookup;
+              }
+            }
+
+            if (!projectGidForSection) {
+              // Get task details to find its project
+              const taskDetails = await getTaskDetails(
+                this.client,
+                actualTaskGid,
+                ['projects.gid', 'projects.name'],
+                requestContext.requestId,
+              );
+              if (taskDetails.projects && taskDetails.projects.length > 0) {
+                projectGidForSection = taskDetails.projects[0].gid;
+              }
+            }
+
+            if (!projectGidForSection) {
+              return `Error: Could not determine the project to search for section "${sectionNameFromInput}". Please specify the project context. (Request ID: ${requestContext.requestId})`;
+            }
+
+            const sectionLookup = await findSectionGidByName(
+              this.client,
+              sectionNameFromInput,
+              projectGidForSection,
+              requestContext.requestId,
+            );
+
+            if (sectionLookup === 'ambiguous') {
+              return `Error: Section "${sectionNameFromInput}" is ambiguous in the project. Please specify a section GID. (Request ID: ${requestContext.requestId})`;
+            }
+            if (!sectionLookup) {
+              return `Error: Section "${sectionNameFromInput}" not found in the project. (Request ID: ${requestContext.requestId})`;
+            }
+            actualSectionGid = sectionLookup;
+          }
+
+          if (!actualSectionGid) {
+            return `Error: Could not identify the section to move the task to. Please provide a section GID or clear name with project context. (Request ID: ${requestContext.requestId})`;
+          }
+
+          const moveResult = await addTaskToSection(
+            this.client,
+            actualSectionGid,
+            actualTaskGid,
+            requestContext.requestId,
+          );
+
+          return formatTaskMoveToSection(
+            moveResult,
+            {
+              taskName: taskNameFromInput,
+              taskGid: actualTaskGid,
+              sectionName: resolvedSectionName,
+              sectionGid: actualSectionGid,
+              projectName: taskProjectName,
+            },
+            requestContext,
+          );
         }
 
         case AsanaOperationType.UNKNOWN:

@@ -1893,16 +1893,16 @@ export async function POST(req: NextRequest) {
         tools: currentTools,
         // Set max iterations to prevent infinite loops
         maxIterations: 10,
-        // Important: Return intermediate steps for tool usage
-        returnIntermediateSteps: true,
-        verbose: true,
+        // Disable intermediate steps to reduce confirmation prompts
+        returnIntermediateSteps: false,
+        verbose: false, // Disable verbose logging
       });
 
       // NEW: Enhance the agent executor with smarter tool call enforcement
       // This will ensure calendar/task queries always trigger fresh tool calls
       enhancedExecutor = EnhancedAgentExecutor.fromExecutor(agentExecutor, {
-        enforceToolCalls: true,
-        verbose: true,
+        enforceToolCalls: false, // Disable aggressive tool enforcement
+        verbose: false, // Disable verbose logging to reduce confirmation prompts
       });
 
       logger.info(

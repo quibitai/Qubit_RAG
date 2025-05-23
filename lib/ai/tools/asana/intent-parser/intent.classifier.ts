@@ -107,18 +107,33 @@ const INTENT_PATTERNS = {
     /(?:sub-?tasks|child tasks|items under|sub-items).+(?:for|of|in|under).+task\s*(\d{16,})/i, // subtasks for task 12345...
   ],
 
+  // Dependency operations (Epic 3.1)
   [AsanaOperationType.ADD_TASK_DEPENDENCY]: [
-    /(?:make|set|add).+task\s*['"]?([^"']+)['"]?.+dependent\s+on.+task\s*['"]?([^"']+)['"]?/i, // make task A dependent on task B
-    /(?:make|set|add).+task\s*(\d{16,}).+dependent\s+on.+task\s*(\d{16,})/i, // make task GID1 dependent on task GID2
-    /(?:task\s*['"]?([^"']+)['"]?|task\s*(\d{16,})).+(?:depends on|is blocked by).+(?:task\s*['"]?([^"']+)['"]?|task\s*(\d{16,}))/i, // Task A depends on Task B
-    /(?:block|precede).+task\s*['"]?([^"']+)['"]?.+with.+task\s*['"]?([^"']+)['"]?/i, // block task B with task A (A blocks B)
+    /(?:make|set).+(?:task).+(?:dependent|depend)\s+on.+(?:task)/i,
+    /(?:add|create).+(?:dependency|dependence).+(?:from|between).+(?:task).+(?:to|and).+(?:task)/i,
+    /(?:block|blocking).+(?:task).+(?:until|on).+(?:task)/i,
+    /(?:task).+(?:depends|depend)\s+on.+(?:task)/i,
+  ],
+  [AsanaOperationType.REMOVE_TASK_DEPENDENCY]: [
+    /(?:remove|delete|clear).+(?:dependency|dependence).+(?:from|between).+(?:task).+(?:to|and).+(?:task)/i,
+    /(?:unblock|stop blocking).+(?:task)/i,
+    /(?:make|set).+(?:task).+(?:independent|not depend)/i,
   ],
 
-  [AsanaOperationType.REMOVE_TASK_DEPENDENCY]: [
-    /(?:remove|clear|unset|delete).+dependency.+between.+task.+and.+task/i,
-    /(?:remove|clear|unset|delete).+dependency.+for.+task\s*['"]?([^"']+)['"]?.+from.+task\s*['"]?([^"']+)['"]?/i,
-    /(?:make|set).+task\s*['"]?([^"']+)['"]?.+no longer dependent on.+task\s*['"]?([^"']+)['"]?/i,
-    /(?:task\s*['"]?([^"']+)['"]?|task\s*(\d{16,})).+no longer depends on.+/i,
+  // Project Section operations (Epic 3.2)
+  [AsanaOperationType.LIST_PROJECT_SECTIONS]: [
+    /(?:list|show|get|display).+(?:sections|columns).+(?:for|in|of).+(?:project)/i,
+    /(?:what|which).+(?:sections|columns).+(?:in|for).+(?:project)/i,
+    /(?:sections|columns).+(?:for|in|of).+(?:project)/i,
+  ],
+  [AsanaOperationType.CREATE_PROJECT_SECTION]: [
+    /(?:create|add|make|new).+(?:section|column).+(?:in|for|to).+(?:project)/i,
+    /(?:add|create).+(?:section|column).+(?:named|called).+(?:in|for|to).+(?:project)/i,
+  ],
+  [AsanaOperationType.MOVE_TASK_TO_SECTION]: [
+    /(?:move|put|place|assign).+(?:task).+(?:to|in|into).+(?:section|column)/i,
+    /(?:task).+(?:to|in|into).+(?:section|column)/i,
+    /(?:change|update).+(?:task).+(?:section|column)/i,
   ],
 };
 

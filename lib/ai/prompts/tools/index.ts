@@ -27,7 +27,7 @@ const toolInstructionMap: Record<string, string> = {
   updateDocument: documentToolInstructions,
 
   // Integration Tools
-  n8nMcpGateway: `Use this tool ONLY for Google Calendar related tasks and operations. This tool is now dedicated to calendar management. For any calendar-related requests, provide a clear natural language description of what you need.`,
+  googleCalendar: `Use this tool ONLY for Google Calendar related tasks and operations. This tool is now dedicated to calendar management. For any calendar-related requests, provide a clear natural language description of what you need.`,
   asana: `IMPORTANT: Use this tool for ALL Asana-related tasks and operations, such as creating, listing, or updating tasks and projects. This tool provides a direct connection to the Asana API. Provide a clear, natural language description of what you need (e.g., "List all my incomplete tasks in Asana").`,
 
   // Other tools

@@ -475,3 +475,158 @@ export function formatRemoveFollowerResponse(
   // We rely on the operation succeeding if no error was thrown.
   return `Successfully removed user (${userIdentifier}) as a follower from task "${taskIdentifier}".\n(Request ID: ${requestContext.requestId})`;
 }
+
+/**
+ * Format section list response
+ *
+ * @param sectionsData List of sections from Asana API
+ * @param projectContext Project context information
+ * @param requestContext Request context for tracking
+ * @returns Formatted section list message
+ */
+export function formatSectionList(
+  sectionsData: any[],
+  projectContext: { projectName?: string; projectGid?: string },
+  requestContext: RequestContext,
+): string {
+  if (!Array.isArray(sectionsData)) {
+    return `Error: Invalid section data received. (Request ID: ${requestContext.requestId})`;
+  }
+
+  const projectIdentifier =
+    projectContext.projectName ||
+    projectContext.projectGid ||
+    'Unknown Project';
+
+  if (sectionsData.length === 0) {
+    return `No sections found in project "${projectIdentifier}". (Request ID: ${requestContext.requestId})`;
+  }
+
+  let formattedList = `Found ${sectionsData.length} section(s) in project "${projectIdentifier}":\n`;
+
+  sectionsData.forEach((section, index) => {
+    formattedList += `${index + 1}. ${section.name} (GID: ${section.gid})`;
+
+    if (section.created_at) {
+      formattedList += ` - Created: ${new Date(section.created_at).toLocaleDateString()}`;
+    }
+
+    formattedList += '\n';
+  });
+
+  formattedList += `(Request ID: ${requestContext.requestId})`;
+
+  return formattedList;
+}
+
+/**
+ * Format section creation response
+ *
+ * @param sectionData Created section data from Asana API
+ * @param projectContext Project context information
+ * @param requestContext Request context for tracking
+ * @returns Formatted section creation message
+ */
+export function formatSectionCreation(
+  sectionData: any,
+  projectContext: { projectName?: string; projectGid?: string },
+  requestContext: RequestContext,
+): string {
+  if (!sectionData) {
+    return `Error: No section data received. (Request ID: ${requestContext.requestId})`;
+  }
+
+  const projectIdentifier =
+    projectContext.projectName ||
+    sectionData.project?.name ||
+    projectContext.projectGid ||
+    'Unknown Project';
+
+  return `Successfully created section "${sectionData.name}" (GID: ${sectionData.gid}) in project "${projectIdentifier}".\n(Request ID: ${requestContext.requestId})`;
+}
+
+/**
+ * Format response for moving a task to a section
+ *
+ * @param taskData Updated task data (may be minimal)
+ * @param moveContext Context about the move operation
+ * @param requestContext Request context for tracking
+ * @returns Formatted success message
+ */
+export function formatTaskMoveToSection(
+  taskData: any,
+  moveContext: {
+    taskName?: string;
+    taskGid?: string;
+    sectionName?: string;
+    sectionGid?: string;
+    projectName?: string;
+  },
+  requestContext: RequestContext,
+): string {
+  const taskIdentifier =
+    moveContext.taskName ||
+    taskData?.name ||
+    moveContext.taskGid ||
+    'Unknown Task';
+  const sectionIdentifier =
+    moveContext.sectionName || moveContext.sectionGid || 'Unknown Section';
+  const projectIdentifier = moveContext.projectName || 'the project';
+
+  return `Successfully moved task "${taskIdentifier}" to section "${sectionIdentifier}" in ${projectIdentifier}.\n${taskData?.permalink_url ? `View task at: ${taskData.permalink_url}\n` : ''}(Request ID: ${requestContext.requestId})`;
+}
+
+/**
+ * Format enhanced date/time parsing result with confidence feedback
+ *
+ * @param parsedResult Result from enhanced date/time parsing
+ * @param context Additional context about the operation
+ * @param requestContext Request context for tracking
+ * @returns Formatted message with date confirmation and suggestions if needed
+ */
+export function formatDateTimeParsingResult(
+  parsedResult: {
+    success: boolean;
+    userFriendlyFormat: string;
+    confidence: 'high' | 'medium' | 'low';
+    suggestions?: string[];
+    errorMessage?: string;
+  },
+  context: {
+    operation: string; // e.g., "due date", "start date"
+    taskName?: string;
+  },
+  requestContext: RequestContext,
+): string {
+  if (!parsedResult.success) {
+    let message = `Error: Could not understand the ${context.operation}. ${parsedResult.errorMessage}\n`;
+
+    if (parsedResult.suggestions && parsedResult.suggestions.length > 0) {
+      message += `\n${parsedResult.suggestions.join('\n')}\n`;
+    }
+
+    message += `\n(Request ID: ${requestContext.requestId})`;
+    return message;
+  }
+
+  let message = `Parsed ${context.operation} as: ${parsedResult.userFriendlyFormat}`;
+
+  if (context.taskName) {
+    message += ` for task "${context.taskName}"`;
+  }
+
+  // Add confidence feedback for medium/low confidence
+  if (parsedResult.confidence === 'medium') {
+    message +=
+      '\n\n⚠️  Medium confidence in date parsing. Please verify this is correct.';
+  } else if (parsedResult.confidence === 'low') {
+    message +=
+      '\n\n⚠️  Low confidence in date parsing. Please confirm or rephrase.';
+    if (parsedResult.suggestions && parsedResult.suggestions.length > 0) {
+      message += `\n\n${parsedResult.suggestions.join('\n')}`;
+    }
+  }
+
+  message += `\n\n(Request ID: ${requestContext.requestId})`;
+  return message;
+}

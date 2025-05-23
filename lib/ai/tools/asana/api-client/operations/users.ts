@@ -4,6 +4,7 @@
 
 import type { AsanaApiClient } from '../client';
 import type { AsanaNamedResource, TypeaheadSearchParams } from './search'; // Assuming search operations are in 'search.ts'
+import { getOrSetCache, CacheKeys } from '../cache';
 
 /**
  * Get information about the currently authenticated user
@@ -16,16 +17,19 @@ export async function getUsersMe(
   apiClient: AsanaApiClient,
   requestId?: string,
 ): Promise<any> {
-  const queryParams = {
-    opt_fields: 'gid,name,email,photo,workspaces.name,workspaces.gid',
-  };
+  const cacheKey = CacheKeys.userMe();
 
-  return apiClient.request<any>(
-    'users/me',
-    'GET',
-    undefined,
-    queryParams,
-    requestId,
+  return getOrSetCache(
+    cacheKey,
+    () =>
+      apiClient.request<any>(
+        'users/me',
+        'GET',
+        undefined,
+        { opt_fields: 'gid,name,email,photo,workspaces.name,workspaces.gid' },
+        requestId,
+      ),
+    10 * 60 * 1000, // Cache for 10 minutes since user info rarely changes
   );
 }
 
@@ -52,89 +56,95 @@ export async function findUserGidByEmailOrName(
     throw new Error('Email or name is required to find user.');
   }
 
-  try {
-    // Directly use the typeaheadSearch function from search.ts
-    // We need to import it or ensure AsanaApiClient has a way to call it.
-    // For this example, assume direct import or apiClient has such a method.
-    // If typeaheadSearch is not directly available, this part needs adjustment.
+  const normalizedIdentifier = emailOrName.toLowerCase();
 
-    const searchParams: TypeaheadSearchParams = {
-      workspaceGid,
-      query: emailOrName,
-      resourceType: 'user',
-      opt_fields: ['gid', 'name', 'email'], // Ensure email is fetched for matching
-      count: 5, // Limit results
-    };
+  // Try email cache first
+  const emailCacheKey = CacheKeys.userByEmail(
+    normalizedIdentifier,
+    workspaceGid,
+  );
+  const cachedByEmail = await getOrSetCache(
+    emailCacheKey,
+    async () => {
+      // Search by email using typeahead
+      const results = await apiClient.request<any[]>(
+        `workspaces/${workspaceGid}/typeahead`,
+        'GET',
+        undefined,
+        {
+          resource_type: 'user',
+          query: emailOrName,
+          opt_fields: 'gid,name,email',
+        },
+        requestId,
+      );
 
-    // This assumes typeaheadSearch is a standalone function or method we can call.
-    // If it's not structured this way, the call needs to be adapted.
-    // This part of the code is calling a function from another module.
-    // We need to make sure that `typeaheadSearch` is imported or accessible.
-    // For the sake of this example, I'm writing it as if `apiClient.typeaheadSearch` exists
-    // or `typeaheadSearch` is imported and used directly.
+      // Look for exact email match
+      const exactEmailMatch = results.find(
+        (user) => user.email?.toLowerCase() === normalizedIdentifier,
+      );
 
-    // Correct approach: Use the imported typeaheadSearch function if it's designed for standalone use.
-    // Let's assume `typeaheadSearch` from './search' is the correct function to call.
-    // And it is structured as: typeaheadSearch(apiClient, params, requestId)
+      return exactEmailMatch?.gid || null;
+    },
+    5 * 60 * 1000, // Cache for 5 minutes
+  );
 
-    // Since this function is in users.ts and typeaheadSearch is in search.ts,
-    // we'd typically import typeaheadSearch at the top of users.ts.
-    // For now, I'm demonstrating the logic. The actual call might look like:
-    // const results = await typeaheadSearch(apiClient, searchParams, requestId);
-
-    const results = await apiClient.request<AsanaNamedResource[]>(
-      `workspaces/${workspaceGid}/typeahead`,
-      'GET',
-      undefined,
-      {
-        resource_type: 'user',
-        query: emailOrName,
-        opt_fields: ['gid', 'name', 'email'],
-        count: '5',
-      } as Record<string, string | string[]>,
-      requestId,
-    );
-
-    if (results.length === 0) {
-      return undefined; // Not found
-    }
-
-    // Check for exact email match first (most reliable)
-    const emailMatches = results.filter(
-      (user) =>
-        (user as any).email?.toLowerCase() === emailOrName.toLowerCase(),
-    );
-    if (emailMatches.length === 1) {
-      return emailMatches[0].gid;
-    }
-    if (emailMatches.length > 1) {
-      // This case should be rare for unique emails but handle it.
-      return 'ambiguous';
-    }
-
-    // If no exact email match, check for exact name match
-    const nameMatches = results.filter(
-      (user) => user.name?.toLowerCase() === emailOrName.toLowerCase(),
-    );
-    if (nameMatches.length === 1) {
-      return nameMatches[0].gid;
-    }
-    if (nameMatches.length > 1) {
-      return 'ambiguous';
-    }
-
-    // If still no exact match but results exist, it's ambiguous for names, or not found for emails if it wasn't an email
-    if (results.length > 0 && !emailOrName.includes('@')) {
-      // If it was a name search and we got multiple partial matches
-      return 'ambiguous';
-    }
-
-    return undefined; // Not found or not specific enough
-  } catch (error) {
-    console.error(
-      `[UserOperations] Error finding user GID for "${emailOrName}" in workspace ${workspaceGid}: ${error}`,
-    );
-    // Depending on the error, might rethrow or return undefined/ambiguous
-    throw error; // Or return undefined to indicate failure to find
+  if (cachedByEmail) {
+    return cachedByEmail;
   }
+
+  // Try name cache
+  const nameCacheKey = CacheKeys.userByName(normalizedIdentifier, workspaceGid);
+
+  return getOrSetCache(
+    nameCacheKey,
+    async () => {
+      // Search by name using typeahead
+      const results = await apiClient.request<AsanaNamedResource[]>(
+        `workspaces/${workspaceGid}/typeahead`,
+        'GET',
+        undefined,
+        {
+          resource_type: 'user',
+          query: emailOrName,
+          opt_fields: ['gid', 'name', 'email'],
+          count: '5',
+        } as Record<string, string | string[]>,
+        requestId,
+      );
+
+      if (results.length === 0) {
+        return undefined;
+      }
+
+      // Look for exact name matches
+      const exactMatches = results.filter(
+        (user) => user.name?.toLowerCase() === normalizedIdentifier,
+      );
+
+      if (exactMatches.length === 1) {
+        return exactMatches[0].gid;
+      }
+
+      if (exactMatches.length > 1) {
+        return 'ambiguous';
+      }
+
+      // Look for partial name matches
+      const partialMatches = results.filter((user) =>
+        user.name?.toLowerCase().includes(normalizedIdentifier),
+      );
+
+      if (partialMatches.length === 1) {
+        return partialMatches[0].gid;
+      }
+
+      if (partialMatches.length > 1) {
+        return 'ambiguous';
+      }
+
+      return undefined;
+    },
+    5 * 60 * 1000, // Cache for 5 minutes
+  );
 }

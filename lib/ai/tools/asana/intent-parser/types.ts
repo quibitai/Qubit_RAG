@@ -44,6 +44,16 @@ export enum AsanaOperationType {
   ADD_TASK_DEPENDENCY = 'ADD_TASK_DEPENDENCY',
   REMOVE_TASK_DEPENDENCY = 'REMOVE_TASK_DEPENDENCY',
 
+  // Project Section operations (Epic 3.2)
+  LIST_PROJECT_SECTIONS = 'LIST_PROJECT_SECTIONS',
+  CREATE_PROJECT_SECTION = 'CREATE_PROJECT_SECTION',
+  MOVE_TASK_TO_SECTION = 'MOVE_TASK_TO_SECTION',
+
+  // Advanced Project Management (Epic 3.2 cont.)
+  UPDATE_PROJECT_STATUS = 'UPDATE_PROJECT_STATUS',
+  ADD_USER_TO_PROJECT = 'ADD_USER_TO_PROJECT',
+  REMOVE_USER_FROM_PROJECT = 'REMOVE_USER_FROM_PROJECT',
+
   // Unknown/fallback
   UNKNOWN = 'unknown',
 }
@@ -266,6 +276,71 @@ export interface ParsedRemoveTaskDependencyIntent extends ParsedIntentBase {
 }
 
 /**
+ * Interface for parsed list project sections intent
+ */
+export interface ParsedListProjectSectionsIntent extends ParsedIntentBase {
+  operationType: AsanaOperationType.LIST_PROJECT_SECTIONS;
+  projectGid?: string;
+  projectName?: string;
+}
+
+/**
+ * Interface for parsed create project section intent
+ */
+export interface ParsedCreateProjectSectionIntent extends ParsedIntentBase {
+  operationType: AsanaOperationType.CREATE_PROJECT_SECTION;
+  projectGid?: string;
+  projectName?: string;
+  sectionName: string;
+}
+
+/**
+ * Interface for parsed move task to section intent
+ */
+export interface ParsedMoveTaskToSectionIntent extends ParsedIntentBase {
+  operationType: AsanaOperationType.MOVE_TASK_TO_SECTION;
+  taskGid?: string;
+  taskName?: string;
+  taskProjectName?: string;
+  sectionGid?: string;
+  sectionName?: string;
+}
+
+/**
+ * Interface for parsed update project status intent
+ */
+export interface ParsedUpdateProjectStatusIntent extends ParsedIntentBase {
+  operationType: AsanaOperationType.UPDATE_PROJECT_STATUS;
+  projectGid?: string;
+  projectName?: string;
+  statusTitle?: string;
+  statusColor?: 'green' | 'yellow' | 'red' | 'blue';
+  statusText?: string;
+}
+
+/**
+ * Interface for parsed add user to project intent
+ */
+export interface ParsedAddUserToProjectIntent extends ParsedIntentBase {
+  operationType: AsanaOperationType.ADD_USER_TO_PROJECT;
+  projectGid?: string;
+  projectName?: string;
+  userGid?: string;
+  userNameOrEmail?: string;
+}
+
+/**
+ * Interface for parsed remove user from project intent
+ */
+export interface ParsedRemoveUserFromProjectIntent extends ParsedIntentBase {
+  operationType: AsanaOperationType.REMOVE_USER_FROM_PROJECT;
+  projectGid?: string;
+  projectName?: string;
+  userGid?: string;
+  userNameOrEmail?: string;
+}
+
+/**
  * Interface for parsed unknown intent
  */
 export interface ParsedUnknownIntent extends ParsedIntentBase {
@@ -295,5 +370,11 @@ export type ParsedIntent =
   | ParsedCreateProjectIntent
   | ParsedUpdateProjectIntent
   | ParsedListProjectsIntent
+  | ParsedListProjectSectionsIntent
+  | ParsedCreateProjectSectionIntent
+  | ParsedMoveTaskToSectionIntent
   | ParsedSearchAsanaIntent
+  | ParsedUpdateProjectStatusIntent
+  | ParsedAddUserToProjectIntent
+  | ParsedRemoveUserFromProjectIntent
   | ParsedUnknownIntent;

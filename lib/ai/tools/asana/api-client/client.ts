@@ -2,14 +2,14 @@
  * Asana API client for making authenticated requests
  */
 
-import { ASANA_API_BASE_URL } from '../constants';
-import { DEFAULT_HEADERS } from '../constants';
+import { ASANA_API_BASE_URL, DEFAULT_HEADERS } from '../constants';
 import { ASANA_PAT, ASANA_REQUEST_TIMEOUT_MS } from '../config';
 import {
   AsanaIntegrationError,
   handleAsanaApiError,
   logAndFormatError,
 } from '../utils/errorHandler';
+import { withRetry, type RetryOptions } from './retryHandler';
 
 /**
  * Base Asana API client class
@@ -48,6 +48,7 @@ export class AsanaApiClient {
    * @param body Optional request body for POST/PUT requests
    * @param queryParams Optional query parameters
    * @param requestId Optional request ID for logging
+   * @param retryOptions Optional retry options
    * @returns The response from the API
    * @throws AsanaIntegrationError if the request fails
    */
@@ -57,89 +58,120 @@ export class AsanaApiClient {
     body?: any,
     queryParams?: Record<string, string | string[]>,
     requestId?: string,
+    retryOptions?: Partial<RetryOptions>,
   ): Promise<T> {
-    try {
-      // Construct the full URL with query parameters
-      let url = `${this.apiBaseUrl}/${endpoint.replace(/^\//, '')}`;
+    const finalRetryOptions = { ...ASANA_RETRY_OPTIONS, ...retryOptions };
 
-      if (queryParams && Object.keys(queryParams).length > 0) {
-        const params = new URLSearchParams();
+    const operation = async (): Promise<T> => {
+      try {
+        // Construct the full URL with query parameters
+        let url = `${this.apiBaseUrl}/${endpoint.replace(/^\//, '')}`;
 
-        for (const [key, value] of Object.entries(queryParams)) {
-          if (Array.isArray(value)) {
-            for (const item of value) {
-              params.append(key, item);
+        if (queryParams && Object.keys(queryParams).length > 0) {
+          const params = new URLSearchParams();
+
+          for (const [key, value] of Object.entries(queryParams)) {
+            if (Array.isArray(value)) {
+              for (const item of value) {
+                params.append(key, item);
+              }
+            } else {
+              params.append(key, value);
             }
-          } else {
-            params.append(key, value);
           }
+
+          url = `${url}?${params.toString()}`;
         }
 
-        url = `${url}?${params.toString()}`;
-      }
+        console.log(
+          `[AsanaApiClient] [${requestId || 'no-id'}] ${method} ${url}`,
+        );
 
-      console.log(
-        `[AsanaApiClient] [${requestId || 'no-id'}] ${method} ${url}`,
-      );
+        // Set up request options
+        const options: RequestInit = {
+          method,
+          headers: this.defaultHeaders,
+        };
 
-      // Set up request options
-      const options: RequestInit = {
-        method,
-        headers: this.defaultHeaders,
-      };
+        // Add body for POST/PUT requests
+        if (body && (method === 'POST' || method === 'PUT')) {
+          options.body = JSON.stringify(body);
+        }
 
-      // Add body for POST/PUT requests
-      if (body && (method === 'POST' || method === 'PUT')) {
-        options.body = JSON.stringify(body);
-      }
-
-      // Set up timeout promise
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                `Request to ${url} timed out after ${this.timeoutMs}ms`,
+        // Set up timeout promise
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Request to ${url} timed out after ${this.timeoutMs}ms`,
+                ),
               ),
-            ),
-          this.timeoutMs,
-        );
-      });
+            this.timeoutMs,
+          );
+        });
 
-      // Make the request with timeout
-      const response = (await Promise.race([
-        fetch(url, options),
-        timeoutPromise,
-      ])) as Response;
+        // Make the request with timeout
+        const response = (await Promise.race([
+          fetch(url, options),
+          timeoutPromise,
+        ])) as Response;
 
-      // Handle non-200 responses
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorData: any;
+        // Handle non-200 responses
+        if (!response.ok) {
+          const errorText = await response.text();
+          let errorData: any;
 
-        try {
-          errorData = JSON.parse(errorText);
-        } catch (e) {
-          errorData = { error: errorText };
+          try {
+            errorData = JSON.parse(errorText);
+          } catch (e) {
+            errorData = { error: errorText };
+          }
+
+          const apiError = new AsanaIntegrationError(
+            `API responded with status ${response.status}`,
+            `${method} ${endpoint}`,
+            errorData,
+            requestId,
+          );
+
+          // Add status and headers to error for retry logic
+          (apiError as any).status = response.status;
+          (apiError as any).headers = Object.fromEntries(
+            response.headers.entries(),
+          );
+
+          throw apiError;
         }
 
-        throw new AsanaIntegrationError(
-          `API responded with status ${response.status}`,
-          `${method} ${endpoint}`,
-          errorData,
-          requestId,
+        // Parse JSON response
+        const responseData = await response.json();
+        return responseData.data as T;
+      } catch (error: any) {
+        if (error instanceof AsanaIntegrationError) {
+          throw error;
+        }
+
+        throw handleAsanaApiError(error, `${method} ${endpoint}`, requestId);
+      }
+    };
+
+    // Execute with retry logic
+    const result = await withRetry(operation, finalRetryOptions, requestId);
+
+    if (result.success) {
+      if (requestId && result.attemptCount > 1) {
+        console.log(
+          `[AsanaApiClient] [${requestId}] Request succeeded after ${result.attemptCount} attempts (${result.totalDuration}ms total)`,
         );
       }
-
-      // Parse JSON response
-      const responseData = await response.json();
-      return responseData.data as T;
-    } catch (error: any) {
-      if (error instanceof AsanaIntegrationError) {
-        throw error;
+      if (result.data !== undefined) {
+        return result.data;
+      } else {
+        throw new Error('Operation succeeded but no data was returned');
       }
-
-      throw handleAsanaApiError(error, `${method} ${endpoint}`, requestId);
+    } else {
+      throw result.error;
     }
   }
 
@@ -226,3 +258,14 @@ export class AsanaApiClient {
 export function createAsanaClient(apiKey?: string): AsanaApiClient {
   return new AsanaApiClient(apiKey);
 }
+
+/**
+ * Default retry options for Asana API requests
+ * More conservative than generic retries due to API rate limits
+ */
+const ASANA_RETRY_OPTIONS: Partial<RetryOptions> = {
+  maxRetries: 2, // Reduced for API calls
+  baseDelay: 2000, // 2 seconds base delay
+  maxDelay: 60000, // 1 minute max delay for rate limits
+  backoffMultiplier: 2.5,
+};

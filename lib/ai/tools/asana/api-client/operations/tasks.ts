@@ -738,3 +738,80 @@ export async function getSubtasks(
     throw error;
   }
 }
+
+/**
+ * Adds a dependency to a task.
+ * The dependent task will be blocked until the dependency task is completed.
+ *
+ * @param apiClient Asana API client
+ * @param taskGid GID of the task that depends on another task
+ * @param dependencyTaskGid GID of the task that must be completed first
+ * @param requestId Optional request ID for tracking
+ * @returns The updated task data
+ */
+export async function addDependency(
+  apiClient: AsanaApiClient,
+  taskGid: string,
+  dependencyTaskGid: string,
+  requestId?: string,
+): Promise<TaskResponseData> {
+  if (!taskGid) {
+    throw new Error('Task GID is required to add a dependency.');
+  }
+  if (!dependencyTaskGid) {
+    throw new Error('Dependency task GID is required to add a dependency.');
+  }
+
+  try {
+    return await apiClient.request<TaskResponseData>(
+      `tasks/${taskGid}/addDependencies`,
+      'POST',
+      { data: { dependencies: [dependencyTaskGid] } },
+      undefined,
+      requestId,
+    );
+  } catch (error) {
+    console.error(
+      `[TaskOperations] Error adding dependency ${dependencyTaskGid} to task ${taskGid}: ${error}`,
+    );
+    throw error;
+  }
+}
+
+/**
+ * Removes a dependency from a task.
+ *
+ * @param apiClient Asana API client
+ * @param taskGid GID of the task to remove dependency from
+ * @param dependencyTaskGid GID of the dependency task to remove
+ * @param requestId Optional request ID for tracking
+ * @returns The updated task data
+ */
+export async function removeDependency(
+  apiClient: AsanaApiClient,
+  taskGid: string,
+  dependencyTaskGid: string,
+  requestId?: string,
+): Promise<TaskResponseData> {
+  if (!taskGid) {
+    throw new Error('Task GID is required to remove a dependency.');
+  }
+  if (!dependencyTaskGid) {
+    throw new Error('Dependency task GID is required to remove a dependency.');
+  }
+
+  try {
+    return await apiClient.request<TaskResponseData>(
+      `tasks/${taskGid}/removeDependencies`,
+      'POST',
+      { data: { dependencies: [dependencyTaskGid] } },
+      undefined,
+      requestId,
+    );
+  } catch (error) {
+    console.error(
+      `[TaskOperations] Error removing dependency ${dependencyTaskGid} from task ${taskGid}: ${error}`,
+    );
+    throw error;
+  }
+}

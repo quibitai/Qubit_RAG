@@ -4,10 +4,11 @@
  * from natural language input
  */
 
-import { extractNamesFromInput } from '../utils/gidUtils';
 import {
+  extractNamesFromInput,
   extractTaskGidFromInput,
   extractProjectGidFromInput,
+  isValidGid,
 } from '../utils/gidUtils';
 
 /**
@@ -723,4 +724,258 @@ export function extractDependencyDetails(input: string): {
     dependencyTaskName,
     dependencyTaskProjectName,
   };
+}
+
+/**
+ * Extract task dependency details from input.
+ * Expected patterns: "make task A dependent on task B", "remove dependency from task X to task Y"
+ *
+ * @param input The input string to parse
+ * @returns Object with dependent task and dependency task identifiers
+ */
+export function extractTaskDependencyDetails(input: string): {
+  dependentTaskGid?: string;
+  dependentTaskName?: string;
+  dependencyTaskGid?: string;
+  dependencyTaskName?: string;
+  projectName?: string;
+} {
+  if (!input) return {};
+
+  const result: {
+    dependentTaskGid?: string;
+    dependentTaskName?: string;
+    dependencyTaskGid?: string;
+    dependencyTaskName?: string;
+    projectName?: string;
+  } = {};
+
+  // Pattern: "make task A dependent on task B" or "add dependency from A to B"
+  const dependencyPattern1 =
+    /make\s+(?:task\s+)?["']?([^"']+?)["']?\s+dependent\s+on\s+(?:task\s+)?["']?([^"']+?)["']?/i;
+  const dependencyMatch1 = input.match(dependencyPattern1);
+
+  if (dependencyMatch1) {
+    const dependentName = dependencyMatch1[1]?.trim();
+    const dependencyName = dependencyMatch1[2]?.trim();
+
+    if (isValidGid(dependentName)) {
+      result.dependentTaskGid = dependentName;
+    } else {
+      result.dependentTaskName = dependentName;
+    }
+
+    if (isValidGid(dependencyName)) {
+      result.dependencyTaskGid = dependencyName;
+    } else {
+      result.dependencyTaskName = dependencyName;
+    }
+
+    return result;
+  }
+
+  // Pattern: "add dependency from task A to task B"
+  const dependencyPattern2 =
+    /add\s+dependency\s+from\s+(?:task\s+)?["']?([^"']+?)["']?\s+to\s+(?:task\s+)?["']?([^"']+?)["']?/i;
+  const dependencyMatch2 = input.match(dependencyPattern2);
+
+  if (dependencyMatch2) {
+    const dependencyName = dependencyMatch2[1]?.trim();
+    const dependentName = dependencyMatch2[2]?.trim();
+
+    if (isValidGid(dependentName)) {
+      result.dependentTaskGid = dependentName;
+    } else {
+      result.dependentTaskName = dependentName;
+    }
+
+    if (isValidGid(dependencyName)) {
+      result.dependencyTaskGid = dependencyName;
+    } else {
+      result.dependencyTaskName = dependencyName;
+    }
+
+    return result;
+  }
+
+  // Pattern: "remove dependency between A and B" or "remove dependency from A to B"
+  const removeDependencyPattern =
+    /remove\s+dependency\s+(?:between|from)\s+(?:task\s+)?["']?([^"']+?)["']?\s+(?:and|to)\s+(?:task\s+)?["']?([^"']+?)["']?/i;
+  const removeDependencyMatch = input.match(removeDependencyPattern);
+
+  if (removeDependencyMatch) {
+    const firstTask = removeDependencyMatch[1]?.trim();
+    const secondTask = removeDependencyMatch[2]?.trim();
+
+    // For remove operations, we need context to determine which is dependent vs dependency
+    // For now, assume first task is dependent, second is dependency
+    if (isValidGid(firstTask)) {
+      result.dependentTaskGid = firstTask;
+    } else {
+      result.dependentTaskName = firstTask;
+    }
+
+    if (isValidGid(secondTask)) {
+      result.dependencyTaskGid = secondTask;
+    } else {
+      result.dependencyTaskName = secondTask;
+    }
+
+    return result;
+  }
+
+  // Try to extract project context
+  const projectMatch = input.match(
+    /(?:in|from)\s+(?:project\s+)?["']?([^"']+?)["']?\s*$/i,
+  );
+  if (projectMatch) {
+    result.projectName = projectMatch[1]?.trim();
+  }
+
+  return result;
+}
+
+/**
+ * Extract project and section identifiers for section operations.
+ *
+ * @param input The natural language input
+ * @returns Object containing project and section identifiers
+ */
+export function extractProjectAndSectionIdentifiers(input: string): {
+  projectGid?: string;
+  projectName?: string;
+  sectionGid?: string;
+  sectionName?: string;
+} {
+  if (!input) return {};
+
+  const result: {
+    projectGid?: string;
+    projectName?: string;
+    sectionGid?: string;
+    sectionName?: string;
+  } = {};
+
+  // Extract project information
+  const projectInfo = extractProjectIdentifier(input);
+  result.projectGid = projectInfo.gid;
+  result.projectName = projectInfo.name;
+
+  // Extract section information
+  const sectionGidMatch = input.match(/section\s+(\d{16,})/i);
+  if (sectionGidMatch) {
+    result.sectionGid = sectionGidMatch[1];
+  }
+
+  const sectionNameMatch =
+    input.match(/section\s*(?:named|called)?\s*["']([^"']+)["']/i) ||
+    input.match(/["']([^"']+)["']\s*section/i) ||
+    input.match(/(?:to|in|into)\s+["']([^"']+)["']/i);
+
+  if (sectionNameMatch) {
+    result.sectionName = sectionNameMatch[1];
+  }
+
+  return result;
+}
+
+/**
+ * Extract section creation details from input.
+ *
+ * @param input The natural language input
+ * @returns Object containing section name and project identifiers
+ */
+export function extractSectionCreationDetails(input: string): {
+  projectGid?: string;
+  projectName?: string;
+  sectionName?: string;
+} {
+  if (!input) return {};
+
+  const result: {
+    projectGid?: string;
+    projectName?: string;
+    sectionName?: string;
+  } = {};
+
+  // Extract project information
+  const projectInfo = extractProjectIdentifier(input);
+  result.projectGid = projectInfo.gid;
+  result.projectName = projectInfo.name;
+
+  // Extract section name
+  const sectionNameMatch =
+    input.match(/section\s*(?:named|called)\s*["']([^"']+)["']/i) ||
+    input.match(/["']([^"']+)["']\s*section/i) ||
+    input.match(/(?:create|add|make)\s+(?:section\s+)?["']([^"']+)["']/i);
+
+  if (sectionNameMatch) {
+    result.sectionName = sectionNameMatch[1];
+  }
+
+  return result;
+}
+
+/**
+ * Extract task and section identifiers for moving tasks to sections.
+ *
+ * @param input The natural language input
+ * @returns Object containing task, section, and project identifiers
+ */
+export function extractTaskAndSectionIdentifiers(input: string): {
+  taskGid?: string;
+  taskName?: string;
+  taskProjectName?: string;
+  sectionGid?: string;
+  sectionName?: string;
+  sectionProjectName?: string;
+} {
+  if (!input) return {};
+
+  const result: {
+    taskGid?: string;
+    taskName?: string;
+    taskProjectName?: string;
+    sectionGid?: string;
+    sectionName?: string;
+    sectionProjectName?: string;
+  } = {};
+
+  // Extract task information
+  const taskInfo = extractTaskIdentifier(input);
+  result.taskGid = taskInfo.gid;
+  result.taskName = taskInfo.name;
+  result.taskProjectName = taskInfo.projectName;
+
+  // Extract section information
+  const sectionGidMatch = input.match(/(?:to|in|into)\s+section\s+(\d{16,})/i);
+  if (sectionGidMatch) {
+    result.sectionGid = sectionGidMatch[1];
+  }
+
+  const sectionNameMatch =
+    input.match(/(?:to|in|into)\s+section\s*["']([^"']+)["']/i) ||
+    input.match(/(?:to|in|into)\s+["']([^"']+)["']\s*section/i) ||
+    input.match(/section\s*["']([^"']+)["']/i);
+
+  if (sectionNameMatch) {
+    result.sectionName = sectionNameMatch[1];
+  }
+
+  // If we didn't find section name in the standard patterns, try to extract it from the remaining quoted strings
+  if (!result.sectionName && !result.sectionGid) {
+    const allQuotes = input.match(/["']([^"']+)["']/g);
+    if (allQuotes && allQuotes.length >= 2) {
+      // If we have multiple quoted strings and one is the task name, the other might be the section
+      const potentialSectionName = allQuotes.find((quote) => {
+        const quotedText = quote.slice(1, -1);
+        return quotedText !== result.taskName;
+      });
+      if (potentialSectionName) {
+        result.sectionName = potentialSectionName.slice(1, -1);
+      }
+    }
+  }
+
+  return result;
 }
