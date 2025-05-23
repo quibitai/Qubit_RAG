@@ -5,6 +5,79 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2024-12-23
+
+### Added
+- **Modular Asana Integration Complete Rebuild**
+  - New modular architecture with separate modules for intent parsing, API client, formatters, and utilities
+  - Comprehensive intent classification system with natural language processing
+  - Advanced entity extraction for tasks, projects, users, and complex operations
+  - Complete API coverage: tasks, projects, users, search, followers, subtasks, dependencies
+  - Enhanced error handling and response formatting throughout the system
+  - Type-safe implementation with comprehensive TypeScript support
+
+- **Advanced Asana Features**
+  - Task operations: create, update, list, complete/incomplete, get details, search
+  - Project management: list, search, GID resolution with ambiguity handling
+  - User operations: current user info, assignee resolution
+  - Advanced features: add/remove followers, set due dates, manage subtasks
+  - Dependency management: add/remove task dependencies
+  - Natural language date parsing with chrono-node integration
+  - Intelligent task and project lookup with context awareness
+
+- **Google Calendar Tool (Renamed from n8n MCP Gateway)**
+  - Dedicated Google Calendar integration for focused calendar management
+  - Renamed tool from `n8nMcpGateway` to `googleCalendar` for clarity
+  - Updated environment variables with `GOOGLE_CALENDAR_*` prefix
+  - Enhanced descriptions and documentation for calendar-specific operations
+  - Improved error messages and user guidance for calendar operations
+
+- **Enhanced Tool Architecture**
+  - Consistent tool structure across all integrations
+  - Improved error handling patterns with centralized error management
+  - Enhanced type safety with strict TypeScript configurations
+  - Comprehensive tool documentation with usage examples
+  - Modular design principles for easy extension and maintenance
+
+- **Comprehensive Documentation Updates**
+  - New `docs/TOOLS.md` with complete tool documentation
+  - Updated environment variable references for all tools
+  - Enhanced architecture documentation for the new modular systems
+  - Code examples and best practices for tool usage
+  - Implementation guidelines for new tool development
+
+### Changed
+- **Asana Tool Complete Rewrite**: Replaced monolithic `nativeAsanaTool.ts` with modular architecture in `/lib/ai/tools/asana/`
+- **Tool Registration**: Updated main tools index to use new modular Asana tool and renamed Google Calendar tool
+- **Environment Variables**: Updated documentation to reflect new `GOOGLE_CALENDAR_*` prefixes
+- **Error Handling**: Improved error messages and user feedback across all tools
+- **Performance**: Enhanced caching strategies and API efficiency in tool operations
+
+### Fixed
+- **TypeScript Compliance**: Resolved all linter errors in the new Asana implementation
+- **Code Quality**: Fixed variable declarations and improved code consistency
+- **Tool Integration**: Ensured proper tool registration and conflict resolution
+- **Documentation Accuracy**: Updated all references to reflect current tool names and capabilities
+
+### Removed
+- **Legacy Asana Tool**: Removed old `nativeAsanaTool.ts` file after successful migration
+- **Old Tool References**: Cleaned up all references to the old n8n MCP gateway tool
+- **Commented Code**: Removed commented-out legacy tool registrations
+
+### Technical Improvements
+- **Modular Architecture**: Implemented clean separation of concerns in tool design
+- **Intent Parsing**: Advanced natural language understanding for complex operations
+- **Entity Extraction**: Sophisticated parsing of names, dates, and identifiers
+- **API Client**: Robust API client with proper error handling and rate limiting
+- **Response Formatting**: Consistent, user-friendly response formatting
+
+### Documentation
+- **Tool Documentation**: Comprehensive documentation for all available tools
+- **API References**: Updated API documentation with new tool capabilities
+- **Environment Setup**: Clear guidance for configuring all tool integrations
+- **Development Guidelines**: Best practices for tool development and maintenance
+- **Migration Guide**: Documentation for transitioning from old to new implementations
+
 ## [2.2.0] - 2024-12-23
 
 ### Added

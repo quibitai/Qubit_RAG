@@ -9,10 +9,12 @@
 ## Table of Contents
 - [Getting Started](#getting-started)
 - [API Reference](#api-reference)
+- [Tools & Integrations](#tools--integrations)
 - [Architecture & Design](#architecture--design)
 - [Development Guides](#development-guides)
 - [Configuration](#configuration)
 - [Planning & Design](#planning--design)
+- [Migration Guides](#migration-guides)
 - [Troubleshooting](#troubleshooting)
 - [Legacy Documentation](#legacy-documentation)
 
@@ -39,6 +41,22 @@ Complete API documentation:
 - `POST /api/files/upload` - File upload
 - `POST /api/files/extract` - Content extraction
 - `GET /api/health` - System health check
+
+## Tools & Integrations
+
+Comprehensive tool documentation and integration guides:
+
+- **[Tools Overview](./TOOLS.md)** - Complete guide to all available AI tools
+- **[Asana Integration](./tools/asana.md)** - Project and task management
+- **[Google Calendar](./tools/google-calendar.md)** - Calendar event management
+- **[Document Tools](./tools/documents.md)** - File and document operations
+- **[Search Tools](./tools/search.md)** - Knowledge base and web search
+- **[Tool Development Guide](./guides/tool-development.md)** - Creating custom tools
+
+### Integration Setup
+- **[Environment Variables Reference](./TOOLS.md#environment-variables-reference)** - All required variables
+- **[Tool Configuration](./configuration/tool-configuration.md)** - Setup and configuration
+- **[Best Practices](./TOOLS.md#best-practices)** - Usage guidelines and security
 
 ## Architecture & Design
 
@@ -93,6 +111,19 @@ Strategic planning and future development:
 - **[Asana Tool Migration](./planning/asana-tool-migration-plan.md)** - Tool enhancement roadmap
 - **[Architecture Decisions](./planning/architecture-decisions.md)** - Key design decisions
 - **[Roadmap](./planning/roadmap.md)** - Future development plans
+
+## Migration Guides
+
+Upgrade guides for major version changes:
+
+- **[Version 2.3.0 Migration Guide](./MIGRATION_GUIDE_v2.3.0.md)** - Upgrading to v2.3.0 with modular Asana and Google Calendar tools
+- **[v1 to v2 Migration](./migration/v1-to-v2.md)** - Upgrading from v1.x
+- **[Context System Migration](./migration/context-system.md)** - Upgrading context features
+- **[Tool Architecture Migration](./migration/tool-architecture.md)** - Tool system changes
+
+### Version-Specific Changes
+- **[Breaking Changes Log](./migration/breaking-changes.md)** - All breaking changes by version
+- **[Environment Variable Changes](./migration/environment-variables.md)** - Variable updates and deprecations
 
 ## Troubleshooting
 

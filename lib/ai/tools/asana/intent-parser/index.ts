@@ -162,7 +162,8 @@ export function parseIntent(input: string): ParsedIntent {
         operationType,
         requestContext,
         rawInput: input,
-        taskIdentifier,
+        taskGid: taskIdentifier.gid,
+        taskName: taskIdentifier.name,
         projectName: taskIdentifier.projectName,
       };
     }

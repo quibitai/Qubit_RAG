@@ -13,8 +13,7 @@ import { requestSuggestionsTool } from './request-suggestions';
 import { updateDocumentTool } from './update-document';
 import { tavilySearchTool } from './tavily-search';
 import { getMessagesFromOtherChatTool } from './getMessagesFromOtherChatTool';
-import { n8nMcpGatewayTool } from './n8nMcpGatewayTool';
-// import { nativeAsanaTool } from './nativeAsanaTool'; // Old Asana tool
+import { googleCalendarTool } from './googleCalendarTool';
 import { asanaTool } from './asana'; // New modular Asana tool
 
 // Export all available tools
@@ -28,8 +27,7 @@ export const availableTools = [
   updateDocumentTool,
   tavilySearchTool,
   getMessagesFromOtherChatTool,
-  n8nMcpGatewayTool,
-  // nativeAsanaTool, // Old Asana tool
+  googleCalendarTool,
   asanaTool, // New modular Asana tool
 ];
 
@@ -43,7 +41,6 @@ export {
   updateDocumentTool,
   tavilySearchTool,
   getMessagesFromOtherChatTool,
-  n8nMcpGatewayTool,
-  // nativeAsanaTool, // Old Asana tool
+  googleCalendarTool,
   asanaTool, // New modular Asana tool
 };

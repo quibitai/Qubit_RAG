@@ -575,7 +575,6 @@ export function extractSubtaskCreationDetails(input: string): {
 
   let parentTaskGid: string | undefined;
   let parentTaskName: string | undefined;
-  let parentProjectName: string | undefined;
   let subtaskName: string | undefined;
 
   // Try to extract parent task GID first
@@ -590,7 +589,7 @@ export function extractSubtaskCreationDetails(input: string): {
   // Extract names for parent task and project context using existing utility
   const names = extractNamesFromInput(input);
   parentTaskName = names.taskName; // extractNamesFromInput might pick up the *parent* task name here
-  parentProjectName = names.projectName;
+  const parentProjectName = names.projectName;
 
   // Extract subtask name
   // Pattern: "add subtask (named|called) 'New Subtask Name' ..."
@@ -688,3 +687,40 @@ export function extractDependencyDetails(input: string): {
   let taskProjectName: string | undefined;
   let dependencyTaskGid: string | undefined;
   let dependencyTaskName: string | undefined;
+  let dependencyTaskProjectName: string | undefined;
+
+  // Extract task GIDs first (most reliable)
+  const gidMatches = input.match(/\d{16,}/g);
+  if (gidMatches && gidMatches.length >= 2) {
+    taskGid = gidMatches[0];
+    dependencyTaskGid = gidMatches[1];
+  }
+
+  // Extract names using quoted strings and common patterns
+  const names = extractNamesFromInput(input);
+
+  // For dependency operations, we need to identify two tasks
+  // This is a simplified extraction - more sophisticated parsing would be needed for complex cases
+  if (!taskGid && !dependencyTaskGid) {
+    const quotedNames = input.match(/['"]([^'"]+)['"]/g);
+    if (quotedNames && quotedNames.length >= 2) {
+      taskName = quotedNames[0].slice(1, -1);
+      dependencyTaskName = quotedNames[1].slice(1, -1);
+    } else if (names.taskName) {
+      taskName = names.taskName;
+    }
+  }
+
+  if (names.projectName) {
+    taskProjectName = names.projectName;
+  }
+
+  return {
+    taskGid,
+    taskName,
+    taskProjectName,
+    dependencyTaskGid,
+    dependencyTaskName,
+    dependencyTaskProjectName,
+  };
+}

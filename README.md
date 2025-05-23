@@ -4,9 +4,9 @@
 
 **Status**: Stable  
 **Last Updated**: 2024-12-23  
-**Version**: 2.2.0
+**Version**: 2.3.0
 
-![Version](https://img.shields.io/badge/version-2.2.0-blue)
+![Version](https://img.shields.io/badge/version-2.3.0-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-15.3.0-black)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-green)
 ![LangChain](https://img.shields.io/badge/LangChain-0.3.24-yellow)
@@ -43,6 +43,17 @@ Quibit RAG is a modular, multi-tenant AI assistant platform that combines modern
 - **File Processing**: Intelligent extraction and analysis pipeline
 
 ## Key Features
+
+### Version 2.3.0 Features (Latest)
+- **Modular Asana Integration**: Complete rebuild of Asana tool with modular architecture, intent parsing, and comprehensive API coverage
+- **Google Calendar Tool**: Dedicated Google Calendar integration (renamed from n8n MCP Gateway) for focused calendar management
+- **Enhanced Tool Architecture**: Improved modularity, error handling, and type safety across all tools
+- **Comprehensive Documentation**: Updated documentation for all tools and architectural improvements
+
+### Version 2.2.0 Features
+- **Advanced Asana Operations**: Complete task management, project operations, and natural language processing
+- **Tool Framework Improvements**: Enhanced error handling, timeout management, and response formatting
+- **Performance Optimizations**: Improved caching strategies and API efficiency
 
 ### Version 2.1.0 Features
 - **Comprehensive Context Management**: Advanced entity extraction, conversation summarization, and cross-chat context sharing
@@ -296,4 +307,4 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 
 **Built with ❤️ by the Quibit Team**  
 **Last Updated**: 2024-12-23  
-**Version**: 2.2.0
+**Version**: 2.3.0

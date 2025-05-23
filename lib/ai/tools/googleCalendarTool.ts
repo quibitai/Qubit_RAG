@@ -2,15 +2,15 @@ import { Tool } from '@langchain/core/tools';
 import { z } from 'zod';
 
 // This schema defines the expected input structure for the tool.
-const N8nMcpGatewayToolInputSchema = z.object({
+const GoogleCalendarToolInputSchema = z.object({
   task_description: z
     .string()
     .describe(
-      'A clear, natural language description of the task for the n8n Multi-Capability Processor gateway. ' +
-        'This description will be interpreted by an AI agent in n8n to route to the correct capability ' +
-        '(e.g., Google Calendar, Asana, or other future services) and perform the action. ' +
+      'A clear, natural language description of the Google Calendar task you want to perform. ' +
+        'This description will be interpreted by an AI agent to manage your Google Calendar events. ' +
         "Example: 'Schedule a team review for next Friday at 3 PM about the Q3 roadmap.' " +
-        "Or: 'Find all tasks assigned to me in Asana under the SkyNet project.'",
+        "Or: 'Show me my calendar events for tomorrow.' " +
+        "Or: 'Find all meetings with John this week.'",
     ),
   // Add input as an alternative field for compatibility
   input: z
@@ -21,27 +21,29 @@ const N8nMcpGatewayToolInputSchema = z.object({
     ),
 });
 
-class N8nMcpGatewayTool extends Tool {
-  name = 'n8nMcpGateway';
+class GoogleCalendarTool extends Tool {
+  name = 'googleCalendar';
   description =
-    'A multi-capability gateway that connects to external services via an n8n workflow. ' +
-    'IMPORTANT: This tool should now ONLY be used for Google Calendar operations. For Asana tasks, use the dedicated "asana" tool instead. ' +
-    'Use this for tasks such as managing calendar events (creating, searching, updating, deleting), ' +
-    'but NOT for Asana tasks or project management. ' +
-    "The input must be an object containing a 'task_description' field with a clear, natural language description of the task.";
+    'A tool for managing Google Calendar events and schedules. ' +
+    'Use this tool for all calendar-related operations such as: ' +
+    '- Creating, searching, updating, or deleting calendar events ' +
+    '- Checking availability and scheduling conflicts ' +
+    '- Managing meeting invitations and attendees ' +
+    '- Viewing calendar events for specific dates or time ranges ' +
+    "The input must be an object containing a 'task_description' field with a clear, natural language description of the calendar task.";
 
-  zodSchema = N8nMcpGatewayToolInputSchema;
+  zodSchema = GoogleCalendarToolInputSchema;
 
   // Configure timeout for fetch requests (30 seconds default)
   private timeoutMs = Number.parseInt(
-    process.env.N8N_MCP_TIMEOUT_MS || '30000',
+    process.env.GOOGLE_CALENDAR_TIMEOUT_MS || '30000',
     10,
   );
 
   protected async _call(args: any): Promise<string> {
-    const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const requestId = `gcal_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     console.log(
-      `N8nMcpGatewayTool [${requestId}]: Starting execution with args:`,
+      `GoogleCalendarTool [${requestId}]: Starting execution with args:`,
       JSON.stringify(args),
     );
 
@@ -52,19 +54,19 @@ class N8nMcpGatewayTool extends Tool {
       // Direct string input
       task_description = args;
       console.log(
-        `N8nMcpGatewayTool [${requestId}]: Using direct string input as task_description`,
+        `GoogleCalendarTool [${requestId}]: Using direct string input as task_description`,
       );
     } else if (typeof args === 'object' && args !== null) {
       // Object with properties
       if (args.task_description) {
         task_description = args.task_description;
         console.log(
-          `N8nMcpGatewayTool [${requestId}]: Using task_description property from args`,
+          `GoogleCalendarTool [${requestId}]: Using task_description property from args`,
         );
       } else if (args.input) {
         task_description = args.input;
         console.log(
-          `N8nMcpGatewayTool [${requestId}]: Using input property from args`,
+          `GoogleCalendarTool [${requestId}]: Using input property from args`,
         );
       } else if (args.arguments) {
         // Handle OpenAI tools format
@@ -77,12 +79,12 @@ class N8nMcpGatewayTool extends Tool {
           if (argsContent.task_description) {
             task_description = argsContent.task_description;
             console.log(
-              `N8nMcpGatewayTool [${requestId}]: Using task_description from arguments property`,
+              `GoogleCalendarTool [${requestId}]: Using task_description from arguments property`,
             );
           } else if (argsContent.input) {
             task_description = argsContent.input;
             console.log(
-              `N8nMcpGatewayTool [${requestId}]: Using input from arguments property`,
+              `GoogleCalendarTool [${requestId}]: Using input from arguments property`,
             );
           } else {
             throw new Error(
@@ -91,7 +93,7 @@ class N8nMcpGatewayTool extends Tool {
           }
         } catch (e) {
           console.error(
-            `N8nMcpGatewayTool [${requestId}]: Error extracting task from arguments:`,
+            `GoogleCalendarTool [${requestId}]: Error extracting task from arguments:`,
             e,
           );
           throw new Error(
@@ -112,23 +114,23 @@ class N8nMcpGatewayTool extends Tool {
     // Verify we have a task_description
     if (!task_description) {
       const errorMsg =
-        'Error: No task description provided. Cannot determine the request.';
-      console.error(`N8nMcpGatewayTool [${requestId}]: ${errorMsg}`);
+        'Error: No task description provided. Cannot determine the calendar request.';
+      console.error(`GoogleCalendarTool [${requestId}]: ${errorMsg}`);
       return errorMsg;
     }
 
     console.log(
-      `N8nMcpGatewayTool [${requestId}]: Using task_description: "${task_description}"`,
+      `GoogleCalendarTool [${requestId}]: Using task_description: "${task_description}"`,
     );
 
-    const webhookUrl = process.env.N8N_MCP_WEBHOOK_URL;
-    const authToken = process.env.N8N_MCP_AUTH_TOKEN;
-    const authHeaderName = process.env.N8N_MCP_AUTH_HEADER;
+    const webhookUrl = process.env.GOOGLE_CALENDAR_WEBHOOK_URL;
+    const authToken = process.env.GOOGLE_CALENDAR_AUTH_TOKEN;
+    const authHeaderName = process.env.GOOGLE_CALENDAR_AUTH_HEADER;
 
     if (!webhookUrl || !authToken || !authHeaderName) {
-      const errorMessage = `Error: The N8N MCP Gateway tool is not properly configured. Essential environment variables (webhook URL, auth token, or auth header name) are missing. Please contact your administrator.`;
+      const errorMessage = `Error: The Google Calendar tool is not properly configured. Essential environment variables (webhook URL, auth token, or auth header name) are missing. Please contact your administrator.`;
       console.error(
-        `N8nMcpGatewayTool [${requestId}]: Configuration error - ${errorMessage}`,
+        `GoogleCalendarTool [${requestId}]: Configuration error - ${errorMessage}`,
       );
       return errorMessage;
     }
@@ -139,7 +141,7 @@ class N8nMcpGatewayTool extends Tool {
 
     try {
       console.log(
-        `N8nMcpGatewayTool [${requestId}]: Calling n8n webhook at ${webhookUrl} with payload:`,
+        `GoogleCalendarTool [${requestId}]: Calling Google Calendar webhook at ${webhookUrl} with payload:`,
         JSON.stringify(requestPayload),
       );
 
@@ -169,30 +171,30 @@ class N8nMcpGatewayTool extends Tool {
       if (!response.ok) {
         const errorText = await response.text();
         console.error(
-          `N8nMcpGatewayTool [${requestId}]: n8n webhook call failed with status ${response.status}. Response: ${errorText}`,
+          `GoogleCalendarTool [${requestId}]: Google Calendar webhook call failed with status ${response.status}. Response: ${errorText}`,
         );
-        return `Error interacting with the N8N MCP Gateway: ${response.status} ${response.statusText}. The gateway responded with: "${errorText.substring(0, 200)}${errorText.length > 200 ? '...' : ''}"`;
+        return `Error interacting with Google Calendar: ${response.status} ${response.statusText}. The service responded with: "${errorText.substring(0, 200)}${errorText.length > 200 ? '...' : ''}"`;
       }
 
       const responseText = await response.text();
       console.log(
-        `N8nMcpGatewayTool [${requestId}]: Raw response text:`,
+        `GoogleCalendarTool [${requestId}]: Raw response text:`,
         responseText,
       );
 
       // Check for empty response
       if (!responseText || responseText.trim() === '') {
         console.error(
-          `N8nMcpGatewayTool [${requestId}]: Received empty response from webhook`,
+          `GoogleCalendarTool [${requestId}]: Received empty response from webhook`,
         );
-        return `The N8N MCP Gateway returned an empty response. This might indicate a configuration issue or that the service is not properly processing the request. Please try again with a more specific query or contact your administrator.`;
+        return `Google Calendar returned an empty response. This might indicate a configuration issue or that the service is not properly processing the request. Please try again with a more specific query or contact your administrator.`;
       }
 
       let jsonResponse: any;
       try {
         jsonResponse = JSON.parse(responseText);
         console.log(
-          `N8nMcpGatewayTool [${requestId}]: Parsed JSON response:`,
+          `GoogleCalendarTool [${requestId}]: Parsed JSON response:`,
           JSON.stringify(jsonResponse, null, 2),
         );
 
@@ -203,15 +205,15 @@ class N8nMcpGatewayTool extends Tool {
           (Array.isArray(jsonResponse) && jsonResponse.length === 0)
         ) {
           console.error(
-            `N8nMcpGatewayTool [${requestId}]: Received empty JSON object/array from webhook`,
+            `GoogleCalendarTool [${requestId}]: Received empty JSON object/array from webhook`,
           );
-          return `The N8N MCP Gateway returned an empty result. This might indicate that no matching data was found or the service couldn't process your request. Please try with different parameters or a more specific query.`;
+          return `Google Calendar returned an empty result. This might indicate that no matching events were found or the service couldn't process your request. Please try with different parameters or a more specific query.`;
         }
       } catch (jsonError: any) {
-        const errorMsg = `Error parsing response from N8N MCP Gateway: ${jsonError.message}`;
-        console.error(`N8nMcpGatewayTool [${requestId}]: ${errorMsg}`);
+        const errorMsg = `Error parsing response from Google Calendar: ${jsonError.message}`;
+        console.error(`GoogleCalendarTool [${requestId}]: ${errorMsg}`);
         console.error(
-          `N8nMcpGatewayTool [${requestId}]: Problematic response text: "${responseText}"`,
+          `GoogleCalendarTool [${requestId}]: Problematic response text: "${responseText}"`,
         );
         return errorMsg;
       }
@@ -223,7 +225,7 @@ class N8nMcpGatewayTool extends Tool {
         jsonResponse[0]?.output
       ) {
         console.log(
-          `N8nMcpGatewayTool [${requestId}]: Detected array with output property format`,
+          `GoogleCalendarTool [${requestId}]: Detected array with output property format`,
         );
 
         // Additional check to ensure we're not getting an empty output object
@@ -234,9 +236,9 @@ class N8nMcpGatewayTool extends Tool {
           JSON.stringify(output) === '{}'
         ) {
           console.error(
-            `N8nMcpGatewayTool [${requestId}]: Received empty output object in array wrapper`,
+            `GoogleCalendarTool [${requestId}]: Received empty output object in array wrapper`,
           );
-          return `The N8N MCP Gateway processed your request but returned an empty result. Please try with different parameters or a more specific query.`;
+          return `Google Calendar processed your request but returned an empty result. Please try with different parameters or a more specific query.`;
         }
 
         jsonResponse = jsonResponse[0]?.output;
@@ -245,9 +247,9 @@ class N8nMcpGatewayTool extends Tool {
       // Ensure jsonResponse exists before accessing properties
       if (!jsonResponse) {
         console.error(
-          `N8nMcpGatewayTool [${requestId}]: jsonResponse is null or undefined after processing`,
+          `GoogleCalendarTool [${requestId}]: jsonResponse is null or undefined after processing`,
         );
-        return `The N8N MCP Gateway returned a response that couldn't be processed. Please try again with a different query.`;
+        return `Google Calendar returned a response that couldn't be processed. Please try again with a different query.`;
       }
 
       // Process error cases
@@ -257,23 +259,23 @@ class N8nMcpGatewayTool extends Tool {
         String(jsonResponse?.error).trim() !== ''
       ) {
         console.error(
-          `N8nMcpGatewayTool [${requestId}]: n8n reported an error: ${jsonResponse?.error}`,
+          `GoogleCalendarTool [${requestId}]: Google Calendar reported an error: ${jsonResponse?.error}`,
         );
-        return `The N8N MCP Gateway reported an error: ${jsonResponse?.error}`;
+        return `Google Calendar reported an error: ${jsonResponse?.error}`;
       }
 
       if (jsonResponse?.success === false && jsonResponse?.summary) {
         console.error(
-          `N8nMcpGatewayTool [${requestId}]: n8n reported task unsuccessful: ${jsonResponse?.summary}`,
+          `GoogleCalendarTool [${requestId}]: Google Calendar reported task unsuccessful: ${jsonResponse?.summary}`,
         );
-        return `The N8N MCP Gateway task could not be completed successfully: ${jsonResponse?.summary}`;
+        return `The Google Calendar task could not be completed successfully: ${jsonResponse?.summary}`;
       }
 
       // For calendar events, format them nicely
       if (jsonResponse?.events && Array.isArray(jsonResponse?.events)) {
         const events = jsonResponse?.events;
         console.log(
-          `N8nMcpGatewayTool [${requestId}]: Processing ${events.length} calendar events`,
+          `GoogleCalendarTool [${requestId}]: Processing ${events.length} calendar events`,
         );
 
         if (events.length === 0) {
@@ -331,7 +333,7 @@ class N8nMcpGatewayTool extends Tool {
         });
 
         console.log(
-          `N8nMcpGatewayTool [${requestId}]: Successfully processed calendar events`,
+          `GoogleCalendarTool [${requestId}]: Successfully processed calendar events`,
         );
         return result;
       }
@@ -339,31 +341,31 @@ class N8nMcpGatewayTool extends Tool {
       // General response handling
       if (jsonResponse?.summary) {
         console.log(
-          `N8nMcpGatewayTool [${requestId}]: Returning summary from response`,
+          `GoogleCalendarTool [${requestId}]: Returning summary from response`,
         );
         return jsonResponse?.summary;
       }
 
       // Fallback for other response formats
       console.log(
-        `N8nMcpGatewayTool [${requestId}]: Using fallback response format`,
+        `GoogleCalendarTool [${requestId}]: Using fallback response format`,
       );
-      return `N8N MCP Gateway processed the request successfully. ${JSON.stringify(jsonResponse)}`;
+      return `Google Calendar processed the request successfully. ${JSON.stringify(jsonResponse)}`;
     } catch (error: any) {
       console.error(
-        `N8nMcpGatewayTool [${requestId}]: Exception occurred during the call to the n8n webhook:`,
+        `GoogleCalendarTool [${requestId}]: Exception occurred during the call to Google Calendar webhook:`,
         error,
       );
 
       // Handle timeout specifically
       if (error?.message?.includes('timed out')) {
-        return `The request to the N8N MCP Gateway timed out after ${this.timeoutMs / 1000} seconds. This might indicate that the service is overloaded or experiencing issues. Please try again later or with a simpler query.`;
+        return `The request to Google Calendar timed out after ${this.timeoutMs / 1000} seconds. This might indicate that the service is overloaded or experiencing issues. Please try again later or with a simpler query.`;
       }
 
-      return `An exception occurred while trying to communicate with the N8N MCP Gateway: ${error?.message}`;
+      return `An exception occurred while trying to communicate with Google Calendar: ${error?.message}`;
     }
   }
 }
 
 // Export an instance of the tool for use in the application.
-export const n8nMcpGatewayTool = new N8nMcpGatewayTool();
+export const googleCalendarTool = new GoogleCalendarTool();
