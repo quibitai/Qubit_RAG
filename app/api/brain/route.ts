@@ -1260,6 +1260,10 @@ async function getAvailableTools(clientConfig?: ClientConfig | null) {
 // Add import at the top of the file after the existing imports
 import { createEnhancedDataStream } from '@/lib/streaming';
 
+// Context Management Integration
+import { contextManager } from '@/lib/context/ContextManager';
+import type { ContextWindow } from '@/lib/context/ContextManager';
+
 /**
  * POST handler for the Brain API
  */
@@ -1657,6 +1661,55 @@ export async function POST(req: NextRequest) {
     }
     // --- END USER MESSAGE SAVE ---
 
+    // --- BEGIN CONTEXT WINDOW BUILDING ---
+    let contextWindow: ContextWindow;
+    try {
+      logger.info(
+        '[Brain API] Building context window for enhanced prompts...',
+      );
+      contextWindow = await contextManager.buildContextWindow(
+        normalizedChatId,
+        effectiveUserId,
+        effectiveClientId,
+      );
+
+      logger.info(`[Brain API] Context window built successfully:`, {
+        recentMessages: contextWindow.recentHistory.length,
+        keyEntities: contextWindow.keyEntities.length,
+        hasSummary: !!contextWindow.summary,
+        files: contextWindow.files.length,
+        estimatedTokens: contextWindow.tokenCount,
+      });
+
+      // Start background entity extraction for the user message (non-blocking)
+      contextManager
+        .extractEntities(
+          userMessageToSave.id,
+          userMessageContent,
+          normalizedChatId,
+          effectiveUserId,
+          effectiveClientId,
+        )
+        .catch((error) => {
+          logger.error(
+            '[Brain API] Background entity extraction failed:',
+            error,
+          );
+          // Don't throw - this is background processing
+        });
+    } catch (contextError) {
+      logger.error('[Brain API] Error building context window:', contextError);
+      // Continue without context window rather than failing the request
+      contextWindow = {
+        recentHistory: [],
+        keyEntities: [],
+        summary: undefined,
+        files: [],
+        tokenCount: 0,
+      };
+    }
+    // --- END CONTEXT WINDOW BUILDING ---
+
     // Use all previous messages as history
     const history = safeMessages.slice(0, -1);
 
@@ -1733,17 +1786,57 @@ export async function POST(req: NextRequest) {
         }`,
       );
 
-      // Create a date/time context message for time-sensitive queries
-      const dateTimeInjectionString = `IMPORTANT CONTEXT: The current date is ${userFriendlyDate} (ISO: ${currentDateTimeISO?.split('T')[0]}), and the current time is ${userFriendlyTime} (ISO: ${currentDateTimeISO?.split('T')[1]?.replace('Z', '')} ${userTimezone}). You MUST use this information for any queries that are time-sensitive, refer to "today," "now," or require knowledge of the current date or time. Do not rely on your internal knowledge for the current date and time.`;
+      // --- BEGIN CONTEXT INTEGRATION ---
+      // Build context information for the prompt
+      let contextInfo = '';
 
-      // The date/time context is now passed to loadPrompt, but we'll keep this for extra emphasis
-      // since it appears to be an important feature of your system
-      finalSystemPrompt = `${dateTimeInjectionString}\n\n${finalSystemPrompt}`;
+      if (contextWindow.keyEntities.length > 0) {
+        const entityGroups = contextWindow.keyEntities.reduce(
+          (acc, entity) => {
+            if (!acc[entity.entityType]) acc[entity.entityType] = [];
+            acc[entity.entityType].push(entity.entityValue);
+            return acc;
+          },
+          {} as Record<string, string[]>,
+        );
 
-      logger.info(
-        `[Brain API] Injected current date/time into system prompt. User-friendly: ${currentDateTime}, ISO: ${currentDateTimeISO}`,
-      );
-      // *** END DATE/TIME INJECTION ***
+        const entityStrings = Object.entries(entityGroups).map(
+          ([type, values]) => `${type}: ${[...new Set(values)].join(', ')}`,
+        );
+
+        contextInfo += `\nRELEVANT CONTEXT FROM THIS CONVERSATION:\n${entityStrings.join('\n')}\n`;
+      }
+
+      if (contextWindow.summary) {
+        contextInfo += `\nCONVERSATION SUMMARY:\n${contextWindow.summary}\n`;
+      }
+
+      if (contextWindow.files.length > 0) {
+        const fileInfo = contextWindow.files.map((file) => {
+          if (file.fileType === 'uploaded') return 'Uploaded file';
+          if (file.fileType === 'knowledge_base')
+            return 'Knowledge base document';
+          if (file.fileType === 'artifact') return 'Generated artifact';
+          return 'Referenced file';
+        });
+        contextInfo += `\nREFERENCED FILES:\n${[...new Set(fileInfo)].join(', ')}\n`;
+      }
+
+      if (
+        clientConfig?.configJson &&
+        (clientConfig.configJson as any)?.gdrive_folder_id
+      ) {
+        contextInfo += `\nCLIENT GOOGLE DRIVE: Connected (folder ID: ${(clientConfig.configJson as any).gdrive_folder_id})\n`;
+      }
+
+      // Inject context into the system prompt
+      if (contextInfo.trim()) {
+        finalSystemPrompt = `${finalSystemPrompt}\n\n${contextInfo.trim()}`;
+        logger.info(
+          '[Brain API] Integrated context window information into system prompt',
+        );
+      }
+      // --- END CONTEXT INTEGRATION ---
 
       // For debugging, show a truncated version of the final prompt
       const truncatedPrompt =
@@ -2000,6 +2093,34 @@ ${extractedText}
 `;
       logger.info('[Brain API] Including fileContext in LLM prompt.');
       logger.info(`[Brain API] Extracted text length: ${extractedText.length}`);
+
+      // Store file reference in context management system
+      try {
+        logger.info(
+          '[Brain API] Storing file reference in context management...',
+        );
+        await contextManager.storeFileReference({
+          chatId: normalizedChatId,
+          userId: effectiveUserId,
+          messageId: userMessageToSave.id,
+          fileType: 'uploaded',
+          fileMetadata: {
+            filename: fileContext.filename,
+            contentType: fileContext.contentType,
+            url: fileContext.url,
+            extractedText: fileContext.extractedText,
+            processedAt: new Date().toISOString(),
+          },
+          clientId: effectiveClientId,
+        });
+        logger.info('[Brain API] File reference stored successfully');
+      } catch (fileRefError) {
+        logger.error(
+          '[Brain API] Failed to store file reference:',
+          fileRefError,
+        );
+        // Don't throw - file processing should continue even if reference storage fails
+      }
     }
 
     const attachmentContext = processAttachments(lastMessage);
@@ -2241,6 +2362,23 @@ ${extractedText}
                 logger.info(
                   `[Brain API] Successfully saved assistant message ${assistantMessageToSave.id}`,
                 );
+
+                // Start background entity extraction for the assistant message (non-blocking)
+                contextManager
+                  .extractEntities(
+                    assistantMessageToSave.id,
+                    fullResponse,
+                    normalizedChatId,
+                    effectiveUserId,
+                    effectiveClientId,
+                  )
+                  .catch((error) => {
+                    logger.error(
+                      '[Brain API] Background entity extraction for assistant message failed:',
+                      error,
+                    );
+                    // Don't throw - this is background processing
+                  });
               } catch (dbError: any) {
                 logger.error(
                   `[Brain API] FAILED to save assistant message:`,

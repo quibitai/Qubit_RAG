@@ -77,9 +77,9 @@ const config: Config = {
     },
   },
   plugins: [
-    require('tailwindcss-animate'), 
+    require('tailwindcss-animate'),
     require('@tailwindcss/typography'),
-    tailwindScrollbar
+    tailwindScrollbar,
   ],
 };
 export default config;

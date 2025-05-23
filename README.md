@@ -1,169 +1,299 @@
 # Quibit RAG
 
-A modular, enterprise-grade Retrieval-Augmented Generation (RAG) system with native file handling, Google Drive integration, and a modern Vercel-hosted chatbot interface.
+> A modular, enterprise-grade Retrieval-Augmented Generation (RAG) system with native file handling, Google Drive integration, and modern chatbot interface
 
-![Version](https://img.shields.io/badge/version-2.0.0-blue)
+**Status**: Stable  
+**Last Updated**: 2024-12-23  
+**Version**: 2.2.0
+
+![Version](https://img.shields.io/badge/version-2.2.0-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-15.3.0-black)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-green)
 ![LangChain](https://img.shields.io/badge/LangChain-0.3.24-yellow)
 
-## 🌟 Overview
+## Table of Contents
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Architecture](#architecture)
+- [Getting Started](#getting-started)
+- [File Processing](#file-processing)
+- [Development](#development)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
 
-Quibit RAG is a modular, multi-tenant AI assistant platform that combines modern language models with retrieval techniques and a robust tool registry. It is built on Next.js, LangChain, and Supabase, and is designed for extensibility, maintainability, and real-time streaming.
+## Overview
 
-- **Client-Aware Configuration:** Each client receives a unique, context-aware experience, with custom prompts, tool access, and specialist personas driven by database configuration.
-- **General Chat Specialist:** A dedicated, client-contextualized "General Chat" specialist provides a helpful, conversational AI experience for standard chat contexts.
-- **Modular Tool Registry:** Easily add, remove, or update tools for document search, file handling, calendar, web search, and more.
-- **Streaming Responses:** Real-time chat and document updates via SSE.
-- **Multi-Tenancy:** Client-aware context, permissions, and data isolation.
-- **Modern UI:** Responsive, real-time interface with file upload and document editing.
-- **Direct API Integrations:** Google Drive, Supabase, Tavily, Google Calendar (via n8n MCP), and more.
-- **Prompt System:** Modular, context-aware prompt composition for orchestrator and specialist personas.
+Quibit RAG is a modular, multi-tenant AI assistant platform that combines modern language models with retrieval techniques and a robust tool registry. Built on Next.js, LangChain, and Supabase, it's designed for extensibility, maintainability, and real-time streaming.
 
-## ✨ Key Features in v2.0.0
+### Core Capabilities
+- **Client-Aware Configuration**: Each client receives unique, context-aware experiences with custom prompts, tool access, and specialist personas
+- **Context Management**: Automatic entity extraction, conversation summarization, and long-term memory
+- **Modular Tool Registry**: Easily add, remove, or update tools for document search, file handling, calendar, web search, and more
+- **Real-time Streaming**: Server-Sent Events (SSE) for responsive chat and document updates
+- **Multi-tenancy**: Client-aware context, permissions, and data isolation
+- **Cross-Platform Integration**: Google Drive, Supabase, Tavily, Google Calendar, Asana, and more
 
-- **Client-Aware Configuration System:** Prompts, tool access, and specialist personas are dynamically tailored per client using a unified configuration schema. See [Prompt Architecture and Configuration Guide](./Prompt%20Architecture%20and%20Configuration%20Guide.md).
-- **General Chat Specialist:** The "General Chat" context now uses a dedicated, client-contextualized specialist prompt, not the Orchestrator prompt.
-- **Unified Specialist Registry:** All specialists (including General Chat) are registered and managed centrally, ensuring no duplicates in the UI.
-- **Comprehensive Test Suite:** New unit and integration tests validate prompt generation, tool configuration, and client context injection. See [tests/prompts/README.md](./tests/prompts/README.md).
-- **Stable, Clean Baseline:** This version is a stable, working baseline for further development (e.g., artifact streaming). Tag and revert to this version as needed.
+### System Components
+- **Brain Orchestrator**: Central LangChain agent for AI interactions
+- **Specialist Registry**: Contextual AI personas (General Chat, Echo Tango, custom specialists)
+- **Context Engine**: Advanced conversation memory and entity tracking
+- **Tool Framework**: Modular integrations with external services
+- **Document Editor**: Real-time collaborative document creation
+- **File Processing**: Intelligent extraction and analysis pipeline
 
-## 🏗️ Architecture
+## Key Features
 
-Quibit RAG follows a modular, streaming architecture:
+### Version 2.1.0 Features
+- **Comprehensive Context Management**: Advanced entity extraction, conversation summarization, and cross-chat context sharing
+- **Enhanced Tool Integration**: Improved reliability and client-specific configurations
+- **Background Processing**: Non-blocking entity extraction and context building
+- **Improved Documentation**: Comprehensive API documentation and style guides
 
-### Client Layer
-- Next.js front-end with React components
-- Real-time streaming UI (SSE)
-- File upload and document editor
+### Version 2.0.0 Foundation
+- **Client-Aware Configuration System**: Dynamic prompts and tool access per client using unified configuration schema
+- **General Chat Specialist**: Dedicated, client-contextualized specialist for standard chat contexts
+- **Unified Specialist Registry**: Centralized management of all specialists with no UI duplicates
+- **Comprehensive Test Suite**: Unit and integration tests for prompts, tools, and client context injection
 
-### API Layer
-- `/api/brain`: Central orchestration endpoint (LangChain agent, streaming)
-- `/api/files/upload`: File upload (Vercel Blob)
-- `/api/files/extract`: File extraction (n8n workflow)
-- Authentication via NextAuth
+## Architecture
 
-### Brain Orchestration
-- LangChain agent with dynamic toolset
-- Modular tool registry (`lib/ai/tools/`)
-- Prompt system with orchestrator and specialist personas
-- Streaming SSE responses
+Quibit RAG follows a modular, streaming architecture optimized for scalability and maintainability:
 
-### Data Layer
+### High-Level Data Flow
+
+```mermaid
+graph TD
+    A[Frontend] --> B[Brain API]
+    B --> C[LangChain Agent]
+    C --> D[Tool Registry]
+    C --> E[Context Manager]
+    B --> F[Database Layer]
+    G[File Upload] --> H[Processing Pipeline]
+    H --> I[Content Extraction]
+```
+
+### Key Components
+
+#### 🧠 **Brain API** (`/api/brain`)
+- Central orchestration endpoint using LangChain agents
+- Dynamic tool selection based on context and permissions
+- Real-time SSE streaming with structured data
+- Context-aware prompt composition
+
+#### 🔧 **Tool Registry** (`/lib/ai/tools/`)
+- Modular, self-contained tool implementations
+- Direct API integrations (Google Drive, Supabase, Tavily, etc.)
+- Client-specific configuration support
+- Unified error handling and logging
+
+#### 🎯 **Context Manager** (`/lib/context/`)
+- Automatic entity extraction (addresses, dates, names, etc.)
+- Conversation summarization for long chats
+- File reference tracking and metadata storage
+- Cross-chat context sharing
+
+#### 📊 **Data Layer**
 - PostgreSQL (Supabase) for structured and vector data
 - Vercel Blob for file storage
-- n8n for file extraction and some MCP integrations
+- Row-level security (RLS) for multi-tenancy
+- Real-time subscriptions
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
-- Node.js (v18+)
-- PostgreSQL database
-- Supabase account for vector storage
-- OpenAI API key
-- Google API credentials
-- n8n instance (optional, for file extraction/MCP)
+- **Node.js** (v18+)
+- **pnpm** (9.12.3) - Required package manager
+- **PostgreSQL** database (Supabase recommended)
+- **OpenAI API key**
+- **Google API credentials** (optional, for Drive integration)
 
-### Installation
+### Quick Installation
 
-1. Clone the repository:
+1. **Clone and install dependencies:**
 ```bash
 git clone https://github.com/quibitai/Quibit_RAG.git
 cd Quibit_RAG
-```
-
-2. Install dependencies:
-```bash
-npm install
-# or
 pnpm install
 ```
 
-3. Set up environment variables:
+2. **Environment configuration:**
 ```bash
 cp .env.example .env.local
 ```
 
-4. Configure essential environment variables in `.env.local`:
-```
+3. **Configure essential environment variables:**
+```env
+# Core Configuration
 OPENAI_API_KEY=your_openai_api_key
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_key
-POSTGRES_URL=your_postgres_connection_string
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=your_secure_secret
 
-# Optional n8n configuration (for file extraction/MCP)
+# Database
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_key
+POSTGRES_URL=your_postgres_connection_string
+
+# Optional Integrations
 N8N_EXTRACT_WEBHOOK_URL=your_n8n_webhook_url
 N8N_EXTRACT_AUTH_TOKEN=your_n8n_auth_token
+TAVILY_API_KEY=your_tavily_api_key
 ```
 
-5. Run database migrations:
+4. **Database setup:**
 ```bash
-npm run db:migrate
+pnpm db:migrate
 ```
 
-6. Start the development server:
+5. **Start development server:**
 ```bash
-npm run dev
+pnpm dev
 ```
 
-Access the application at http://localhost:3000
+Access the application at [http://localhost:3000](http://localhost:3000)
 
-## 📂 File Processing Capabilities
-
-- **Primary Extraction (n8n):** Uses n8n workflow for optimal extraction (text-based files)
-- **Direct Upload:** All files are uploaded to Vercel Blob
-- **Format-Specific Handling:** Microsoft Office, PDF, text, JSON, images, etc.
-
-## 🧩 Core Components
-
-- **Message Handling:** Type-safe, multi-layered sanitization, robust error handling
-- **Brain API:** Central orchestration, streaming, context-aware, multi-tenant
-- **Tool Integration:** Modular, direct API integrations, n8n for extraction/MCP only
-- **Prompt System:** Modular, context-aware, orchestrator and specialist personas
-- **Client-Aware Specialist Registry:** All specialists (including General Chat) are registered in a single registry, ensuring no duplicates in the UI or logic.
-
-## 🧪 Development & Testing
-
-- Run tests: `npm test` or see [tests/prompts/README.md](./tests/prompts/README.md)
-- Run migrations: `npm run db:migrate`
-- Generate migration: `npm run db:generate`
-
-## 🔄 Reverting to v2.0.0 (Stable Baseline)
-
-To revert to this clean, working version if you break things during artifact streaming or other experiments:
+### Docker Setup (Alternative)
 
 ```bash
-git checkout v2.0.0
+# Using Docker Compose
+docker-compose up -d
+
+# Using individual containers
+docker build -t quibit-rag .
+docker run -p 3000:3000 quibit-rag
 ```
 
-Or, if you want to create a new branch from this version:
+## File Processing
 
+### Supported Formats
+- **Documents**: PDF, DOCX, TXT, MD, JSON
+- **Spreadsheets**: XLSX, CSV
+- **Images**: PNG, JPG, GIF (with OCR)
+- **Code**: JS, TS, PY, and more
+
+### Processing Pipeline
+1. **Upload**: Files stored in Vercel Blob
+2. **Extraction**: n8n workflow for content extraction
+3. **Analysis**: LLM-powered content understanding
+4. **Storage**: Metadata and content stored in database
+5. **Context Integration**: Automatic reference tracking
+
+### Advanced Features
+- **Fallback Extraction**: LLM-based processing for unsupported formats
+- **Microsoft Office Support**: Native GPT-4 document processing
+- **Multi-modal Support**: Text, images, and structured data
+- **Version Tracking**: File update history and diff tracking
+
+## Development
+
+### Development Commands
 ```bash
-git checkout -b my-feature-base v2.0.0
+# Development
+pnpm dev              # Start development server with Turbo
+pnpm build           # Build for production
+pnpm start           # Start production server
+
+# Code Quality
+pnpm lint            # Run ESLint and Biome
+pnpm lint:fix        # Fix linting issues
+pnpm format          # Format code with Biome
+
+# Database
+pnpm db:generate     # Generate migrations
+pnpm db:migrate      # Run migrations
+pnpm db:studio       # Open Drizzle Studio
+
+# Testing
+pnpm test            # Run Playwright tests
 ```
 
-## 🤝 Contributing
+### Project Structure
+```
+├── app/                    # Next.js App Router
+│   ├── api/               # API routes
+│   │   ├── brain/         # Main AI endpoint
+│   │   └── files/         # File handling
+│   └── (auth)/            # Authentication
+├── lib/                   # Core libraries
+│   ├── ai/               # AI and tool logic
+│   ├── context/          # Context management
+│   ├── db/               # Database schema
+│   └── utils/            # Utilities
+├── components/           # React components
+├── docs/                # Documentation
+└── tests/              # Test suites
+```
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+### Code Standards
+- **File Size**: Maximum 200 lines per file for maintainability
+- **Documentation**: JSDoc comments for all public functions
+- **Testing**: Unit and integration tests required
+- **Type Safety**: Strict TypeScript configuration
+- **Code Style**: Biome for formatting and linting
 
-## 📄 License
+## Documentation
 
-MIT
+### Complete Documentation
+- **[API Reference](./docs/api/)** - Complete endpoint documentation
+- **[Architecture Guide](./ARCHITECTURE.md)** - System design and decisions
+- **[Prompt System](./Prompt%20Architecture%20and%20Configuration%20Guide.md)** - Configuration and customization
+- **[Development Guide](./docs/guides/)** - Setup and development workflow
+- **[Style Guide](./DOCUMENTATION_STYLE_GUIDE.md)** - Documentation standards
 
-## 📚 Documentation
+### Key Guides
+- **[Message Handling](./docs/MESSAGE_HANDLING.md)** - LangChain message processing
+- **[Context Management](./Notepad%20Name:%20Context%20Dev%20Plan)** - Advanced context features
+- **[Tool Development](./docs/guides/tool-development.md)** - Creating custom tools
+- **[Client Configuration](./README-config-json.md)** - Multi-tenant setup
+- **[Debugging](./docs/debugging.md)** - Troubleshooting and diagnostics
 
-- [Prompt Architecture & Configuration Guide](./Prompt%20Architecture%20and%20Configuration%20Guide.md)
-- [Architecture Overview](./ARCHITECTURE.md)
-- [Prompt System (legacy)](./docs/PROMPT_SYSTEM.md)
-- [Model Selection](./docs/MODEL_SELECTION.md)
-- [Bit & Persona Selection](./docs/Bit-Selection-Implementation.md)
-- [Message Handling](./docs/MESSAGE_HANDLING.md)
-- [Debugging](./docs/debugging.md)
-- [Document Editor Issues](./docs/document-editor-issues.md)
-- [N8N Workflows (legacy, for extraction/MCP)](./docs/N8N_WORKFLOWS.md)
+### Testing Documentation
+- **[Test Overview](./tests/prompts/README.md)** - Testing strategy and setup
+- **[E2E Testing](./docs/guides/e2e-testing.md)** - End-to-end test setup
+- **[Performance Testing](./docs/guides/performance.md)** - Load and performance testing
 
-## Document Editor Debugging
+## Contributing
 
-See `docs/debugging.md` and `docs/document-editor-issues.md` for details on debugging tools and procedures.
+We welcome contributions! Please read our guidelines:
+
+1. **[Contributing Guide](./CONTRIBUTING.md)** - Detailed contribution process
+2. **[Code of Conduct](./CODE_OF_CONDUCT.md)** - Community standards
+3. **[Development Guide](./docs/guides/development.md)** - Local setup and workflow
+4. **[Style Guide](./DOCUMENTATION_STYLE_GUIDE.md)** - Documentation standards
+
+### Quick Start for Contributors
+```bash
+# Fork and clone the repository
+git clone https://github.com/YOUR_USERNAME/Quibit_RAG.git
+cd Quibit_RAG
+
+# Create feature branch
+git checkout -b feature/amazing-feature
+
+# Install dependencies
+pnpm install
+
+# Make changes and test
+pnpm lint
+pnpm test
+
+# Commit and push
+git commit -m "Add amazing feature"
+git push origin feature/amazing-feature
+```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+
+## Support
+
+- **GitHub Issues**: [Report bugs and request features](https://github.com/quibitai/Quibit_RAG/issues)
+- **Documentation**: [Complete documentation portal](./docs/)
+- **Community**: [Discussions and support](https://github.com/quibitai/Quibit_RAG/discussions)
+
+---
+
+**Built with ❤️ by the Quibit Team**  
+**Last Updated**: 2024-12-23  
+**Version**: 2.2.0

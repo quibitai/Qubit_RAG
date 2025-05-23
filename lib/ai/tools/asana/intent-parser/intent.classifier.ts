@@ -20,14 +20,18 @@ const INTENT_PATTERNS = {
   ],
 
   [AsanaOperationType.UPDATE_TASK]: [
-    /(?:update|edit|modify|change).+(?:task|to-?do)/i,
+    /(?:update|edit|modify|change)\s+(?:(?:['"][^'"]+['"])|(?:.*?\b(?:task|to-?do)\b))/i,
     /(?:change|update|modify).+(?:description|notes|details|status).+(?:task|to-?do)/i,
   ],
 
   [AsanaOperationType.GET_TASK_DETAILS]: [
-    /(?:get|show|display|fetch).+(?:details|info|information).+(?:task|to-?do)/i,
-    /(?:details|info|information).+(?:about|for|on).+(?:task|to-?do)/i,
+    /(?:get|show|display|fetch|retrieve).+(?:details|info|information|data).+(?:task|to-?do)/i,
+    /(?:details|info|information|data).+(?:about|for|on|of).+(?:task|to-?do)/i,
     /what.+(?:details|info).+(?:task|to-?do)/i,
+    /(?:get|show|display|fetch|retrieve).+task.+gid\s*\d{16}/i,
+    /(?:get|show|display|fetch|retrieve).+task.+asana\.com\/0\/\d+\/(\d+)/i,
+    /task\s*\d{16}/i,
+    /task.+asana\.com\/0\/\d+\/(\d+)/i,
   ],
 
   [AsanaOperationType.LIST_TASKS]: [
@@ -37,8 +41,8 @@ const INTENT_PATTERNS = {
   ],
 
   [AsanaOperationType.COMPLETE_TASK]: [
-    /(?:complete|finish|mark.+done|mark.+complete|check.+off|close).+(?:task|to-?do)/i,
-    /(?:mark|set).+(?:task|to-?do).+(?:as|to).+(?:complete|done|finished)/i,
+    /(?:complete|finish|done|mark as complete|close).+(?:task|to-?do|item)/i,
+    /(?:task|to-?do|item).+(?:complete|finish|done)/i,
   ],
 
   // Project operations
@@ -55,6 +59,66 @@ const INTENT_PATTERNS = {
     /(?:list|show|display|get|fetch).+(?:projects)/i,
     /(?:what|which).+(?:projects)/i,
     /(?:find|search).+(?:projects)/i,
+  ],
+
+  // Search operations
+  [AsanaOperationType.SEARCH_ASANA]: [
+    /(?:search|find|look up|query).+(?:in|on|for).+(?:asana)/i,
+    /(?:search|find|look up|query)\s*["']([^"']+)["'](?:\s*(?:in|on|for)\s*asana)?/i, // search "query text" in asana
+    /asana\s*(?:search|find|look up|query)\s*["']([^"']+)["']/i, // asana search "query text"
+    /^(?:search|find|look up|query)\s+(?!task|project|user|team|portfolio|tag)/i, // General search if no specific object type is mentioned after search keyword
+  ],
+
+  // Task status operations (Epic 3.1)
+  [AsanaOperationType.MARK_TASK_INCOMPLETE]: [
+    /(?:reopen|uncheck|mark as incomplete|uncancel|undone).+(?:task|to-?do|item)/i,
+    /(?:task|to-?do|item).+(?:reopen|uncheck|incomplete)/i,
+  ],
+
+  // Follower operations (Epic 3.1)
+  [AsanaOperationType.ADD_FOLLOWER_TO_TASK]: [
+    /(?:add|assign|include).+(?:follower|watcher|subscriber|user|person).+(?:to|on).+(?:task|to-?do|item)/i,
+    /follow.+task/i,
+    /subscribe.+(?:to).+task/i,
+  ],
+  [AsanaOperationType.REMOVE_FOLLOWER_FROM_TASK]: [
+    /(?:remove|delete|unassign|take off).+(?:follower|watcher|subscriber|user|person).+(?:from).+(?:task|to-?do|item)/i,
+    /unfollow.+task/i,
+    /unsubscribe.+(?:from).+task/i,
+  ],
+
+  // Due Date operations (Epic 3.1)
+  [AsanaOperationType.SET_TASK_DUE_DATE]: [
+    /(?:set|change|update)\s+.*?\b(?:due date|deadline)\b.*?\s(?:to|for)\s+(?:(?:['"][^'"]+['"])|(?:.*?\b(?:task|to-?do)\b)).*?/i,
+    /(?:make|task|to-?do).+(?:due|deadline).+(?:on|by|at)/i,
+    /(?:due date|deadline).+(?:for).+(?:task|to-?do).+(?:is|to)/i,
+  ],
+
+  // Subtask operations (Epic 3.1)
+  [AsanaOperationType.ADD_SUBTASK]: [
+    /(?:add|create|make).+(?:sub-?task|child task|item under).+(?:to|for|under|on).+(?:task|item|parent)/i,
+    /(?:add|create|make).+(?:sub-?task|child task).+named.+for.+task/i,
+  ],
+
+  [AsanaOperationType.LIST_SUBTASKS]: [
+    /(?:list|show|get|fetch|display).+(?:sub-?tasks|child tasks|items under|sub-items).+(?:for|of|in|under).+(?:task|item|parent)/i,
+    /(?:what|which).+(?:sub-?tasks|child tasks|items under|sub-items).+(?:for|of|in|under).+(?:task|item|parent)/i,
+    /(?:sub-?tasks|child tasks|items under|sub-items).+(?:for|of|in|under).+task\s*[\'\"]([^\'\"]+)[\'\"]/i, // subtasks for task \'Parent Task Name\'
+    /(?:sub-?tasks|child tasks|items under|sub-items).+(?:for|of|in|under).+task\s*(\d{16,})/i, // subtasks for task 12345...
+  ],
+
+  [AsanaOperationType.ADD_TASK_DEPENDENCY]: [
+    /(?:make|set|add).+task\s*['"]?([^"']+)['"]?.+dependent\s+on.+task\s*['"]?([^"']+)['"]?/i, // make task A dependent on task B
+    /(?:make|set|add).+task\s*(\d{16,}).+dependent\s+on.+task\s*(\d{16,})/i, // make task GID1 dependent on task GID2
+    /(?:task\s*['"]?([^"']+)['"]?|task\s*(\d{16,})).+(?:depends on|is blocked by).+(?:task\s*['"]?([^"']+)['"]?|task\s*(\d{16,}))/i, // Task A depends on Task B
+    /(?:block|precede).+task\s*['"]?([^"']+)['"]?.+with.+task\s*['"]?([^"']+)['"]?/i, // block task B with task A (A blocks B)
+  ],
+
+  [AsanaOperationType.REMOVE_TASK_DEPENDENCY]: [
+    /(?:remove|clear|unset|delete).+dependency.+between.+task.+and.+task/i,
+    /(?:remove|clear|unset|delete).+dependency.+for.+task\s*['"]?([^"']+)['"]?.+from.+task\s*['"]?([^"']+)['"]?/i,
+    /(?:make|set).+task\s*['"]?([^"']+)['"]?.+no longer dependent on.+task\s*['"]?([^"']+)['"]?/i,
+    /(?:task\s*['"]?([^"']+)['"]?|task\s*(\d{16,})).+no longer depends on.+/i,
   ],
 };
 

@@ -9,6 +9,8 @@ import {
   primaryKey,
   foreignKey,
   boolean,
+  bigint,
+  index,
 } from 'drizzle-orm/pg-core';
 
 // New Clients table
@@ -151,3 +153,124 @@ export const suggestion = pgTable(
 );
 
 export type Suggestion = InferSelectModel<typeof suggestion>;
+
+// Context Management Tables
+
+export const conversationEntities = pgTable(
+  'conversation_entities',
+  {
+    id: uuid('id').primaryKey().notNull().defaultRandom(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chat.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    entityType: varchar('entity_type').notNull(),
+    entityValue: text('entity_value').notNull(),
+    messageId: uuid('message_id').references(() => message.id, {
+      onDelete: 'cascade',
+    }),
+    extractedAt: timestamp('extracted_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => clients.id),
+  },
+  (table) => ({
+    chatUserIdx: index('idx_conversation_entities_chat_user').on(
+      table.chatId,
+      table.userId,
+    ),
+    typeIdx: index('idx_conversation_entities_type').on(table.entityType),
+    clientIdx: index('idx_conversation_entities_client').on(table.clientId),
+  }),
+);
+
+export type ConversationEntity = InferSelectModel<typeof conversationEntities>;
+
+export const conversationSummaries = pgTable(
+  'conversation_summaries',
+  {
+    id: uuid('id').primaryKey().notNull().defaultRandom(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chat.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    summaryText: text('summary_text').notNull(),
+    messagesCoveredStart: timestamp('messages_covered_start', {
+      mode: 'date',
+      withTimezone: true,
+    }).notNull(),
+    messagesCoveredEnd: timestamp('messages_covered_end', {
+      mode: 'date',
+      withTimezone: true,
+    }).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => clients.id),
+  },
+  (table) => ({
+    chatUserIdx: index('idx_conversation_summaries_chat_user').on(
+      table.chatId,
+      table.userId,
+    ),
+    clientIdx: index('idx_conversation_summaries_client').on(table.clientId),
+  }),
+);
+
+export type ConversationSummary = InferSelectModel<
+  typeof conversationSummaries
+>;
+
+export const chatFileReferences = pgTable(
+  'chat_file_references',
+  {
+    id: uuid('id').primaryKey().notNull().defaultRandom(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chat.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    messageId: uuid('message_id').references(() => message.id, {
+      onDelete: 'cascade',
+    }),
+    fileType: varchar('file_type').notNull(),
+    fileMetadata: json('file_metadata'),
+    // For knowledge base files (document_metadata uses text id)
+    documentMetadataId: text('document_metadata_id'),
+    // For document chunks (documents table uses bigint id)
+    documentChunkId: bigint('document_chunk_id', { mode: 'number' }),
+    // For artifacts (Document table uses uuid + timestamp composite key)
+    artifactDocumentId: uuid('artifact_document_id'),
+    artifactDocumentCreatedAt: timestamp('artifact_document_created_at'),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => clients.id),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    chatUserIdx: index('idx_chat_file_references_chat_user').on(
+      table.chatId,
+      table.userId,
+    ),
+    typeIdx: index('idx_chat_file_references_type').on(table.fileType),
+    clientIdx: index('idx_chat_file_references_client').on(table.clientId),
+    // Foreign key for artifact references
+    artifactRef: foreignKey({
+      columns: [table.artifactDocumentId, table.artifactDocumentCreatedAt],
+      foreignColumns: [document.id, document.createdAt],
+    }),
+  }),
+);
+
+export type ChatFileReference = InferSelectModel<typeof chatFileReferences>;

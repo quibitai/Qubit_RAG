@@ -5,6 +5,71 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2024-12-23
+
+### Added
+- **Comprehensive Documentation Overhaul**
+  - Created `DOCUMENTATION_STYLE_GUIDE.md` with standardized formatting, structure, and maintenance procedures
+  - Added `DOCUMENTATION_AUDIT_REPORT.md` with systematic audit results and recommendations
+  - New `docs/` directory structure with organized sections (api, architecture, guides, configuration, planning, troubleshooting)
+  - Template system with `docs/templates/` for consistent documentation creation
+  - Comprehensive API documentation with detailed endpoint schemas and examples
+  
+- **Enhanced Documentation Structure**
+  - `docs/README.md` as central navigation hub with categorized links
+  - `docs/api/brain-endpoint.md` with complete API documentation including streaming protocols
+  - `docs/planning/` directory for strategic planning documents
+  - `docs/configuration-json-guide.md` for multi-tenant setup guidance
+  - `docs/prompt-architecture-guide.md` for system customization
+
+- **Project Organization Improvements**
+  - Archived legacy files and debug scripts to `archive/` directory
+  - Cleaned root directory of temporary files, duplicates, and system artifacts
+  - Proper file naming conventions and organized structure
+  - Enhanced project identity with consistent "Quibit RAG" branding
+
+- **Enhanced Context Management**
+  - New context management tables in database schema
+  - Advanced context-aware conversation handling
+  - Improved database migration system with proper versioning
+
+- **Asana Tool Enhancements**
+  - Enhanced entity extraction with better task and project identification
+  - Improved GID utility functions for Asana API integration
+  - Better error handling and response formatting
+  - Enhanced search capabilities for tasks and projects
+
+### Changed
+- **Documentation Standards**: All documentation now follows consistent formatting, cross-referencing, and maintenance standards
+- **File Organization**: Moved planning documents to proper directories with clean filenames
+- **Version Control**: Removed duplicate configuration files (kept TypeScript versions)
+- **Project Structure**: Eliminated 584KB+ of unnecessary files and debug artifacts
+- **Navigation**: Updated all internal documentation links to reflect new organization
+
+### Fixed
+- **Configuration Conflicts**: Removed duplicate `next.config.js` in favor of TypeScript version
+- **Documentation Links**: Fixed broken cross-references and updated navigation paths
+- **Project Identity**: Updated package name from "ai-chatbot" to "quibit-rag"
+- **File Cleanup**: Removed system files (`.DS_Store`), build cache (`tsconfig.tsbuildinfo`), and temporary files
+
+### Removed
+- Legacy debug scripts and temporary development files
+- Duplicate configuration files and backup files
+- Outdated documentation scattered in root directory
+- Empty log files and system artifacts
+- Test directories with outdated dependencies (18MB+ cleanup)
+
+### Documentation
+- **Quality Assurance**: Established documentation review processes and maintenance schedules
+- **Accessibility**: Improved navigation with clear categorization and quick links
+- **Completeness**: Added missing API documentation and configuration guides
+- **Consistency**: Standardized formatting across all documentation files
+
+### Infrastructure
+- **Build Optimization**: Cleaned build artifacts and improved development workflow
+- **Repository Health**: Improved git history with proper organization and cleanup
+- **Development Experience**: Enhanced project structure for easier navigation and maintenance
+
 ## [2.1.1] - 2024-03-27
 
 ### Added
