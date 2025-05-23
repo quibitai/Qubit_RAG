@@ -236,15 +236,15 @@ pnpm test            # Run Playwright tests
 ### Complete Documentation
 - **[API Reference](./docs/api/)** - Complete endpoint documentation
 - **[Architecture Guide](./ARCHITECTURE.md)** - System design and decisions
-- **[Prompt System](./Prompt%20Architecture%20and%20Configuration%20Guide.md)** - Configuration and customization
+- **[Prompt System](./docs/prompt-architecture-guide.md)** - Configuration and customization
 - **[Development Guide](./docs/guides/)** - Setup and development workflow
 - **[Style Guide](./DOCUMENTATION_STYLE_GUIDE.md)** - Documentation standards
 
 ### Key Guides
 - **[Message Handling](./docs/MESSAGE_HANDLING.md)** - LangChain message processing
-- **[Context Management](./Notepad%20Name:%20Context%20Dev%20Plan)** - Advanced context features
+- **[Context Management](./docs/planning/context-management-plan.md)** - Advanced context features
 - **[Tool Development](./docs/guides/tool-development.md)** - Creating custom tools
-- **[Client Configuration](./README-config-json.md)** - Multi-tenant setup
+- **[Client Configuration](./docs/configuration-json-guide.md)** - Multi-tenant setup
 - **[Debugging](./docs/debugging.md)** - Troubleshooting and diagnostics
 
 ### Testing Documentation
