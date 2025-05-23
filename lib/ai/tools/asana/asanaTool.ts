@@ -161,6 +161,7 @@ export class AsanaTool extends Tool {
             confirmationNeeded,
             confirmedProjectName,
             confirmedAssigneeName,
+            dueDate,
           } = createTaskIntent;
           const workspaceGid = getWorkspaceGid();
           const { requestId } = requestContext;
@@ -168,8 +169,48 @@ export class AsanaTool extends Tool {
           if (!workspaceGid) {
             return `Error: Default Asana workspace is not configured. Please configure ASANA_DEFAULT_WORKSPACE_GID. (Request ID: ${requestId})`;
           }
-          if (!taskName) {
-            return `Error: Task name is required. (Request ID: ${requestId})`;
+
+          // Smart context handling for confirmations
+          const isConfirmation =
+            /^(?:yes|yep|yeah|confirm|confirmed|ok|okay|sure|proceed|go ahead|do it)[.,!]*$/i.test(
+              actionDescription.trim(),
+            );
+          const isProjectSelection =
+            /^\d{16,}$/.test(actionDescription.trim()) ||
+            actionDescription.toLowerCase().includes('echo tango');
+
+          // For confirmations, try to use context from original request
+          let resolvedTaskName = taskName;
+          let resolvedTaskNotes = taskNotes;
+          let resolvedDueDate = dueDate;
+
+          if (isConfirmation && !taskName) {
+            // Look for task details in the original actionDescription
+            const originalTaskMatch = actionDescription.match(
+              /task\s+(?:called|named)?\s*['"]([^'"]+)['"]/i,
+            );
+            if (originalTaskMatch) {
+              resolvedTaskName = originalTaskMatch[1];
+            }
+
+            const originalNotesMatch = actionDescription.match(
+              /(?:note|notes|description)\s*(?:that says?|:)?\s*['"]([^'"]+)['"]/i,
+            );
+            if (originalNotesMatch) {
+              resolvedTaskNotes = originalNotesMatch[1];
+            }
+
+            // Extract due date from original context
+            const originalDueDateMatch = actionDescription.match(
+              /(?:due|deadline)\s+(?:date\s+)?(?:is\s+|for\s+|on\s+)?(tomorrow|today|next\s+\w+)/i,
+            );
+            if (originalDueDateMatch) {
+              resolvedDueDate = originalDueDateMatch[1];
+            }
+          }
+
+          if (!resolvedTaskName) {
+            return `Error: Task name is required. Please specify a task name to create. (Request ID: ${requestId})`;
           }
 
           let projectGid: string | undefined | 'ambiguous' = undefined;
@@ -179,32 +220,48 @@ export class AsanaTool extends Tool {
           let resolvedAssigneeName =
             confirmedAssigneeName || initialAssigneeName;
 
-          // 1. Resolve Project
+          // 1. Enhanced Project Resolution
           if (resolvedProjectName) {
-            projectGid = await findProjectGidByName(
+            // Get all projects first for smart matching
+            const projects = await listProjects(
               this.client,
-              resolvedProjectName,
               workspaceGid,
+              false,
               requestId,
             );
-            if (projectGid === 'ambiguous') {
-              const projects = await listProjects(
+
+            // Try exact match first (case-insensitive)
+            const exactMatch = projects.find(
+              (p) => p.name.toLowerCase() === resolvedProjectName.toLowerCase(),
+            );
+
+            if (exactMatch) {
+              projectGid = exactMatch.gid;
+              console.log(
+                `[AsanaTool] [${requestId}] Found exact project match: "${exactMatch.name}" (${exactMatch.gid})`,
+              );
+            } else {
+              // Fallback to fuzzy matching
+              projectGid = await findProjectGidByName(
                 this.client,
+                resolvedProjectName,
                 workspaceGid,
-                false,
                 requestId,
               );
-              const projectOptions = projects.filter((p) =>
-                p.name
-                  .toLowerCase()
-                  .includes(resolvedProjectName.toLowerCase()),
-              );
-              return `Multiple projects match "${resolvedProjectName}". Please specify which project to use by name or GID:\n${formatProjectList(projectOptions.length > 0 ? projectOptions : projects, {}, requestContext)}\n(Original request: create task "${taskName}")`;
+
+              if (projectGid === 'ambiguous') {
+                const projectOptions = projects.filter((p) =>
+                  p.name
+                    .toLowerCase()
+                    .includes(resolvedProjectName.toLowerCase()),
+                );
+                return `Which project should task "${resolvedTaskName}" be created in?\nFound ${projects.length} project(s):\n${formatProjectList(projectOptions.length > 0 ? projectOptions : projects, {}, requestContext)}\n(Request ID: ${requestId})\nReply with project name/GID.`;
+              }
+              if (!projectGid) {
+                return `Project "${resolvedProjectName}" not found. Do you want to create it, or try a different project name? (Request ID: ${requestId})`;
+              }
             }
-            if (!projectGid) {
-              return `Project "${resolvedProjectName}" not found. Do you want to create it, or try a different project name? (Request ID: ${requestId})`;
-            }
-          } else if (!confirmationNeeded) {
+          } else if (!confirmationNeeded && !isConfirmation) {
             const projects = await listProjects(
               this.client,
               workspaceGid,
@@ -214,7 +271,7 @@ export class AsanaTool extends Tool {
             if (!projects || projects.length === 0) {
               return `No projects found. Please create a project first. (Request ID: ${requestId})`;
             }
-            return `Which project should task "${taskName}" be created in?\n${formatProjectList(projects, {}, requestContext)}\nReply with project name/GID.`;
+            return `Which project should task "${resolvedTaskName}" be created in?\nFound ${projects.length} project(s):\n${formatProjectList(projects, {}, requestContext)}\n(Request ID: ${requestId})\nReply with project name/GID.`;
           }
 
           // 2. Resolve Assignee
@@ -248,16 +305,17 @@ export class AsanaTool extends Tool {
             }
           }
 
-          // 3. Final Confirmation if all details are resolved and not explicitly skipped
+          // 3. Skip final confirmation for confirmations and direct project matches
           if (
             !confirmationNeeded &&
+            !isConfirmation &&
             projectGid &&
             projectGid !== 'ambiguous' &&
             (resolvedAssigneeName
               ? assigneeGid && assigneeGid !== 'ambiguous'
               : true)
           ) {
-            let confirmationMessage = `Ready to create task "${taskName}"`;
+            let confirmationMessage = `Ready to create task "${resolvedTaskName}"`;
             if (
               resolvedProjectName &&
               projectGid &&
@@ -278,8 +336,8 @@ export class AsanaTool extends Tool {
               action: AsanaOperationType.CREATE_TASK,
               confirmationRequired: true,
               details: {
-                taskName,
-                taskNotes,
+                taskName: resolvedTaskName,
+                taskNotes: resolvedTaskNotes,
                 projectName: resolvedProjectName,
                 assigneeName: resolvedAssigneeName,
                 projectGid,
@@ -300,16 +358,33 @@ export class AsanaTool extends Tool {
           }
 
           const createTaskParams: CreateTaskParams = {
-            name: taskName,
+            name: resolvedTaskName,
             workspace: workspaceGid,
             projects:
               projectGid && typeof projectGid === 'string'
                 ? [projectGid]
                 : undefined,
           };
-          if (taskNotes) createTaskParams.notes = taskNotes;
+          if (resolvedTaskNotes) createTaskParams.notes = resolvedTaskNotes;
           if (assigneeGid && typeof assigneeGid === 'string')
             createTaskParams.assignee = assigneeGid;
+
+          // Process due date if provided
+          if (resolvedDueDate) {
+            const parsedDate = parseDateTime(resolvedDueDate);
+            if (parsedDate.success && parsedDate.date) {
+              // Format date as YYYY-MM-DD for Asana API
+              const formattedDate = parsedDate.date.toISOString().split('T')[0];
+              createTaskParams.due_on = formattedDate;
+              console.log(
+                `[AsanaTool] [${requestId}] Parsed due date "${resolvedDueDate}" as ${formattedDate}`,
+              );
+            } else {
+              console.warn(
+                `[AsanaTool] [${requestId}] Could not parse due date: "${resolvedDueDate}"`,
+              );
+            }
+          }
 
           const taskData = await createTask(
             this.client,

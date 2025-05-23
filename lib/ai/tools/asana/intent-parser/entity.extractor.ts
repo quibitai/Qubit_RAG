@@ -26,6 +26,37 @@ export function extractTaskParameters(input: string): {
 } {
   if (!input) return {};
 
+  // Check if this is a simple confirmation or project selection response
+  const isSimpleConfirmation =
+    /^(?:yes|yep|yeah|confirm|confirmed|ok|okay|sure|proceed|go ahead|do it)[.,!]*$/i.test(
+      input.trim(),
+    );
+  const isSimpleProjectSelection =
+    /^\d{16,}$/.test(input.trim()) ||
+    input.toLowerCase().trim() === 'echo tango';
+
+  // For simple confirmations/selections, don't extract new parameters
+  // The calling code should handle context preservation
+  if (isSimpleConfirmation || isSimpleProjectSelection) {
+    const result: any = {};
+
+    // Only extract project name if it's clearly mentioned
+    if (input.toLowerCase().includes('echo tango')) {
+      result.projectName = 'Echo Tango';
+    }
+
+    // Only extract assignment if explicitly mentioned
+    if (
+      input.toLowerCase().includes('assign') &&
+      input.toLowerCase().includes('me')
+    ) {
+      result.assigneeName = 'me';
+    }
+
+    return result;
+  }
+
+  // For full task creation requests, extract all parameters
   const { taskName, projectName } = extractNamesFromInput(input);
 
   // Extract task notes/description
@@ -44,20 +75,25 @@ export function extractTaskParameters(input: string): {
     ) ||
     input.match(
       /(?:due|due date|deadline)\s+(?:by|on|at)\s+(today|tomorrow|next week|next month)/i,
+    ) ||
+    input.match(
+      /(?:make|set)\s+(?:the\s+)?(?:due\s+date|deadline)\s+(?:to\s+)?(today|tomorrow|next\s+\w+)/i,
     );
   const dueDate = dueDateMatch?.[1];
 
-  // Extract assignee
-  // Prioritize matching "me" directly
+  // Extract assignee with improved "me" detection
   let assigneeName: string | undefined;
-  const meAssigneeMatch = input.match(
-    /(?:assign(?:ed)?|allocate|give|for)\s+(?:it to|to)?\s*me\b/i,
-  );
+  const meAssigneeMatch =
+    input.match(
+      /(?:assign(?:ed)?(?:\s+it)?|allocate|give|for)\s+(?:it\s+)?to\s+me\b/i,
+    ) ||
+    input.match(/(?:assign(?:ed)?)\s+(?:to\s+)?me\b/i) ||
+    input.match(/(?:for|to)\s+me\b/i);
 
   if (meAssigneeMatch) {
     assigneeName = 'me';
   } else {
-    // If not "me", try to match a quoted name or a more specific unquoted name
+    // Check for other assignee patterns
     const specificAssigneeMatch =
       input.match(
         /(?:assign(?:ed)?|allocate|give|for)\s+(?:to|it to)\s+['"]([^'"]+)['"]/i,
@@ -66,12 +102,25 @@ export function extractTaskParameters(input: string): {
         /(?:assigned to|assignee is|assignee:)\s*['"]([^'"]+)['"]/i,
       ) ||
       // Match unquoted names but try to avoid single common words that might not be names.
-      // This regex can be further refined if needed.
       input.match(
         /(?:assign(?:ed)?|allocate|give|for)\s+(?:to|it to)\s+([A-Za-z](?:[A-Za-z\s]*[A-Za-z])?)/i,
       );
     if (specificAssigneeMatch?.[1]) {
-      assigneeName = specificAssigneeMatch[1].trim();
+      const candidateName = specificAssigneeMatch[1].trim();
+      // Don't capture generic terms that aren't names
+      if (
+        ![
+          'the',
+          'this',
+          'that',
+          'user',
+          'person',
+          'someone',
+          'requesting',
+        ].includes(candidateName.toLowerCase())
+      ) {
+        assigneeName = candidateName;
+      }
     }
   }
 

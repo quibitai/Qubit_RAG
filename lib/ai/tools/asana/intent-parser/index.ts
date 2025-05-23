@@ -43,6 +43,62 @@ export function parseIntent(input: string): ParsedIntent {
       const { taskName, taskNotes, projectName, dueDate, assigneeName } =
         entityExtractor.extractTaskParameters(input);
 
+      // Check if this is a confirmation or context response
+      const isConfirmation =
+        /^(?:yes|yep|yeah|confirm|confirmed|ok|okay|sure|proceed|go ahead|do it)[.,!]*$/i.test(
+          input.trim(),
+        );
+      const isProjectSelection =
+        input.toLowerCase().trim().startsWith('echo tango') ||
+        /^\d{16,}$/.test(input.trim()) ||
+        input.toLowerCase().includes('project:');
+      const isAssignmentResponse =
+        input.toLowerCase().includes('assign') &&
+        input.toLowerCase().includes('me');
+
+      // If it's a confirmation or selection, we can proceed with less validation
+      if (isConfirmation || isProjectSelection || isAssignmentResponse) {
+        let resolvedProjectName = projectName;
+        let resolvedAssigneeName = assigneeName;
+        let resolvedDueDate = dueDate;
+
+        // For project selection responses
+        if (isProjectSelection && !projectName) {
+          if (input.toLowerCase().trim().startsWith('echo tango')) {
+            resolvedProjectName = 'Echo Tango';
+          }
+        }
+
+        // For assignment responses
+        if (isAssignmentResponse && !assigneeName) {
+          resolvedAssigneeName = 'me';
+        }
+
+        // Try to extract due date if mentioned in context responses
+        if (!dueDate) {
+          const dueDateMatch = input.match(
+            /(?:due|deadline)\s+(?:is\s+|on\s+)?(?:tomorrow|today|next\s+\w+)/i,
+          );
+          if (dueDateMatch) {
+            resolvedDueDate = dueDateMatch[0];
+          }
+        }
+
+        return {
+          operationType,
+          requestContext,
+          rawInput: input,
+          taskName: taskName,
+          taskNotes: taskNotes,
+          projectName: resolvedProjectName,
+          dueDate: resolvedDueDate,
+          assigneeName: resolvedAssigneeName,
+          confirmationNeeded: false,
+          confirmedProjectName: resolvedProjectName,
+          confirmedAssigneeName: resolvedAssigneeName,
+        };
+      }
+
       if (!taskName) {
         return {
           operationType: AsanaOperationType.UNKNOWN,

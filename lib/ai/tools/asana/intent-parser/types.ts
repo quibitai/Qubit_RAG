@@ -79,11 +79,15 @@ export interface ParsedUserMeIntent extends ParsedIntentBase {
  */
 export interface ParsedCreateTaskIntent extends ParsedIntentBase {
   operationType: AsanaOperationType.CREATE_TASK;
-  taskName: string;
+  taskName?: string;
   taskNotes?: string;
   projectName?: string;
   dueDate?: string;
   assigneeName?: string;
+  // Confirmation and context handling
+  confirmationNeeded?: boolean;
+  confirmedProjectName?: string;
+  confirmedAssigneeName?: string;
 }
 
 /**

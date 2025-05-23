@@ -4,6 +4,78 @@
 
 import { AsanaOperationType } from './types';
 
+/**
+ * Check if the input is a confirmation response
+ */
+function isConfirmationResponse(input: string): boolean {
+  const confirmationPatterns = [
+    /^(?:yes|yep|yeah|confirm|confirmed|ok|okay|sure|proceed|go ahead|do it)$/i,
+    /^(?:yes|yep|yeah|confirm|confirmed|ok|okay|sure|proceed|go ahead|do it)[.,!]*$/i,
+  ];
+
+  return confirmationPatterns.some((pattern) => pattern.test(input.trim()));
+}
+
+/**
+ * Check if the input is selecting a project by name or GID
+ */
+function isProjectSelectionResponse(input: string): boolean {
+  const lowerInput = input.toLowerCase().trim();
+
+  // Check for project GID (16+ digit number)
+  if (/^\d{16,}$/.test(input.trim())) {
+    return true;
+  }
+
+  // Check for explicit project selection patterns
+  if (
+    lowerInput.startsWith('echo tango') ||
+    lowerInput === 'echo tango' ||
+    lowerInput.includes('project:') ||
+    lowerInput.includes('use project') ||
+    lowerInput.includes('select project')
+  ) {
+    return true;
+  }
+
+  // Check if input matches a numbered option from a project list (e.g., "3", "option 3")
+  if (/^(?:option\s+)?\d+$/i.test(lowerInput)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Check if the input is about assignment ("assign it to me", etc.)
+ */
+function isAssignmentResponse(input: string): boolean {
+  const lowerInput = input.toLowerCase().trim();
+
+  return (
+    lowerInput.includes('assign it to me') ||
+    lowerInput.includes('assign to me') ||
+    lowerInput === 'assign it to me' ||
+    lowerInput === 'assign to me' ||
+    lowerInput === 'me'
+  );
+}
+
+/**
+ * Check if input contains specific project identification
+ */
+function containsSpecificProject(input: string): boolean {
+  const lowerInput = input.toLowerCase();
+
+  // Look for quoted project names or specific project identifiers
+  return (
+    /['"]([^'"]+)['"]/.test(input) ||
+    /echo\s+tango/i.test(input) ||
+    /project\s*[:=]\s*(\w+)/i.test(input) ||
+    /^\d{16,}$/.test(input.trim())
+  );
+}
+
 // Regex patterns for matching different intents
 const INTENT_PATTERNS = {
   // User info patterns
@@ -149,6 +221,22 @@ export function classifyIntent(input: string): AsanaOperationType {
   }
 
   const lowerInput = input.toLowerCase();
+
+  // Handle confirmations and context-aware responses first
+  if (isConfirmationResponse(input)) {
+    // This is a confirmation - assume it's continuing the previous CREATE_TASK operation
+    return AsanaOperationType.CREATE_TASK;
+  }
+
+  // Handle project selection responses (GID, project name, or numbered options)
+  if (isProjectSelectionResponse(input)) {
+    return AsanaOperationType.CREATE_TASK;
+  }
+
+  // Handle assignment responses
+  if (isAssignmentResponse(input)) {
+    return AsanaOperationType.CREATE_TASK;
+  }
 
   // Check for each intent pattern
   for (const [operationType, patterns] of Object.entries(INTENT_PATTERNS)) {
