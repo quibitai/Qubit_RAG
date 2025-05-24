@@ -65,6 +65,8 @@ System design and technical decisions:
 - **[System Architecture](../ARCHITECTURE.md)** - High-level system design
 - **[Database Schema](./architecture/database-schema.md)** - Data model and relationships
 - **[Context Management](./architecture/context-management.md)** - Advanced context features
+- **[Conversation Summaries](../CONVERSATION_SUMMARIES_IMPLEMENTATION.md)** - LLM-powered summarization system
+- **[Conversational Memory](../CONVERSATIONAL_MEMORY_IMPLEMENTATION.md)** - Vector-based memory and retrieval
 - **[Tool Framework](./architecture/tool-framework.md)** - Tool system design
 - **[Security Model](./architecture/security.md)** - Authentication and authorization
 
@@ -117,6 +119,7 @@ Strategic planning and future development:
 Upgrade guides for major version changes:
 
 - **[Version 2.3.0 Migration Guide](./MIGRATION_GUIDE_v2.3.0.md)** - Upgrading to v2.3.0 with modular Asana and Google Calendar tools
+- **[Cascade Delete Implementation](../CASCADE_DELETE_IMPLEMENTATION.md)** - Database cleanup and conversation summaries
 - **[v1 to v2 Migration](./migration/v1-to-v2.md)** - Upgrading from v1.x
 - **[Context System Migration](./migration/context-system.md)** - Upgrading context features
 - **[Tool Architecture Migration](./migration/tool-architecture.md)** - Tool system changes

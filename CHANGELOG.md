@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.3.0] - 2024-12-23
 
 ### Added
+- **Conversation Summaries System**
+  - Automatic LLM-powered conversation summarization every 20 conversational turns
+  - GPT-4o-mini integration for intelligent, cost-effective summaries
+  - Graceful fallback to basic summaries when LLM unavailable
+  - Integration with existing context management for seamless RAG enhancement
+  - Background processing to avoid blocking chat responses
+  - Cascade delete functionality for conversation-related database tables
+
+- **Enhanced Conversational Memory**
+  - Vector-based conversational memory storage and retrieval
+  - Semantic similarity search for relevant past conversation context
+  - Smart integration with existing RAG pipeline for improved long-term memory
+  - Automatic triggering based on conversation length and context relevance
+
+- **Database Schema Enhancements**
+  - New `conversation_summaries` table with proper indexing and foreign keys
+  - Enhanced `conversational_memory` table with vector embeddings
+  - Comprehensive cascade delete functionality across all conversation-related tables
+  - Migration scripts for seamless database updates
+
+- **Comprehensive Testing & Documentation**
+  - Test scripts for conversation summary functionality verification
+  - Detailed implementation documentation for conversation summaries
+  - Migration guides and troubleshooting documentation
+  - Performance monitoring and logging guidance
+
 - **Modular Asana Integration Complete Rebuild**
   - New modular architecture with separate modules for intent parsing, API client, formatters, and utilities
   - Comprehensive intent classification system with natural language processing

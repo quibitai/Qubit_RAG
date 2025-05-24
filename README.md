@@ -28,7 +28,7 @@ Quibit RAG is a modular, multi-tenant AI assistant platform that combines modern
 
 ### Core Capabilities
 - **Client-Aware Configuration**: Each client receives unique, context-aware experiences with custom prompts, tool access, and specialist personas
-- **Context Management**: Automatic entity extraction, conversation summarization, and long-term memory
+- **Advanced Context Management**: Automatic entity extraction, conversation summarization, conversational memory, and long-term context retention
 - **Modular Tool Registry**: Easily add, remove, or update tools for document search, file handling, calendar, web search, and more
 - **Real-time Streaming**: Server-Sent Events (SSE) for responsive chat and document updates
 - **Multi-tenancy**: Client-aware context, permissions, and data isolation
@@ -37,7 +37,7 @@ Quibit RAG is a modular, multi-tenant AI assistant platform that combines modern
 ### System Components
 - **Brain Orchestrator**: Central LangChain agent for AI interactions
 - **Specialist Registry**: Contextual AI personas (General Chat, Echo Tango, custom specialists)
-- **Context Engine**: Advanced conversation memory and entity tracking
+- **Context Engine**: Advanced conversation memory, entity tracking, and intelligent summarization
 - **Tool Framework**: Modular integrations with external services
 - **Document Editor**: Real-time collaborative document creation
 - **File Processing**: Intelligent extraction and analysis pipeline
@@ -47,6 +47,7 @@ Quibit RAG is a modular, multi-tenant AI assistant platform that combines modern
 ### Version 2.3.0 Features (Latest)
 - **Modular Asana Integration**: Complete rebuild of Asana tool with modular architecture, intent parsing, and comprehensive API coverage
 - **Google Calendar Tool**: Dedicated Google Calendar integration (renamed from n8n MCP Gateway) for focused calendar management
+- **Conversation Summaries System**: Automatic LLM-powered conversation summarization with long-term context retention
 - **Enhanced Tool Architecture**: Improved modularity, error handling, and type safety across all tools
 - **Comprehensive Documentation**: Updated documentation for all tools and architectural improvements
 
@@ -100,9 +101,11 @@ graph TD
 
 #### 🎯 **Context Manager** (`/lib/context/`)
 - Automatic entity extraction (addresses, dates, names, etc.)
-- Conversation summarization for long chats
+- Intelligent conversation summarization using GPT-4o-mini
+- Conversational memory with vector-based retrieval  
 - File reference tracking and metadata storage
 - Cross-chat context sharing
+- Background processing for optimal performance
 
 #### 📊 **Data Layer**
 - PostgreSQL (Supabase) for structured and vector data

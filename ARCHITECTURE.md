@@ -3,7 +3,7 @@
 > Comprehensive overview of the Quibit RAG system architecture, design decisions, and component interactions
 
 **Status**: Stable  
-**Last Updated**: 2024-12-20  
+**Last Updated**: 2024-12-23  
 **Maintainer**: Quibit Development Team
 
 ## Table of Contents
@@ -120,14 +120,16 @@ graph TB
 - `queryDocumentRows`: Structured data queries
 
 ### 3. Context Manager (`/lib/context/`)
-**Purpose**: Advanced conversation memory and entity tracking
+**Purpose**: Advanced conversation memory, entity tracking, and intelligent summarization
 
 **Features**:
 - Automatic entity extraction (addresses, dates, names)
-- Conversation summarization for long chats
+- LLM-powered conversation summarization using GPT-4o-mini
+- Vector-based conversational memory storage and retrieval
 - File reference tracking and metadata storage
 - Cross-chat context sharing
-- Background processing for performance
+- Background processing for performance optimization
+- Cascade delete functionality for data consistency
 
 ### 4. Prompt System (`/lib/ai/prompts/`)
 **Purpose**: Dynamic, client-aware prompt composition
@@ -310,5 +312,5 @@ sequenceDiagram
 - [Message Handling](./docs/MESSAGE_HANDLING.md)
 - [API Documentation](./docs/api/)
 
-**Last Updated**: 2024-12-20  
+**Last Updated**: 2024-12-23  
 **Maintained by**: Quibit Development Team 
