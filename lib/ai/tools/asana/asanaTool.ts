@@ -60,6 +60,7 @@ import {
 import { typeaheadSearch } from './api-client/operations/search';
 import { parseDateTime } from './utils/dateTimeParser';
 import { extractNamesFromInput } from './utils/gidUtils';
+import { taskContextManager } from './context/taskContext';
 
 // Import formatters for response formatting
 import {
@@ -654,6 +655,18 @@ export class AsanaTool extends Tool {
                 createTaskParams,
                 requestId,
               );
+
+              // Add task to context memory for future operations (like subtasks)
+              const sessionId = taskContextManager.getSessionId(requestId);
+              taskContextManager.addTaskContext(
+                sessionId,
+                taskData.gid,
+                taskData.name,
+                'CREATE',
+                resolvedProjectGid,
+                resolvedProjectName,
+              );
+
               return formatTaskCreation(
                 taskData,
                 {
@@ -822,6 +835,17 @@ Confirm to create this task, or provide corrections. (Request ID: ${requestId})`
             requestContext.requestId,
           );
 
+          // Add updated task to context memory
+          const sessionId = taskContextManager.getSessionId(
+            requestContext.requestId,
+          );
+          taskContextManager.addTaskContext(
+            sessionId,
+            updatedTask.gid,
+            updatedTask.name,
+            'UPDATE',
+          );
+
           return formatTaskUpdate(updatedTask, updatePayload, requestContext);
         }
 
@@ -868,6 +892,20 @@ Confirm to create this task, or provide corrections. (Request ID: ${requestId})`
             undefined,
             requestContext.requestId,
           );
+
+          // Add viewed task to context memory
+          const sessionId = taskContextManager.getSessionId(
+            requestContext.requestId,
+          );
+          taskContextManager.addTaskContext(
+            sessionId,
+            taskData.gid,
+            taskData.name,
+            'VIEW',
+            taskData.projects?.[0]?.gid,
+            taskData.projects?.[0]?.name,
+          );
+
           return formatTaskDetails(taskData, requestContext);
         }
 
@@ -1387,13 +1425,33 @@ ${projectData.permalink_url ? `Permalink: ${projectData.permalink_url}` : ''}
           }
 
           // Resolve input parameters with conversation context if needed
-          const resolvedParentTaskGid = parentGidFromInput;
-          const resolvedParentTaskName = parentTaskName;
-          const resolvedParentProjectName = parentProjectName;
+          let resolvedParentTaskGid = parentGidFromInput;
+          let resolvedParentTaskName = parentTaskName;
+          let resolvedParentProjectName = parentProjectName;
           let resolvedParentProjectGid: string | undefined;
 
-          // If we have a project name, resolve it to a GID for task lookup
-          if (resolvedParentProjectName) {
+          // If no parent task info provided, try to infer from conversation context
+          if (!resolvedParentTaskGid && !resolvedParentTaskName) {
+            const sessionId = taskContextManager.getSessionId(
+              requestContext.requestId,
+            );
+            const recentTask = taskContextManager.getMostRecentTask(sessionId);
+
+            if (recentTask) {
+              console.log(
+                `[AsanaTool] [${requestContext.requestId}] No parent task specified, using recent task from context: "${recentTask.taskName}" (${recentTask.taskGid})`,
+              );
+              resolvedParentTaskGid = recentTask.taskGid;
+              resolvedParentTaskName = recentTask.taskName;
+              resolvedParentProjectName = recentTask.projectName;
+              resolvedParentProjectGid = recentTask.projectGid;
+            } else {
+              return `Error: Could not identify the parent task for the subtask. Please specify:\n- The parent task name (e.g., "add subtask to task 'test5'")\n- Or create a task first, then add subtasks to it\n(Request ID: ${requestContext.requestId})`;
+            }
+          }
+
+          // If we have a project name but no GID, resolve it to a GID for task lookup
+          if (resolvedParentProjectName && !resolvedParentProjectGid) {
             try {
               const projectLookupResult = await findProjectGidByName(
                 this.client,
@@ -1414,13 +1472,6 @@ ${projectData.permalink_url ? `Permalink: ${projectData.permalink_url}` : ''}
             } catch (error) {
               return `Error: Failed to resolve project "${resolvedParentProjectName}": ${error} (Request ID: ${requestContext.requestId})`;
             }
-          }
-
-          // If no parent task info provided, try to infer from conversation context
-          if (!resolvedParentTaskGid && !resolvedParentTaskName) {
-            // This would be enhanced with conversation memory lookup
-            // For now, provide a helpful error message
-            return `Error: Could not identify the parent task for the subtask. Please specify:\n- The parent task name (e.g., "add subtask to task 'test5'")\n- Or provide more context about which task should be the parent\n(Request ID: ${requestContext.requestId})`;
           }
 
           let actualParentTaskGid = resolvedParentTaskGid;
@@ -1514,10 +1565,25 @@ ${projectData.permalink_url ? `Permalink: ${projectData.permalink_url}` : ''}
             requestContext.requestId,
           );
 
+          // Add subtask to context memory as well
+          const sessionId = taskContextManager.getSessionId(
+            requestContext.requestId,
+          );
+          taskContextManager.addTaskContext(
+            sessionId,
+            createdSubtask.gid,
+            createdSubtask.name,
+            'CREATE',
+            resolvedParentProjectGid,
+            resolvedParentProjectName,
+          );
+
           // Format the response with subtask-specific information
           let responseMessage = `Successfully created subtask: [${createdSubtask.name}](${createdSubtask.permalink_url}) (GID: ${createdSubtask.gid})\n`;
           responseMessage += `- Parent task: ${resolvedParentTaskName || actualParentTaskGid}\n`;
-          responseMessage += `- Project: ${resolvedParentProjectName}\n`;
+          if (resolvedParentProjectName) {
+            responseMessage += `- Project: ${resolvedParentProjectName}\n`;
+          }
           if (resolvedAssigneeName) {
             responseMessage += `- Assignee: ${resolvedAssigneeName}\n`;
           }
@@ -1527,7 +1593,9 @@ ${projectData.permalink_url ? `Permalink: ${projectData.permalink_url}` : ''}
           if (dueDate && subtaskParams.due_on) {
             responseMessage += `- Due on: ${subtaskParams.due_on}\n`;
           }
-          responseMessage += `\n📋 Note: Task visibility inherits from project "${resolvedParentProjectName}" settings.\n`;
+          if (resolvedParentProjectName) {
+            responseMessage += `\n📋 Note: Task visibility inherits from project "${resolvedParentProjectName}" settings.\n`;
+          }
           responseMessage += `(Request ID: ${requestContext.requestId})`;
 
           return responseMessage;

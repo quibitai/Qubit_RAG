@@ -341,6 +341,8 @@ export function parseIntent(input: string): ParsedIntent {
         };
       }
 
+      // If no parent task is specified, we'll still return ADD_SUBTASK
+      // The main tool will handle context resolution
       return {
         operationType,
         requestContext,

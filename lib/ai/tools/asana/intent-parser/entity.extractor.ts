@@ -704,7 +704,7 @@ export function extractSubtaskCreationDetails(input: string): {
   let parentProjectName: string | undefined;
   let notes: string | undefined;
 
-  // NEW PATTERN: Handle "add a subtask to [task] in [project] for [assignee] called [name]"
+  // PATTERN 1: "add a subtask to [task] in [project] for [assignee] called [name]"
   const complexSubtaskMatch = input.match(
     /add\s+(?:a\s+)?subtask\s+to\s*["']([^"']+)["']\s+in\s+(?:the\s+)?([A-Za-z0-9\s_-]+)\s+project\s+for\s+([^"']+?)\s+called\s*["']([^"']+)["']/i,
   );
@@ -726,7 +726,7 @@ export function extractSubtaskCreationDetails(input: string): {
     }
   }
 
-  // Enhanced pattern for "add a subtask for [assignee] called [name]"
+  // PATTERN 2: "add a subtask for [assignee] called [name]" (no parent task specified - needs context)
   const subtaskForAssigneeMatch = input.match(
     /add\s+(?:a\s+)?subtask\s+for\s+([^"']+?)\s+called\s*["']([^"']+)["']/i,
   );
@@ -746,7 +746,7 @@ export function extractSubtaskCreationDetails(input: string): {
     }
   }
 
-  // Enhanced pattern for "add a subtask called [name] to the task [parent] in the [project] project"
+  // PATTERN 3: "add a subtask called [name] to the task [parent] in the [project] project"
   if (!subtaskName) {
     const subtaskToTaskMatch = input.match(
       /add\s+(?:a\s+)?subtask\s+called\s*["']([^"']+)["']\s+to\s+(?:the\s+)?task\s*["']([^"']+)["']\s+in\s+the\s+([A-Za-z0-9\s_-]+)\s+project/i,
@@ -759,23 +759,53 @@ export function extractSubtaskCreationDetails(input: string): {
     }
   }
 
-  // Pattern for "add a subtask called [name] to [parent]"
+  // PATTERN 4: "add a subtask to the task [parent] in [project] called [name], assign it to [assignee]"
   if (!subtaskName) {
-    const subtaskCalledMatch = input.match(
-      /add\s+(?:a\s+)?subtask\s+called\s*["']([^"']+)["']\s+to\s+(?:the\s+)?(?:task\s+)?["']?([^"']+?)["']?(?:\s+in\s+|\s*$)/i,
+    const subtaskToTaskAssignMatch = input.match(
+      /add\s+(?:a\s+)?subtask\s+to\s+(?:the\s+)?task\s*["']([^"']+)["'].*in\s+(?:the\s+)?["']?([^"']+?)["']?\s+project.*called\s*["']([^"']+)["'].*assign.*to\s+([^,]+)/i,
     );
 
-    if (subtaskCalledMatch) {
-      subtaskName = subtaskCalledMatch[1];
-      const potentialParent = subtaskCalledMatch[2].trim();
+    if (subtaskToTaskAssignMatch) {
+      parentTaskName = subtaskToTaskAssignMatch[1];
+      parentProjectName = subtaskToTaskAssignMatch[2].trim();
+      subtaskName = subtaskToTaskAssignMatch[3];
+      assigneeName = subtaskToTaskAssignMatch[4].trim();
+    }
+  }
 
-      // Don't use common words as parent names
-      if (
-        !['task', 'parent', 'item', 'the'].includes(
-          potentialParent.toLowerCase(),
-        )
-      ) {
-        parentTaskName = potentialParent;
+  // PATTERN 5: "add a subtask called [name]" (minimal format - needs context for parent task)
+  if (!subtaskName) {
+    const minimalSubtaskMatch = input.match(
+      /add\s+(?:a\s+)?subtask\s+called\s*["']([^"']+)["']/i,
+    );
+
+    if (minimalSubtaskMatch) {
+      subtaskName = minimalSubtaskMatch[1];
+    }
+  }
+
+  // PATTERN 6: Handle quoted strings generally to extract subtask name as fallback
+  if (!subtaskName) {
+    const quotedStrings = input.match(/["']([^"']+)["']/g);
+    if (quotedStrings && quotedStrings.length > 0) {
+      // Look for context clues to identify which quoted string is the subtask name
+      for (const quotedString of quotedStrings) {
+        const content = quotedString.slice(1, -1);
+        // If we see patterns like "called", "named", "subtask", assume this is the subtask name
+        const beforeQuote = input.substring(0, input.indexOf(quotedString));
+        if (
+          beforeQuote.match(
+            /(?:called|named|subtask.*called|create.*subtask)\s*$/i,
+          )
+        ) {
+          subtaskName = content;
+          break;
+        }
+      }
+
+      // If still no subtask name found, use the last quoted string as a reasonable fallback
+      if (!subtaskName && quotedStrings.length > 0) {
+        subtaskName = quotedStrings[quotedStrings.length - 1].slice(1, -1);
       }
     }
   }
@@ -868,7 +898,7 @@ export function extractSubtaskCreationDetails(input: string): {
     }
   }
 
-  // Extract notes/description - NEW FUNCTIONALITY
+  // Extract notes/description - ENHANCED PATTERNS
   if (!notes) {
     const notesMatch =
       input.match(
