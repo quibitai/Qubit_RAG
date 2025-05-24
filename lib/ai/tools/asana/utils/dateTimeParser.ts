@@ -240,8 +240,53 @@ export function parseRelativeDateTime(
 ): ParsedDateTime {
   const reference = referenceDate || new Date();
 
-  // Handle special relative expressions that chrono might miss
+  // Handle common relative date expressions
+  const tomorrow = new Date(referenceDate || new Date());
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  const today = new Date(referenceDate || new Date());
+
   const relativePatterns = [
+    {
+      pattern: /^tomorrow$/i,
+      date: tomorrow,
+      confidence: 'high' as const,
+    },
+    {
+      pattern: /^today$/i,
+      date: today,
+      confidence: 'high' as const,
+    },
+    {
+      pattern: /^due\s+tomorrow$/i,
+      date: tomorrow,
+      confidence: 'high' as const,
+    },
+    {
+      pattern: /^make\s+the\s+due\s+date\s+tomorrow$/i,
+      date: tomorrow,
+      confidence: 'high' as const,
+    },
+  ];
+
+  for (const { pattern, date, confidence } of relativePatterns) {
+    if (pattern.test(expression)) {
+      return {
+        success: true,
+        date,
+        hasTime: false,
+        originalExpression: expression,
+        formattedForAsana: {
+          due_on: date.toISOString().split('T')[0], // YYYY-MM-DD format
+        },
+        userFriendlyFormat: formatForUser(date, false),
+        confidence,
+      };
+    }
+  }
+
+  // Handle special relative expressions that chrono might miss
+  const relativePatternsChrono = [
     {
       pattern: /^end of (this )?week$/i,
       handler: () => getEndOfWeek(reference),
@@ -260,7 +305,7 @@ export function parseRelativeDateTime(
     },
   ];
 
-  for (const { pattern, handler } of relativePatterns) {
+  for (const { pattern, handler } of relativePatternsChrono) {
     if (pattern.test(expression)) {
       const date = handler();
       return {

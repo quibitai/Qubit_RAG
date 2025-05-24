@@ -71,6 +71,13 @@
       "when": 1747066815575,
       "tag": "0009_sweet_morgan_stark",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1748123449547,
+      "tag": "0010_green_spirit",
+      "breakpoints": true
     }
   ]
 }

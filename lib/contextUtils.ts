@@ -1,4 +1,9 @@
-import { HumanMessage, AIMessage } from '@langchain/core/messages';
+import {
+  HumanMessage,
+  AIMessage,
+  SystemMessage,
+  type BaseMessage,
+} from '@langchain/core/messages';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 
@@ -20,6 +25,21 @@ export interface ChatHistoryOptions {
   detectRepeatedQueries?: boolean;
   /** Tags to include when detecting repeated queries */
   repeatedQueryTags?: string[];
+  /** Maximum number of conversational memory snippets to retrieve and include */
+  maxConversationalSnippetsToKeep?: number;
+  /** Maximum number of recent raw messages to keep when combining with conversational memory */
+  maxRecentMessagesToKeep?: number;
+}
+
+/**
+ * Represents a snippet retrieved from conversational memory.
+ */
+export interface ConversationalMemorySnippet {
+  id?: string | number; // ID from the database
+  content: string;
+  source_type: 'turn' | 'summary';
+  created_at?: string | Date | DateTime; // Timestamp from DB
+  similarity?: number; // Similarity score from vector search
 }
 
 /**
@@ -55,6 +75,8 @@ const DEFAULT_OPTIONS: ChatHistoryOptions = {
     'asana',
     'task',
   ],
+  maxConversationalSnippetsToKeep: 3,
+  maxRecentMessagesToKeep: 5,
 };
 
 /**
@@ -99,22 +121,61 @@ function calculateSimilarity(a: string, b: string): number {
 }
 
 /**
+ * Format conversational memory snippets as SystemMessage objects for LLM context
+ * @param snippets Array of conversational memory snippets
+ * @param maxToInclude Maximum number of snippets to include
+ * @returns Array of SystemMessage objects
+ */
+function formatConversationalMemoryAsMessages(
+  snippets: ConversationalMemorySnippet[],
+  maxToInclude: number,
+): SystemMessage[] {
+  if (!snippets || snippets.length === 0) {
+    return [];
+  }
+
+  // Take the top snippets (they should already be sorted by relevance/similarity)
+  const selectedSnippets = snippets.slice(0, maxToInclude);
+
+  return selectedSnippets.map((snippet) => {
+    const prefix =
+      snippet.source_type === 'summary'
+        ? '[Summary of past conversation]'
+        : '[From past conversation turn]';
+
+    return new SystemMessage({
+      content: `${prefix}: ${snippet.content}`,
+    });
+  });
+}
+
+/**
  * Process chat history to optimize for context and relevance
  * @param messages Array of chat messages
  * @param userQuery Current user query
+ * @param retrievedConversationalMemory Array of retrieved conversational memory snippets
  * @param options Configuration options
  * @returns Optimized array of messages
  */
 export function processHistory(
   messages: (HumanMessage | AIMessage)[],
   userQuery: string,
+  retrievedConversationalMemory: ConversationalMemorySnippet[] = [],
   options: Partial<ChatHistoryOptions> = {},
-): (HumanMessage | AIMessage)[] {
+): (HumanMessage | AIMessage | SystemMessage)[] {
   // Merge options with defaults
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
   // Skip processing if there are no messages or very few
   if (!messages || messages.length <= 1) {
+    // Still include conversational memory even if no recent messages
+    if (retrievedConversationalMemory.length > 0) {
+      const memoryMessages = formatConversationalMemoryAsMessages(
+        retrievedConversationalMemory,
+        opts.maxConversationalSnippetsToKeep || 3,
+      );
+      return [...memoryMessages, ...(messages || [])];
+    }
     return messages || [];
   }
 
@@ -221,13 +282,34 @@ export function processHistory(
     }
   }
 
-  // Limit to maximum number of messages
-  if (opts.maxMessages && filtered.length > opts.maxMessages) {
-    filtered = filtered.slice(-opts.maxMessages);
-  }
+  // Prepare conversational memory messages
+  const memoryMessages = formatConversationalMemoryAsMessages(
+    retrievedConversationalMemory,
+    opts.maxConversationalSnippetsToKeep || 3,
+  );
 
-  // Pull out the message objects
-  const result = filtered.map((item) => item.message);
+  // Take a slice of the most recent messages, ensuring we don't exceed limits
+  const maxRecentToKeep = opts.maxRecentMessagesToKeep || 5;
+  const recentMessages = filtered.slice(-maxRecentToKeep);
+
+  // Combine memory messages with recent messages
+  let combinedHistory: (HumanMessage | AIMessage | SystemMessage)[] = [
+    ...memoryMessages,
+    ...recentMessages.map((item) => item.message),
+  ];
+
+  // Apply overall maxMessages limit if specified, but prioritize memory and recent messages
+  if (opts.maxMessages && combinedHistory.length > opts.maxMessages) {
+    // Keep all memory messages and as many recent messages as possible
+    const memoryCount = memoryMessages.length;
+    const remainingSlots = Math.max(0, opts.maxMessages - memoryCount);
+    const recentToKeep = recentMessages.slice(-remainingSlots);
+
+    combinedHistory = [
+      ...memoryMessages,
+      ...recentToKeep.map((item) => item.message),
+    ];
+  }
 
   // If we detected repeated queries, add a marker for the current query
   if (opts.includeRequestMarker) {
@@ -236,10 +318,10 @@ export function processHistory(
     const marker = new AIMessage({
       content: `[SYSTEM NOTE: The following user message is a NEW REQUEST made at ${now.toLocaleString(DateTime.DATETIME_FULL)}. Process it as a completely new query regardless of any similar previous queries.]`,
     });
-    result.push(marker);
+    combinedHistory.push(marker);
   }
 
-  return result;
+  return combinedHistory;
 }
 
 /**
@@ -277,4 +359,6 @@ export const ChatHistoryOptionsSchema = z.object({
   includeRequestMarker: z.boolean().optional().default(true),
   detectRepeatedQueries: z.boolean().optional().default(true),
   repeatedQueryTags: z.array(z.string()).optional(),
+  maxConversationalSnippetsToKeep: z.number().positive().optional().default(3),
+  maxRecentMessagesToKeep: z.number().positive().optional().default(5),
 });

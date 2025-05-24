@@ -5,6 +5,38 @@
 import type { AsanaApiClient } from '../client';
 
 /**
+ * Parameters for creating a project
+ */
+export interface CreateProjectParams {
+  /** Project name (required) */
+  name: string;
+  /** Workspace GID (required) */
+  workspace: string;
+  /** Team GID (required for organizations) */
+  team?: string;
+  /** Project description/notes (optional) */
+  notes?: string;
+  /** Project color (optional) */
+  color?: string;
+  /** Project owner GID (optional) */
+  owner?: string;
+  /**
+   * Privacy setting for the project (optional)
+   * Defaults to 'public_to_workspace' to ensure public visibility
+   */
+  privacy_setting?: 'public_to_workspace' | 'private_to_team' | 'private';
+  /**
+   * Deprecated public flag (optional)
+   * Defaults to true for backward compatibility
+   */
+  public?: boolean;
+  /** Due date for the project in YYYY-MM-DD format (optional) */
+  due_on?: string;
+  /** Start date for the project in YYYY-MM-DD format (optional) */
+  start_on?: string;
+}
+
+/**
  * Simplified type representing a project response from Asana API
  */
 export interface ProjectResponseData {
@@ -38,7 +70,7 @@ export interface ProjectResponseData {
 export async function listProjects(
   apiClient: AsanaApiClient,
   workspaceGid: string,
-  archived: boolean = false,
+  archived = false,
   requestId?: string,
 ): Promise<ProjectResponseData[]> {
   // Validate required parameters
@@ -161,6 +193,146 @@ export async function findProjectGidByName(
   } catch (error) {
     console.error(
       `[ProjectOperations] Error finding project by name: ${error}`,
+    );
+    throw error;
+  }
+}
+
+/**
+ * Create a new project in Asana with public visibility by default
+ *
+ * @param apiClient Asana API client
+ * @param params Project creation parameters
+ * @param requestId Request ID for tracking
+ * @returns Created project data
+ */
+export async function createProject(
+  apiClient: AsanaApiClient,
+  params: CreateProjectParams,
+  requestId?: string,
+): Promise<ProjectResponseData> {
+  // Validate required parameters
+  if (!params.name) {
+    throw new Error('Project name is required');
+  }
+
+  if (!params.workspace) {
+    throw new Error('Workspace GID is required');
+  }
+
+  // Prepare project data with public visibility defaults
+  const projectData: Record<string, any> = {
+    name: params.name,
+    workspace: params.workspace,
+    // Default to public visibility
+    privacy_setting: params.privacy_setting || 'public_to_workspace',
+    public: params.public !== undefined ? params.public : true,
+  };
+
+  // Add optional parameters
+  if (params.team) projectData.team = params.team;
+  if (params.notes) projectData.notes = params.notes;
+  if (params.color) projectData.color = params.color;
+  if (params.owner) projectData.owner = params.owner;
+  if (params.due_on) projectData.due_on = params.due_on;
+  if (params.start_on) projectData.start_on = params.start_on;
+
+  // Default fields to include in the response
+  const opt_fields = [
+    'name',
+    'gid',
+    'permalink_url',
+    'team.name',
+    'privacy_setting',
+    'public',
+    'notes',
+    'color',
+    'due_on',
+    'start_on',
+  ];
+
+  // Create the project
+  try {
+    console.log(
+      `[ProjectOperations] [${requestId || 'no-id'}] Creating project "${params.name}" with public visibility (privacy_setting: ${projectData.privacy_setting}, public: ${projectData.public})`,
+    );
+
+    return await apiClient.createResource<ProjectResponseData>(
+      'projects',
+      projectData,
+      requestId,
+    );
+  } catch (error) {
+    console.error(`[ProjectOperations] Error creating project: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * Verify if a project is set to public visibility
+ *
+ * @param apiClient Asana API client
+ * @param projectGid Project GID to check
+ * @param requestId Request ID for tracking
+ * @returns Object indicating if project is public and details
+ */
+export async function verifyProjectVisibility(
+  apiClient: AsanaApiClient,
+  projectGid: string,
+  requestId?: string,
+): Promise<{
+  isPublic: boolean;
+  privacySetting?: string;
+  publicFlag?: boolean;
+  details: string;
+}> {
+  if (!projectGid) {
+    throw new Error('Project GID is required to verify visibility');
+  }
+
+  try {
+    console.log(
+      `[ProjectOperations] [${requestId || 'no-id'}] Verifying visibility for project ${projectGid}`,
+    );
+
+    const projectData = await apiClient.request<any>(
+      `projects/${projectGid}`,
+      'GET',
+      undefined,
+      { opt_fields: 'privacy_setting,public,name' },
+      requestId,
+    );
+
+    const privacySetting = projectData.privacy_setting;
+    const publicFlag = projectData.public;
+
+    // Determine if project is public based on available fields
+    let isPublic = false;
+    let details = '';
+
+    if (privacySetting) {
+      isPublic = privacySetting === 'public_to_workspace';
+      details = `Privacy setting: ${privacySetting}`;
+    } else if (publicFlag !== undefined) {
+      isPublic = publicFlag;
+      details = `Public flag: ${publicFlag}`;
+    } else {
+      details = 'Unable to determine privacy settings';
+    }
+
+    console.log(
+      `[ProjectOperations] [${requestId || 'no-id'}] Project "${projectData.name}" visibility check: ${details}, isPublic: ${isPublic}`,
+    );
+
+    return {
+      isPublic,
+      privacySetting,
+      publicFlag,
+      details,
+    };
+  } catch (error) {
+    console.error(
+      `[ProjectOperations] Error verifying project visibility: ${error}`,
     );
     throw error;
   }

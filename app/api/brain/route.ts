@@ -24,8 +24,16 @@ import { documentHandlersByArtifactKind } from '@/lib/artifacts/server';
 // Import tools and utilities
 // import { orchestratorPrompt, getSpecialistPromptById } from '@/lib/ai/prompts'; // Unused
 import { loadPrompt } from '@/lib/ai/prompts/loader';
-import { processHistory } from '@/lib/contextUtils';
+import {
+  processHistory,
+  type ConversationalMemorySnippet,
+} from '@/lib/contextUtils';
 import { EnhancedAgentExecutor } from '@/lib/ai/executors/EnhancedAgentExecutor';
+import {
+  retrieveConversationalMemory,
+  storeConversationalMemory,
+  getConversationalMemoryCount,
+} from '@/lib/conversationalMemory';
 
 // State variables to track between requests/handler invocations
 // These fix "Cannot find name" TypeScript errors
@@ -1927,6 +1935,26 @@ export async function POST(req: NextRequest) {
       // Using directly lastMessage.content for consistency (available in this scope)
       const userQueryText = lastMessage.content || '';
 
+      // NEW: Retrieve conversational memory snippets before processing history
+      let conversationalMemorySnippets: ConversationalMemorySnippet[] = [];
+      try {
+        conversationalMemorySnippets = await retrieveConversationalMemory(
+          normalizedChatId,
+          userQueryText,
+          3, // Retrieve top 3 relevant snippets
+        );
+        logger.info(
+          `[Brain API] Retrieved ${conversationalMemorySnippets.length} conversational memory snippets`,
+        );
+      } catch (memoryError) {
+        logger.error(
+          '[Brain API] Error retrieving conversational memory:',
+          memoryError,
+        );
+        // Continue without memory if retrieval fails
+        conversationalMemorySnippets = [];
+      }
+
       // Configure history processing based on context
       const historyOptions = {
         maxMessages: 10, // Limiting to 10 messages for most contexts
@@ -1943,15 +1971,16 @@ export async function POST(req: NextRequest) {
         ],
       };
 
-      // Apply smart history processing
+      // Apply smart history processing with conversational memory
       formattedHistory = processHistory(
         formattedHistory,
         userQueryText,
+        conversationalMemorySnippets,
         historyOptions,
       );
 
       logger.info(
-        `[Brain API] Processed chat history with smart filtering - message count: ${formattedHistory.length}`,
+        `[Brain API] Processed chat history with smart filtering and conversational memory - message count: ${formattedHistory.length}`,
       );
     } catch (formatError) {
       logger.error(
@@ -2362,6 +2391,74 @@ ${extractedText}
                 logger.info(
                   `[Brain API] Successfully saved assistant message ${assistantMessageToSave.id}`,
                 );
+
+                // NEW: Store conversational memory
+                try {
+                  logger.info('[Brain API] Storing conversational memory...');
+                  const memoryStored = await storeConversationalMemory(
+                    normalizedChatId,
+                    userMessageContent, // The original user message
+                    fullResponse, // The AI's response
+                    'turn', // This is a conversational turn
+                  );
+
+                  if (memoryStored) {
+                    logger.info(
+                      `[Brain API] Successfully stored conversational memory for chat ${normalizedChatId}`,
+                    );
+
+                    // NEW: Check if we should create a conversation summary
+                    try {
+                      const memoryCount = await getConversationalMemoryCount(
+                        normalizedChatId,
+                        'turn',
+                      );
+
+                      // Create summary every 10 exchanges (20 turns - user + AI)
+                      // and when no recent summary exists
+                      if (memoryCount > 0 && memoryCount % 20 === 0) {
+                        logger.info(
+                          `[Brain API] Triggering summary creation for chat ${normalizedChatId} (${memoryCount} turns stored)`,
+                        );
+
+                        // Run summary creation in background (non-blocking)
+                        contextManager
+                          .updateSummary(
+                            normalizedChatId,
+                            effectiveUserId,
+                            effectiveClientId,
+                          )
+                          .then(() => {
+                            logger.info(
+                              `[Brain API] Successfully created summary for chat ${normalizedChatId}`,
+                            );
+                          })
+                          .catch((summaryError) => {
+                            logger.error(
+                              `[Brain API] Background summary creation failed for chat ${normalizedChatId}:`,
+                              summaryError,
+                            );
+                          });
+                      }
+                    } catch (summaryTriggerError) {
+                      logger.error(
+                        '[Brain API] Error checking summary trigger conditions:',
+                        summaryTriggerError,
+                      );
+                      // Don't throw - this shouldn't break the main flow
+                    }
+                  } else {
+                    logger.warn(
+                      `[Brain API] Failed to store conversational memory for chat ${normalizedChatId}`,
+                    );
+                  }
+                } catch (memoryError) {
+                  logger.error(
+                    '[Brain API] Error storing conversational memory:',
+                    memoryError,
+                  );
+                  // Don't throw - memory storage failure shouldn't break the response
+                }
 
                 // Start background entity extraction for the assistant message (non-blocking)
                 contextManager

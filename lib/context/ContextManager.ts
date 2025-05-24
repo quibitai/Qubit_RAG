@@ -281,15 +281,110 @@ export class ContextManager {
   }
 
   /**
-   * Generate a summary of messages
-   * TODO: Replace with LLM-based summarization
+   * Generate a summary of messages using LLM
    */
   private async generateSummary(messages: DBMessage[]): Promise<string> {
-    // Simple summary for now - just extract key points
+    try {
+      // Use ChatOpenAI from langchain (already available in the project)
+      const { ChatOpenAI } = await import('@langchain/openai');
+
+      if (!process.env.OPENAI_API_KEY) {
+        console.warn(
+          '[ContextManager] OpenAI API key not available, using basic summary',
+        );
+        return this.generateBasicSummary(messages);
+      }
+
+      const llm = new ChatOpenAI({
+        modelName: 'gpt-4o-mini', // Use cost-effective model for summaries
+        temperature: 0.3, // Lower temperature for consistent summaries
+        maxTokens: 500,
+        openAIApiKey: process.env.OPENAI_API_KEY,
+      });
+
+      // Format messages for summarization
+      const conversation = messages
+        .reverse() // Reverse to chronological order (oldest first)
+        .map((msg) => {
+          const content = Array.isArray(msg.parts)
+            ? msg.parts
+                .map((part) =>
+                  typeof part === 'string'
+                    ? part
+                    : part.text || JSON.stringify(part),
+                )
+                .join(' ')
+            : typeof msg.parts === 'string'
+              ? msg.parts
+              : JSON.stringify(msg.parts);
+
+          return `${msg.role.charAt(0).toUpperCase() + msg.role.slice(1)}: ${content}`;
+        })
+        .join('\n\n');
+
+      const prompt = `Please create a concise summary of this conversation that captures:
+1. Main topics discussed
+2. Key decisions or conclusions reached  
+3. Important details mentioned (names, dates, addresses, etc.)
+4. Any action items or next steps
+5. Overall context and purpose of the conversation
+
+Conversation (${messages.length} messages):
+${conversation}
+
+Summary:`;
+
+      const response = await llm.invoke(prompt);
+      const summary = response.content?.toString()?.trim();
+
+      if (!summary) {
+        console.warn(
+          '[ContextManager] LLM returned empty summary, using basic summary',
+        );
+        return this.generateBasicSummary(messages);
+      }
+
+      console.log(
+        `[ContextManager] Generated LLM summary (${summary.length} chars) for ${messages.length} messages`,
+      );
+      return summary;
+    } catch (error) {
+      console.error('[ContextManager] Error generating LLM summary:', error);
+      console.log('[ContextManager] Falling back to basic summary');
+      return this.generateBasicSummary(messages);
+    }
+  }
+
+  /**
+   * Generate a basic summary as fallback when LLM is unavailable
+   */
+  private generateBasicSummary(messages: DBMessage[]): string {
     const userMessages = messages.filter((m) => m.role === 'user');
     const assistantMessages = messages.filter((m) => m.role === 'assistant');
 
-    return `Conversation summary (${messages.length} messages): User asked ${userMessages.length} questions. Assistant provided ${assistantMessages.length} responses. Key topics discussed based on message content.`;
+    const timeSpan =
+      messages.length > 0
+        ? {
+            start: new Date(
+              Math.min(...messages.map((m) => m.createdAt.getTime())),
+            ),
+            end: new Date(
+              Math.max(...messages.map((m) => m.createdAt.getTime())),
+            ),
+          }
+        : null;
+
+    let summary = `Conversation summary: ${messages.length} total messages (${userMessages.length} user, ${assistantMessages.length} assistant)`;
+
+    if (timeSpan) {
+      const duration = timeSpan.end.getTime() - timeSpan.start.getTime();
+      const hours = Math.round((duration / (1000 * 60 * 60)) * 10) / 10;
+      summary += `. Duration: ${hours} hours from ${timeSpan.start.toLocaleDateString()} to ${timeSpan.end.toLocaleDateString()}`;
+    }
+
+    summary += '. Topics discussed based on message content analysis.';
+
+    return summary;
   }
 
   /**

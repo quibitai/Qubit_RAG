@@ -43,7 +43,13 @@ export function formatTaskCreation(
     return `Error: No task data received. (Request ID: ${requestContext.requestId})`;
   }
 
-  let message = `Successfully created Asana task: "${taskData.name}" (GID: ${taskData.gid})\n`;
+  // Create task name as a link if permalink_url is available
+  let taskDisplay = `"${taskData.name}"`;
+  if (taskData.permalink_url) {
+    taskDisplay = `[${taskData.name}](${taskData.permalink_url})`;
+  }
+
+  let message = `Successfully created Asana task: ${taskDisplay} (GID: ${taskData.gid})\n`;
 
   // Use resolved project name from creationContext if available, otherwise from taskData
   const projectNameToShow =
@@ -68,9 +74,13 @@ export function formatTaskCreation(
   }
   // Add due_at if you plan to support time for due dates during creation
 
-  if (taskData.permalink_url) {
-    message += `View at: ${taskData.permalink_url}\n`;
+  // Add visibility note
+  if (projectNameToShow) {
+    message += `\n📋 Note: Task visibility inherits from project "${projectNameToShow}" settings.\n`;
+  } else {
+    message += `\n⚠️ Note: Task created without a project - may default to private visibility.\n`;
   }
+
   message += `(Request ID: ${requestContext.requestId})`;
   return message;
 }
@@ -109,8 +119,13 @@ export function formatTaskUpdate(
     })
     .join(', ');
 
-  return `Successfully updated ${updatedFieldsStr} for task "${taskData.name}" (GID: ${taskData.gid})
-${taskData.permalink_url ? `View task at: ${taskData.permalink_url}` : ''}
+  // Create task name as a link if permalink_url is available
+  let taskDisplay = `"${taskData.name}"`;
+  if (taskData.permalink_url) {
+    taskDisplay = `[${taskData.name}](${taskData.permalink_url})`;
+  }
+
+  return `Successfully updated ${updatedFieldsStr} for task ${taskDisplay} (GID: ${taskData.gid})
 (Request ID: ${requestContext.requestId})`;
 }
 
@@ -129,7 +144,13 @@ export function formatTaskDetails(
     return `Error: No task data received. (Request ID: ${requestContext.requestId})`;
   }
 
-  let formattedDetails = `Task Details for "${taskData.name || 'N/A'}" (GID: ${taskData.gid || 'N/A'}):\n`;
+  // Create task name as a link if permalink_url is available
+  let taskDisplay = `"${taskData.name || 'N/A'}"`;
+  if (taskData.permalink_url) {
+    taskDisplay = `[${taskData.name || 'N/A'}](${taskData.permalink_url})`;
+  }
+
+  let formattedDetails = `Task Details for ${taskDisplay} (GID: ${taskData.gid || 'N/A'}):\n`;
   formattedDetails += `- Status: ${taskData.completed ? 'Completed' : 'In Progress'}\n`;
   if (taskData.resource_subtype) {
     formattedDetails += `- Type: ${taskData.resource_subtype}\n`;
@@ -172,7 +193,12 @@ export function formatTaskDetails(
   }
 
   if (taskData.parent?.name) {
-    formattedDetails += `- Parent Task: ${taskData.parent.name} (GID: ${taskData.parent.gid})${taskData.parent.permalink_url ? ` - Link: ${taskData.parent.permalink_url}` : ''}\n`;
+    // Create parent task link if available
+    let parentDisplay = taskData.parent.name;
+    if (taskData.parent.permalink_url) {
+      parentDisplay = `[${taskData.parent.name}](${taskData.parent.permalink_url})`;
+    }
+    formattedDetails += `- Parent Task: ${parentDisplay} (GID: ${taskData.parent.gid})\n`;
   }
 
   if (taskData.num_subtasks !== undefined && taskData.num_subtasks > 0) {
@@ -199,10 +225,6 @@ export function formatTaskDetails(
     formattedDetails += `- Last Modified: ${new Date(taskData.modified_at).toLocaleString()}\n`;
   }
 
-  if (taskData.permalink_url) {
-    formattedDetails += `- Link: ${taskData.permalink_url}\n`;
-  }
-
   formattedDetails += `(Request ID: ${requestContext.requestId})`;
 
   return formattedDetails;
@@ -222,6 +244,7 @@ export function formatTaskList(
     projectName?: string;
     assignedToMe?: boolean;
     completed?: boolean;
+    customDescription?: string;
   },
   requestContext: RequestContext,
 ): string {
@@ -231,12 +254,14 @@ export function formatTaskList(
 
   let filterDescription = '';
 
-  if (filters.projectName) {
-    filterDescription += ` in project "${filters.projectName}"`;
+  if (filters.customDescription) {
+    filterDescription += filters.customDescription;
+  } else if (filters.assignedToMe) {
+    filterDescription += ' assigned to you';
   }
 
-  if (filters.assignedToMe) {
-    filterDescription += ' assigned to you';
+  if (filters.projectName) {
+    filterDescription += ` in project "${filters.projectName}"`;
   }
 
   if (filters.completed !== undefined) {
@@ -252,22 +277,29 @@ export function formatTaskList(
   let formattedList = `Found ${tasksData.length} task(s)${filterDescription}:\n`;
 
   tasksData.forEach((task, index) => {
-    formattedList += `${index + 1}. ${task.name}`;
-
-    if (task.due_on) {
-      formattedList += ` (Due: ${task.due_on})`;
+    // Create the task name as a link if permalink_url is available
+    let taskDisplay = task.name;
+    if (task.permalink_url) {
+      taskDisplay = `[${task.name}](${task.permalink_url})`;
     }
 
-    if (task.assignee?.name && !filters.assignedToMe) {
+    formattedList += `${index + 1}. ${taskDisplay}`;
+
+    if (task.due_on) {
+      formattedList += ` — Due: ${task.due_on}`;
+    }
+
+    // Only show assignee if not already specified in filter description
+    if (
+      task.assignee?.name &&
+      !filters.assignedToMe &&
+      !filters.customDescription
+    ) {
       formattedList += ` (Assignee: ${task.assignee.name})`;
     }
 
     if (task.projects?.length > 0 && !filters.projectName) {
       formattedList += ` (In: ${task.projects.map((p: any) => p.name).join(', ')})`;
-    }
-
-    if (task.permalink_url) {
-      formattedList += ` (Link: ${task.permalink_url})`;
     }
 
     formattedList += '\n';
@@ -293,8 +325,25 @@ export function formatProjectCreation(
     return `Error: No project data received. (Request ID: ${requestContext.requestId})`;
   }
 
-  return `Successfully created Asana project: "${projectData.name}" (GID: ${projectData.gid})
-${projectData.permalink_url ? `Permalink: ${projectData.permalink_url}` : ''}
+  let visibilityInfo = '';
+  if (projectData.privacy_setting) {
+    const privacyMap: Record<string, string> = {
+      public_to_workspace: 'Public to workspace',
+      private_to_team: 'Private to team',
+      private: 'Private',
+    };
+    visibilityInfo = `\nPrivacy: ${privacyMap[projectData.privacy_setting] || projectData.privacy_setting}`;
+  } else if (projectData.public !== undefined) {
+    visibilityInfo = `\nPrivacy: ${projectData.public ? 'Public' : 'Private'}`;
+  }
+
+  // Create project name as a link if permalink_url is available
+  let projectDisplay = `"${projectData.name}"`;
+  if (projectData.permalink_url) {
+    projectDisplay = `[${projectData.name}](${projectData.permalink_url})`;
+  }
+
+  return `Successfully created Asana project: ${projectDisplay} (GID: ${projectData.gid})${visibilityInfo}
 (Request ID: ${requestContext.requestId})`;
 }
 
@@ -332,7 +381,13 @@ export function formatProjectList(
   let formattedList = `Found ${projectsData.length} project(s)${filterDescription}:\n`;
 
   projectsData.forEach((project, index) => {
-    formattedList += `${index + 1}. ${project.name}`;
+    // Create the project name as a link if permalink_url is available
+    let projectDisplay = project.name;
+    if (project.permalink_url) {
+      projectDisplay = `[${project.name}](${project.permalink_url})`;
+    }
+
+    formattedList += `${index + 1}. ${projectDisplay}`;
 
     if (project.team?.name && !filters.teamName) {
       formattedList += ` (Team: ${project.team.name})`;
@@ -344,10 +399,6 @@ export function formatProjectList(
 
     if (project.due_date) {
       formattedList += ` (Due: ${project.due_date})`;
-    }
-
-    if (project.permalink_url) {
-      formattedList += ` (Link: ${project.permalink_url})`;
     }
 
     formattedList += '\n';
@@ -386,10 +437,14 @@ export function formatSearchResults(
   }
 
   searchResults.forEach((item, index) => {
-    message += `${index + 1}. ${item.name || 'Unnamed Resource'} (Type: ${item.resource_type || 'unknown'}, GID: ${item.gid || 'N/A'})`;
+    // Create the item name as a link if permalink_url is available
+    let itemDisplay = item.name || 'Unnamed Resource';
     if (item.permalink_url) {
-      message += ` - Link: ${item.permalink_url}`;
+      itemDisplay = `[${item.name || 'Unnamed Resource'}](${item.permalink_url})`;
     }
+
+    message += `${index + 1}. ${itemDisplay} (Type: ${item.resource_type || 'unknown'}, GID: ${item.gid || 'N/A'})`;
+
     // Add more type-specific details if available and useful for a summary
     if (item.resource_type === 'task') {
       if (item.completed !== undefined) {
@@ -450,9 +505,17 @@ export function formatAddFollowerResponse(
   if (!taskData || !taskData.gid) {
     return `Error: Failed to confirm follower addition, task data incomplete. (Request ID: ${requestContext.requestId})`;
   }
+
+  // Create task name as a link if permalink_url is available
+  let taskDisplay = `"${taskData.name || taskIdentifier}"`;
+  if (taskData.permalink_url) {
+    taskDisplay = `[${taskData.name || taskIdentifier}](${taskData.permalink_url})`;
+  }
+
   // Asana API for addFollowers might return the task with updated followers list or just a 200 OK with empty body.
   // If taskData.followers is available and includes the user, we can be more specific.
-  return `Successfully added user (${userIdentifier}) as a follower to task "${taskData.name || taskIdentifier}" (GID: ${taskData.gid}).\n${taskData.permalink_url ? `View task at: ${taskData.permalink_url}` : ''}\n(Request ID: ${requestContext.requestId})`;
+  return `Successfully added user (${userIdentifier}) as a follower to task ${taskDisplay} (GID: ${taskData.gid}).
+(Request ID: ${requestContext.requestId})`;
 }
 
 /**
@@ -470,10 +533,17 @@ export function formatRemoveFollowerResponse(
   taskIdentifier: string,
   requestContext: RequestContext,
 ): string {
+  // Create task name as a link if available and taskData has the info
+  let taskDisplay = `"${taskIdentifier}"`;
+  if (taskData?.permalink_url) {
+    taskDisplay = `[${taskData.name || taskIdentifier}](${taskData.permalink_url})`;
+  }
+
   // The removeFollowers endpoint usually returns an empty body with 200 OK on success.
   // So, taskData might be minimal or just a confirmation from our client.
   // We rely on the operation succeeding if no error was thrown.
-  return `Successfully removed user (${userIdentifier}) as a follower from task "${taskIdentifier}".\n(Request ID: ${requestContext.requestId})`;
+  return `Successfully removed user (${userIdentifier}) as a follower from task ${taskDisplay}.
+(Request ID: ${requestContext.requestId})`;
 }
 
 /**
@@ -569,11 +639,19 @@ export function formatTaskMoveToSection(
     taskData?.name ||
     moveContext.taskGid ||
     'Unknown Task';
+
+  // Create task name as a link if available
+  let taskDisplay = `"${taskIdentifier}"`;
+  if (taskData?.permalink_url) {
+    taskDisplay = `[${taskData.name || taskIdentifier}](${taskData.permalink_url})`;
+  }
+
   const sectionIdentifier =
     moveContext.sectionName || moveContext.sectionGid || 'Unknown Section';
   const projectIdentifier = moveContext.projectName || 'the project';
 
-  return `Successfully moved task "${taskIdentifier}" to section "${sectionIdentifier}" in ${projectIdentifier}.\n${taskData?.permalink_url ? `View task at: ${taskData.permalink_url}\n` : ''}(Request ID: ${requestContext.requestId})`;
+  return `Successfully moved task ${taskDisplay} to section "${sectionIdentifier}" in ${projectIdentifier}.
+(Request ID: ${requestContext.requestId})`;
 }
 
 /**
@@ -629,4 +707,74 @@ export function formatDateTimeParsingResult(
 
   message += `\n\n(Request ID: ${requestContext.requestId})`;
   return message;
+}
+
+/**
+ * Format user details response
+ *
+ * @param userData User data from Asana API
+ * @param requestContext Request context for tracking
+ * @returns Formatted user details message
+ */
+export function formatUserDetails(
+  userData: any,
+  requestContext: RequestContext,
+): string {
+  if (!userData) {
+    return `Error: No user data received. (Request ID: ${requestContext.requestId})`;
+  }
+
+  let message = `User Profile for ${userData.name}:\n`;
+  message += `- User ID: ${userData.gid}\n`;
+
+  if (userData.email) {
+    message += `- Email: ${userData.email}\n`;
+  }
+
+  if (userData.workspaces && userData.workspaces.length > 0) {
+    message += `- Workspaces: ${userData.workspaces.map((w: any) => w.name).join(', ')}\n`;
+  }
+
+  message += `(Request ID: ${requestContext.requestId})`;
+  return message;
+}
+
+/**
+ * Format workspace users list response
+ *
+ * @param usersData Array of user data from Asana API
+ * @param workspaceInfo Workspace context information
+ * @param requestContext Request context for tracking
+ * @returns Formatted users list message
+ */
+export function formatWorkspaceUsersList(
+  usersData: any[],
+  workspaceInfo: { name?: string; gid?: string },
+  requestContext: RequestContext,
+): string {
+  if (!Array.isArray(usersData)) {
+    return `Error: Invalid user data received. (Request ID: ${requestContext.requestId})`;
+  }
+
+  const workspaceIdentifier =
+    workspaceInfo.name || workspaceInfo.gid || 'Unknown Workspace';
+
+  if (usersData.length === 0) {
+    return `No users found in workspace "${workspaceIdentifier}". (Request ID: ${requestContext.requestId})`;
+  }
+
+  let formattedList = `Found ${usersData.length} user(s) in workspace "${workspaceIdentifier}":\n`;
+
+  usersData.forEach((user, index) => {
+    formattedList += `${index + 1}. ${user.name}`;
+
+    if (user.email) {
+      formattedList += ` (${user.email})`;
+    }
+
+    formattedList += ` - ID: ${user.gid}\n`;
+  });
+
+  formattedList += `(Request ID: ${requestContext.requestId})`;
+  return formattedList;
 }

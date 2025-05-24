@@ -22,6 +22,11 @@ export interface CreateTaskParams {
   due_on?: string;
   /** Parent task GID for creating a subtask (optional) */
   parent?: string;
+  /**
+   * IMPORTANT: Task visibility is determined by the projects they're added to.
+   * The Asana API does not provide direct control over task-level visibility.
+   * To ensure tasks are public, they must be added to verified public projects.
+   */
 }
 
 /**
@@ -811,6 +816,46 @@ export async function removeDependency(
   } catch (error) {
     console.error(
       `[TaskOperations] Error removing dependency ${dependencyTaskGid} from task ${taskGid}: ${error}`,
+    );
+    throw error;
+  }
+}
+
+/**
+ * Delete a task in Asana
+ *
+ * @param apiClient Asana API client
+ * @param taskGid GID of the task to delete
+ * @param requestId Request ID for tracking
+ * @returns True if deletion was successful
+ */
+export async function deleteTask(
+  apiClient: AsanaApiClient,
+  taskGid: string,
+  requestId?: string,
+): Promise<boolean> {
+  // Validate required parameters
+  if (!taskGid) {
+    throw new Error('Task GID is required');
+  }
+
+  try {
+    // Make DELETE request to tasks endpoint
+    await apiClient.request(
+      `tasks/${taskGid}`,
+      'DELETE',
+      undefined,
+      undefined,
+      requestId,
+    );
+
+    console.log(
+      `[TaskOperations] [${requestId}] Successfully deleted task ${taskGid}`,
+    );
+    return true;
+  } catch (error) {
+    console.error(
+      `[TaskOperations] [${requestId}] Error deleting task ${taskGid}: ${error}`,
     );
     throw error;
   }

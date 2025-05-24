@@ -62,7 +62,7 @@ export const message = pgTable('Message_v2', {
   id: uuid('id').primaryKey().notNull().defaultRandom(),
   chatId: uuid('chatId')
     .notNull()
-    .references(() => chat.id),
+    .references(() => chat.id, { onDelete: 'cascade' }),
   role: varchar('role').notNull(),
   parts: json('parts').notNull(),
   attachments: json('attachments').notNull(),
@@ -81,10 +81,10 @@ export const vote = pgTable(
   {
     chatId: uuid('chatId')
       .notNull()
-      .references(() => chat.id),
+      .references(() => chat.id, { onDelete: 'cascade' }),
     messageId: uuid('messageId')
       .notNull()
-      .references(() => message.id),
+      .references(() => message.id, { onDelete: 'cascade' }),
     isUpvoted: boolean('isUpvoted').notNull(),
     clientId: text('client_id')
       .notNull()
@@ -274,3 +274,33 @@ export const chatFileReferences = pgTable(
 );
 
 export type ChatFileReference = InferSelectModel<typeof chatFileReferences>;
+
+// Conversational Memory Table for RAG-based context retention
+export const conversationalMemory = pgTable(
+  'conversational_memory',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().notNull(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chat.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    embedding: text('embedding').notNull(), // Vector embedding - handled as text in Drizzle, vector in DB
+    sourceType: varchar('source_type', { enum: ['turn', 'summary'] }).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    chatIdx: index('idx_conversational_memory_chat_id').on(table.chatId),
+    createdAtIdx: index('idx_conversational_memory_created_at').on(
+      table.createdAt,
+    ),
+    sourceTypeIdx: index('idx_conversational_memory_source_type').on(
+      table.sourceType,
+    ),
+  }),
+);
+
+export type ConversationalMemory = InferSelectModel<
+  typeof conversationalMemory
+>;

@@ -167,6 +167,10 @@ export const CacheKeys = {
 
   taskDetails: (taskGid: string, fields?: string[]) =>
     `task:details:${taskGid}:${fields?.join(',') || 'default'}`,
+
+  userDetails: (userGid: string) => `user:details:${userGid}`,
+
+  workspaceUsers: (workspaceGid: string) => `users:list:${workspaceGid}`,
 };
 
 /**

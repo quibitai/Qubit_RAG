@@ -148,3 +148,73 @@ export async function findUserGidByEmailOrName(
     5 * 60 * 1000, // Cache for 5 minutes
   );
 }
+
+/**
+ * Get detailed information about a specific user by GID
+ *
+ * @param apiClient The Asana API client
+ * @param userGid The GID of the user to retrieve
+ * @param requestId Optional request ID for tracking
+ * @returns User information
+ */
+export async function getUserDetails(
+  apiClient: AsanaApiClient,
+  userGid: string,
+  requestId?: string,
+): Promise<any> {
+  if (!userGid) {
+    throw new Error('User GID is required to get user details');
+  }
+
+  const cacheKey = CacheKeys.userDetails(userGid);
+
+  return getOrSetCache(
+    cacheKey,
+    () =>
+      apiClient.request<any>(
+        `users/${userGid}`,
+        'GET',
+        undefined,
+        {
+          opt_fields: 'gid,name,email,photo,workspaces.name,workspaces.gid',
+        },
+        requestId,
+      ),
+    10 * 60 * 1000, // Cache for 10 minutes
+  );
+}
+
+/**
+ * List all users in a workspace
+ *
+ * @param apiClient The Asana API client
+ * @param workspaceGid The GID of the workspace
+ * @param requestId Optional request ID for tracking
+ * @returns Array of user information
+ */
+export async function listWorkspaceUsers(
+  apiClient: AsanaApiClient,
+  workspaceGid: string,
+  requestId?: string,
+): Promise<any[]> {
+  if (!workspaceGid) {
+    throw new Error('Workspace GID is required to list users');
+  }
+
+  const cacheKey = CacheKeys.workspaceUsers(workspaceGid);
+
+  return getOrSetCache(
+    cacheKey,
+    () =>
+      apiClient.request<any[]>(
+        `workspaces/${workspaceGid}/users`,
+        'GET',
+        undefined,
+        {
+          opt_fields: 'gid,name,email,photo',
+        },
+        requestId,
+      ),
+    5 * 60 * 1000, // Cache for 5 minutes since team membership changes less frequently
+  );
+}
