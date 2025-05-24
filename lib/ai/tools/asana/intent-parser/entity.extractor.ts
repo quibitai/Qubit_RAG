@@ -692,6 +692,7 @@ export function extractSubtaskCreationDetails(input: string): {
   subtaskName?: string;
   assigneeName?: string; // Added for subtask assignee
   dueDate?: string; // Added for subtask due date
+  notes?: string; // Added for subtask description/notes
 } {
   if (!input) return {};
 
@@ -701,6 +702,7 @@ export function extractSubtaskCreationDetails(input: string): {
   let assigneeName: string | undefined;
   let dueDate: string | undefined;
   let parentProjectName: string | undefined;
+  let notes: string | undefined;
 
   // NEW PATTERN: Handle "add a subtask to [task] in [project] for [assignee] called [name]"
   const complexSubtaskMatch = input.match(
@@ -829,23 +831,23 @@ export function extractSubtaskCreationDetails(input: string): {
     }
   }
 
-  // Extract due date if not already found
+  // Extract due date if not already found - IMPROVED PATTERNS
   if (!dueDate) {
     const dueDateMatch =
       input.match(
-        /(?:due date|deadline)\s+(?:of|is|on)?\s*([^,]+?)(?:\s+with|\s*$)/i,
+        /(?:due date|deadline)\s+(?:of|is|on)?\s*([^,]+?)(?:\s+(?:and|with|,)|\s*$)/i,
       ) ||
       input.match(
-        /(?:due date|deadline)\s+(?:for|on|by|at)\s*([^,]+?)(?:\s+with|\s*$)/i,
+        /(?:due date|deadline)\s+(?:for|on|by|at)\s*([^,]+?)(?:\s+(?:and|with|,)|\s*$)/i,
       ) ||
       input.match(
-        /(?:with|and)\s+(?:a\s+)?due\s+date\s+(?:of|on|for|by)?\s*([^,]+?)(?:\s+with|\s*$)/i,
+        /(?:with|and)\s+(?:a\s+)?due\s+date\s+(?:of|on|for|by)?\s*([^,]+?)(?:\s+(?:and|with|,)|\s*$)/i,
       ) ||
       input.match(
-        /(?:due|deadline)\s+(?:on|by|for)?\s*([^,]+?)(?:\s+with|\s*$)/i,
+        /(?:due|deadline)\s+(?:on|by|for)?\s*([^,]+?)(?:\s+(?:and|with|,)|\s*$)/i,
       ) ||
       input.match(
-        /(?:set|make)\s+(?:the\s+)?due\s+date\s+(?:to|for|on|by)?\s*([^,]+?)(?:\s+with|\s*$)/i,
+        /(?:set|make)\s+(?:the\s+)?due\s+date\s+(?:to|for|on|by)?\s*([^,]+?)(?:\s+(?:and|with|,)|\s*$)/i,
       );
     if (dueDateMatch?.[1]) {
       const extractedDate = dueDateMatch[1].trim();
@@ -863,6 +865,23 @@ export function extractSubtaskCreationDetails(input: string): {
       ) {
         dueDate = cleanedDate;
       }
+    }
+  }
+
+  // Extract notes/description - NEW FUNCTIONALITY
+  if (!notes) {
+    const notesMatch =
+      input.match(
+        /(?:description|notes?)\s+(?:of|is)?\s*[,"]?\s*["']([^"']+)["']/i,
+      ) ||
+      input.match(
+        /(?:with|and)\s+(?:a\s+)?(?:description|notes?)\s+(?:of|that says)?\s*[,"]?\s*["']([^"']+)["']/i,
+      ) ||
+      input.match(/(?:description|notes?)\s*:\s*["']([^"']+)["']/i) ||
+      input.match(/(?:that says|saying)\s*["']([^"']+)["']/i);
+
+    if (notesMatch?.[1]) {
+      notes = notesMatch[1].trim();
     }
   }
 
@@ -896,6 +915,7 @@ export function extractSubtaskCreationDetails(input: string): {
     subtaskName,
     assigneeName,
     dueDate,
+    notes,
   };
 }
 

@@ -32,12 +32,58 @@ export function parseIntent(input: string): ParsedIntent {
 
   // Parse specific entities based on the operation type
   switch (operationType) {
-    case AsanaOperationType.GET_USER_ME:
+    case AsanaOperationType.GET_USER_ME: {
       return {
         operationType,
         requestContext,
         rawInput: input,
       };
+    }
+
+    case AsanaOperationType.GET_USER_DETAILS: {
+      // Extract user identifier from the input
+      const userNameMatch =
+        input.match(
+          /(?:show|get|find|lookup).*(?:profile|details|info).*(?:for|of|about)\s+["']?([^"']+)["']?/i,
+        ) ||
+        input.match(/["']?([^"']+)["']?(?:'s)?\s+(?:profile|details|info)/i);
+
+      const emailMatch = input.match(
+        /\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/,
+      );
+      const gidMatch = input.match(/\b(\d{16,})\b/);
+
+      const userIdentifier = {
+        name: userNameMatch ? userNameMatch[1].trim() : undefined,
+        email: emailMatch ? emailMatch[1] : undefined,
+        gid: gidMatch ? gidMatch[1] : undefined,
+      };
+
+      return {
+        operationType,
+        requestContext,
+        rawInput: input,
+        userIdentifier,
+      };
+    }
+
+    case AsanaOperationType.LIST_WORKSPACE_USERS: {
+      // Extract workspace name if specified
+      const workspaceNameMatch = input.match(
+        /(?:workspace|organization|team)\s+["']?([^"']+)["']?/i,
+      );
+      const workspaceGidMatch = input.match(/workspace[:\s]+(\d{16,})/i);
+
+      return {
+        operationType,
+        requestContext,
+        rawInput: input,
+        workspaceName: workspaceNameMatch
+          ? workspaceNameMatch[1].trim()
+          : undefined,
+        workspaceGid: workspaceGidMatch ? workspaceGidMatch[1] : undefined,
+      };
+    }
 
     case AsanaOperationType.CREATE_TASK: {
       const { taskName, taskNotes, projectName, dueDate, assigneeName } =
@@ -153,6 +199,28 @@ export function parseIntent(input: string): ParsedIntent {
       };
     }
 
+    case AsanaOperationType.DELETE_TASK: {
+      const taskIdentifier = entityExtractor.extractTaskIdentifier(input);
+
+      if (!taskIdentifier.name && !taskIdentifier.gid) {
+        return {
+          operationType: AsanaOperationType.UNKNOWN,
+          requestContext,
+          rawInput: input,
+          errorMessage: 'Could not determine which task to delete.',
+          possibleOperations: [AsanaOperationType.DELETE_TASK],
+        };
+      }
+
+      return {
+        operationType,
+        requestContext,
+        rawInput: input,
+        taskIdentifier,
+        projectName: taskIdentifier.projectName,
+      };
+    }
+
     case AsanaOperationType.GET_TASK_DETAILS: {
       const taskIdentifier = entityExtractor.extractTaskIdentifier(input);
 
@@ -179,6 +247,38 @@ export function parseIntent(input: string): ParsedIntent {
       const { projectName } = extractNamesFromInput(input);
       const assignedToMe = entityExtractor.isMyTasksRequest(input);
 
+      // Extract assignee information for other users' tasks
+      let assigneeName: string | undefined;
+      let assigneeEmail: string | undefined;
+
+      // Pattern 1: "andy's tasks", "john's tasks"
+      const possessiveMatch = input.match(/(\w+)['']s\s+tasks/i);
+      if (possessiveMatch) {
+        assigneeName = possessiveMatch[1];
+      }
+
+      // Pattern 2: "tasks assigned to Andy Lemoine", "tasks for Andy"
+      const assignedToMatch = input.match(
+        /(?:tasks?\s+(?:assigned\s+to|for)|(?:assigned\s+to|for)\s+tasks?)\s+([^,]+?)(?:\s+\(|$)/i,
+      );
+      if (assignedToMatch) {
+        const assigneeText = assignedToMatch[1].trim();
+        // Check if it's an email
+        if (assigneeText.includes('@')) {
+          assigneeEmail = assigneeText;
+        } else {
+          assigneeName = assigneeText;
+        }
+      }
+
+      // Pattern 3: "show/list Andy Lemoine's tasks"
+      const showUserTasksMatch = input.match(
+        /(?:show|list)\s+([^']+?)['']s\s+tasks/i,
+      );
+      if (showUserTasksMatch) {
+        assigneeName = showUserTasksMatch[1].trim();
+      }
+
       // Check if user wants completed or incomplete tasks
       let completed: boolean | undefined = undefined;
       if (input.toLowerCase().includes('completed')) {
@@ -197,6 +297,8 @@ export function parseIntent(input: string): ParsedIntent {
         rawInput: input,
         projectName,
         assignedToMe,
+        assigneeName,
+        assigneeEmail,
         completed,
       };
     }
@@ -221,6 +323,35 @@ export function parseIntent(input: string): ParsedIntent {
         taskGid: taskIdentifier.gid,
         taskName: taskIdentifier.name,
         projectName: taskIdentifier.projectName,
+      };
+    }
+
+    case AsanaOperationType.ADD_SUBTASK: {
+      const subtaskDetails =
+        entityExtractor.extractSubtaskCreationDetails(input);
+
+      if (!subtaskDetails.subtaskName) {
+        return {
+          operationType: AsanaOperationType.UNKNOWN,
+          requestContext,
+          rawInput: input,
+          errorMessage:
+            'Could not determine subtask name. Please specify a name for the subtask.',
+          possibleOperations: [AsanaOperationType.ADD_SUBTASK],
+        };
+      }
+
+      return {
+        operationType,
+        requestContext,
+        rawInput: input,
+        parentTaskGid: subtaskDetails.parentTaskGid,
+        parentTaskName: subtaskDetails.parentTaskName,
+        parentProjectName: subtaskDetails.parentProjectName,
+        subtaskName: subtaskDetails.subtaskName,
+        assigneeName: subtaskDetails.assigneeName,
+        dueDate: subtaskDetails.dueDate,
+        notes: subtaskDetails.notes,
       };
     }
 

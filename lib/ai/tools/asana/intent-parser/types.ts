@@ -10,10 +10,13 @@ import type { RequestContext } from '../types';
 export enum AsanaOperationType {
   // User operations
   GET_USER_ME = 'GET_USER_ME',
+  GET_USER_DETAILS = 'GET_USER_DETAILS',
+  LIST_WORKSPACE_USERS = 'LIST_WORKSPACE_USERS',
 
   // Task operations
   CREATE_TASK = 'CREATE_TASK',
   UPDATE_TASK = 'UPDATE_TASK',
+  DELETE_TASK = 'DELETE_TASK',
   GET_TASK_DETAILS = 'GET_TASK_DETAILS',
   LIST_TASKS = 'LIST_TASKS',
   COMPLETE_TASK = 'COMPLETE_TASK',
@@ -75,6 +78,27 @@ export interface ParsedUserMeIntent extends ParsedIntentBase {
 }
 
 /**
+ * Interface for parsed get user details intent
+ */
+export interface ParsedGetUserDetailsIntent extends ParsedIntentBase {
+  operationType: AsanaOperationType.GET_USER_DETAILS;
+  userIdentifier: {
+    name?: string;
+    email?: string;
+    gid?: string;
+  };
+}
+
+/**
+ * Interface for parsed list workspace users intent
+ */
+export interface ParsedListWorkspaceUsersIntent extends ParsedIntentBase {
+  operationType: AsanaOperationType.LIST_WORKSPACE_USERS;
+  workspaceName?: string;
+  workspaceGid?: string;
+}
+
+/**
  * Interface for parsed create task intent
  */
 export interface ParsedCreateTaskIntent extends ParsedIntentBase {
@@ -109,6 +133,18 @@ export interface ParsedUpdateTaskIntent extends ParsedIntentBase {
 }
 
 /**
+ * Interface for parsed delete task intent
+ */
+export interface ParsedDeleteTaskIntent extends ParsedIntentBase {
+  operationType: AsanaOperationType.DELETE_TASK;
+  taskIdentifier: {
+    name?: string;
+    gid?: string;
+  };
+  projectName?: string;
+}
+
+/**
  * Interface for parsed get task details intent
  */
 export interface ParsedGetTaskDetailsIntent extends ParsedIntentBase {
@@ -127,6 +163,8 @@ export interface ParsedListTasksIntent extends ParsedIntentBase {
   operationType: AsanaOperationType.LIST_TASKS;
   projectName?: string;
   assignedToMe?: boolean;
+  assigneeName?: string;
+  assigneeEmail?: string;
   completed?: boolean;
 }
 
@@ -238,8 +276,9 @@ export interface ParsedAddSubtaskIntent extends ParsedIntentBase {
   parentTaskName?: string;
   parentProjectName?: string; // For context if parentTaskName is used
   subtaskName: string;
-  // Potentially other fields for the subtask itself, like notes, assignee, due_date
-  // For now, keeping it simple with just the name.
+  assigneeName?: string; // Name or email of the user to assign the subtask to
+  dueDate?: string; // Due date expression for the subtask
+  notes?: string; // Description/notes for the subtask
 }
 
 /**
@@ -358,8 +397,11 @@ export interface ParsedUnknownIntent extends ParsedIntentBase {
  */
 export type ParsedIntent =
   | ParsedUserMeIntent
+  | ParsedGetUserDetailsIntent
+  | ParsedListWorkspaceUsersIntent
   | ParsedCreateTaskIntent
   | ParsedUpdateTaskIntent
+  | ParsedDeleteTaskIntent
   | ParsedGetTaskDetailsIntent
   | ParsedListTasksIntent
   | ParsedCompleteTaskIntent

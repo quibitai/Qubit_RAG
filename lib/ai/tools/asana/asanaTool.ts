@@ -12,6 +12,8 @@ import type { AsanaApiClient } from './api-client';
 import {
   getUsersMe,
   findUserGidByEmailOrName,
+  getUserDetails,
+  listWorkspaceUsers,
 } from './api-client/operations/users';
 import {
   createTask,
@@ -23,6 +25,7 @@ import {
   removeFollowerFromTask,
   addDependency,
   removeDependency,
+  deleteTask,
   type UpdateTaskParams,
   type CreateTaskParams,
   getSubtasks,
@@ -30,6 +33,8 @@ import {
 import {
   listProjects,
   findProjectGidByName,
+  createProject,
+  verifyProjectVisibility,
 } from './api-client/operations/projects';
 import {
   getProjectSections,
@@ -50,9 +55,11 @@ import {
   extractProjectAndSectionIdentifiers,
   extractSectionCreationDetails,
   extractTaskAndSectionIdentifiers,
+  extractProjectGidFromInput,
 } from './intent-parser/entity.extractor';
 import { typeaheadSearch } from './api-client/operations/search';
 import { parseDateTime } from './utils/dateTimeParser';
+import { extractNamesFromInput } from './utils/gidUtils';
 
 // Import formatters for response formatting
 import {
@@ -68,6 +75,8 @@ import {
   formatSectionList,
   formatSectionCreation,
   formatTaskMoveToSection,
+  formatUserDetails,
+  formatWorkspaceUsersList,
 } from './formatters/responseFormatter';
 
 /**
@@ -151,254 +160,587 @@ export class AsanaTool extends Tool {
           return formatUserInfo(userData, requestContext);
         }
 
-        case AsanaOperationType.CREATE_TASK: {
-          const createTaskIntent = parsedIntent as any;
-          const {
-            taskName,
-            taskNotes,
-            projectName: initialProjectName,
-            assigneeName: initialAssigneeName,
-            confirmationNeeded,
-            confirmedProjectName,
-            confirmedAssigneeName,
-            dueDate,
-          } = createTaskIntent;
+        case AsanaOperationType.GET_USER_DETAILS: {
+          const getUserDetailsIntent = parsedIntent as any;
           const workspaceGid = getWorkspaceGid();
+
+          if (!workspaceGid) {
+            return `Error: Default Asana workspace is not configured. Please configure ASANA_DEFAULT_WORKSPACE_GID. (Request ID: ${requestContext.requestId})`;
+          }
+
+          // Extract user identifier from the parsed intent or action description
+          let userGid: string | undefined;
+          let userName: string | undefined;
+          let userEmail: string | undefined;
+
+          if (getUserDetailsIntent.userIdentifier) {
+            userGid = getUserDetailsIntent.userIdentifier.gid;
+            userName = getUserDetailsIntent.userIdentifier.name;
+            userEmail = getUserDetailsIntent.userIdentifier.email;
+          }
+
+          // If no parsed identifier, try to extract from action description
+          if (!userGid && !userName && !userEmail) {
+            const userNameMatch =
+              actionDescription.match(
+                /(?:show|get|find|lookup).*(?:profile|details|info).*(?:for|of|about)\s+["']?([^"']+)["']?/i,
+              ) ||
+              actionDescription.match(
+                /["']?([^"']+)["']?(?:'s)?\s+(?:profile|details|info)/i,
+              );
+            if (userNameMatch) {
+              userName = userNameMatch[1].trim();
+            }
+          }
+
+          if (!userGid && !userName && !userEmail) {
+            return `Error: Could not identify which user's profile to show. Please specify a name, email, or GID. (Request ID: ${requestContext.requestId})`;
+          }
+
+          // If we have a name or email, look up the GID
+          if (!userGid && (userName || userEmail)) {
+            const identifier = userName || userEmail;
+            if (!identifier) {
+              return `Error: Could not extract user identifier. (Request ID: ${requestContext.requestId})`;
+            }
+
+            try {
+              const lookupResult = await findUserGidByEmailOrName(
+                this.client,
+                workspaceGid,
+                identifier,
+                requestContext.requestId,
+              );
+
+              if (lookupResult === 'ambiguous') {
+                return `Error: Multiple users found matching "${identifier}". Please be more specific or provide a user GID. (Request ID: ${requestContext.requestId})`;
+              }
+
+              if (!lookupResult) {
+                return `Error: No user found matching "${identifier}". Please check the name/email and try again. (Request ID: ${requestContext.requestId})`;
+              }
+
+              userGid = lookupResult;
+            } catch (error) {
+              return `Error looking up user "${identifier}": ${error instanceof Error ? error.message : 'Unknown error'}. (Request ID: ${requestContext.requestId})`;
+            }
+          }
+
+          if (!userGid) {
+            return `Error: Could not resolve user identifier. (Request ID: ${requestContext.requestId})`;
+          }
+
+          // Get user details
+          try {
+            const userDetails = await getUserDetails(
+              this.client,
+              userGid,
+              requestContext.requestId,
+            );
+            return formatUserDetails(userDetails, requestContext);
+          } catch (error) {
+            return `Error retrieving user details: ${error instanceof Error ? error.message : 'Unknown error'}. (Request ID: ${requestContext.requestId})`;
+          }
+        }
+
+        case AsanaOperationType.LIST_WORKSPACE_USERS: {
+          const listUsersIntent = parsedIntent as any;
+          const workspaceGid = getWorkspaceGid();
+
+          if (!workspaceGid) {
+            return `Error: Default Asana workspace is not configured. Please configure ASANA_DEFAULT_WORKSPACE_GID. (Request ID: ${requestContext.requestId})`;
+          }
+
+          try {
+            // Get workspace info for better formatting
+            const workspaceDetails = await this.client.request<any>(
+              `workspaces/${workspaceGid}`,
+              'GET',
+              undefined,
+              { opt_fields: 'name,gid' },
+              requestContext.requestId,
+            );
+
+            // List all users in the workspace
+            const usersData = await listWorkspaceUsers(
+              this.client,
+              workspaceGid,
+              requestContext.requestId,
+            );
+
+            return formatWorkspaceUsersList(
+              usersData,
+              {
+                name: workspaceDetails.name,
+                gid: workspaceDetails.gid,
+              },
+              requestContext,
+            );
+          } catch (error) {
+            return `Error listing workspace users: ${error instanceof Error ? error.message : 'Unknown error'}. (Request ID: ${requestContext.requestId})`;
+          }
+        }
+
+        case AsanaOperationType.CREATE_TASK: {
           const { requestId } = requestContext;
+          console.log(
+            `[AsanaTool] [${requestId}] CREATE_TASK received actionDescription: "${actionDescription.substring(0, 200)}..."`,
+          );
+
+          const createTaskIntent = parsedIntent as any;
+          const workspaceGid = getWorkspaceGid();
 
           if (!workspaceGid) {
             return `Error: Default Asana workspace is not configured. Please configure ASANA_DEFAULT_WORKSPACE_GID. (Request ID: ${requestId})`;
           }
 
-          // Smart context handling for confirmations
-          const isConfirmation =
-            /^(?:yes|yep|yeah|confirm|confirmed|ok|okay|sure|proceed|go ahead|do it)[.,!]*$/i.test(
+          // --- State variables for gathering information ---
+          let resolvedTaskName: string | undefined = createTaskIntent.taskName;
+          let resolvedProjectGid: string | undefined =
+            extractProjectGidFromInput(actionDescription);
+          let resolvedProjectName: string | undefined = resolvedProjectGid
+            ? undefined
+            : createTaskIntent.projectName;
+          let projectPermalink: string | undefined;
+          let resolvedAssigneeGid: string | undefined;
+          let resolvedAssigneeName: string | undefined =
+            createTaskIntent.assigneeName;
+          let resolvedDueDate: string | undefined; // YYYY-MM-DD
+          const originalDueDateExpression: string | undefined =
+            createTaskIntent.dueDate;
+          const resolvedTaskNotes: string | undefined =
+            createTaskIntent.taskNotes;
+
+          // Debug logging
+          console.log(`[AsanaTool] [${requestId}] Initial extraction results:`);
+          console.log(
+            `[AsanaTool] [${requestId}]   taskName from intent: ${resolvedTaskName}`,
+          );
+          console.log(
+            `[AsanaTool] [${requestId}]   projectGid extracted: ${resolvedProjectGid}`,
+          );
+          console.log(
+            `[AsanaTool] [${requestId}]   projectName from intent: ${createTaskIntent.projectName}`,
+          );
+          console.log(
+            `[AsanaTool] [${requestId}]   assigneeName from intent: ${resolvedAssigneeName}`,
+          );
+          console.log(
+            `[AsanaTool] [${requestId}]   dueDate from intent: ${originalDueDateExpression}`,
+          );
+
+          const isPotentiallyConfirmedCreation =
+            actionDescription
+              .toLowerCase()
+              .startsWith('confirmed_create_task:') ||
+            (resolvedProjectGid &&
+              resolvedTaskName &&
+              (createTaskIntent as any).confirmedByUser); // Cast to any for hypothetical field
+
+          // Detect if this is a confirmation response to a previous comprehensive preview
+          const isConfirmationResponse =
+            /^(?:yes|yep|yeah|confirm|confirmed|ok|okay|sure|proceed|go ahead|do it|create|make it|sounds good)[.,!]*$/i.test(
               actionDescription.trim(),
-            );
-          const isProjectSelection =
-            /^\d{16,}$/.test(actionDescription.trim()) ||
-            actionDescription.toLowerCase().includes('echo tango');
+            ) ||
+            (actionDescription.toLowerCase().includes('confirm') &&
+              actionDescription.length < 50);
 
-          // For confirmations, try to use context from original request
-          let resolvedTaskName = taskName;
-          let resolvedTaskNotes = taskNotes;
-          let resolvedDueDate = dueDate;
+          console.log(
+            `[AsanaTool] [${requestId}] isConfirmationResponse: ${isConfirmationResponse}, isPotentiallyConfirmed: ${isPotentiallyConfirmedCreation}`,
+          );
+          console.log(
+            `[AsanaTool] [${requestId}] actionDescription length: ${actionDescription.length}, trimmed: "${actionDescription.trim().substring(0, 100)}"`,
+          );
 
-          if (isConfirmation && !taskName) {
-            // Look for task details in the original actionDescription
-            const originalTaskMatch = actionDescription.match(
-              /task\s+(?:called|named)?\s*['"]([^'"]+)['"]/i,
+          // Additional heuristic: If we have detailed task parameters and this looks like a repeat request within a conversation,
+          // it's likely a confirmation flow
+          const hasDetailedParams =
+            resolvedTaskName &&
+            (resolvedProjectName || resolvedProjectGid) &&
+            (createTaskIntent.assigneeName ||
+              createTaskIntent.dueDate ||
+              createTaskIntent.taskNotes);
+          const looksLikeRepeatRequest =
+            hasDetailedParams &&
+            actionDescription.includes(resolvedTaskName || '') &&
+            actionDescription.includes(resolvedProjectName || '');
+
+          console.log(
+            `[AsanaTool] [${requestId}] hasDetailedParams: ${hasDetailedParams}, looksLikeRepeatRequest: ${looksLikeRepeatRequest}`,
+          );
+
+          const shouldProceedToCreation =
+            isConfirmationResponse ||
+            (looksLikeRepeatRequest && hasDetailedParams);
+
+          // --- Information Gathering & Resolution (No early returns) ---
+
+          // A. Task Name and fallback extraction
+          if (!resolvedTaskName || !resolvedProjectName) {
+            console.log(
+              `[AsanaTool] [${requestId}] Missing taskName or projectName, performing fallback extraction from actionDescription`,
             );
-            if (originalTaskMatch) {
-              resolvedTaskName = originalTaskMatch[1];
+            const names = extractNamesFromInput(actionDescription);
+            console.log(
+              `[AsanaTool] [${requestId}] Fallback extraction results:`,
+              names,
+            );
+
+            if (!resolvedTaskName) {
+              resolvedTaskName = names.taskName;
+            }
+            if (!resolvedProjectName) {
+              resolvedProjectName = names.projectName;
             }
 
-            const originalNotesMatch = actionDescription.match(
-              /(?:note|notes|description)\s*(?:that says?|:)?\s*['"]([^'"]+)['"]/i,
+            console.log(
+              `[AsanaTool] [${requestId}] After fallback extraction:`,
             );
-            if (originalNotesMatch) {
-              resolvedTaskNotes = originalNotesMatch[1];
-            }
-
-            // Extract due date from original context
-            const originalDueDateMatch = actionDescription.match(
-              /(?:due|deadline)\s+(?:date\s+)?(?:is\s+|for\s+|on\s+)?(tomorrow|today|next\s+\w+)/i,
+            console.log(
+              `[AsanaTool] [${requestId}]   resolvedTaskName: ${resolvedTaskName}`,
             );
-            if (originalDueDateMatch) {
-              resolvedDueDate = originalDueDateMatch[1];
-            }
+            console.log(
+              `[AsanaTool] [${requestId}]   resolvedProjectName: ${resolvedProjectName}`,
+            );
           }
 
-          if (!resolvedTaskName) {
-            return `Error: Task name is required. Please specify a task name to create. (Request ID: ${requestId})`;
-          }
-
-          let projectGid: string | undefined | 'ambiguous' = undefined;
-          const resolvedProjectName =
-            confirmedProjectName || initialProjectName;
-          let assigneeGid: string | undefined | 'ambiguous' = undefined;
-          let resolvedAssigneeName =
-            confirmedAssigneeName || initialAssigneeName;
-
-          // 1. Enhanced Project Resolution
-          if (resolvedProjectName) {
-            // Get all projects first for smart matching
-            const projects = await listProjects(
-              this.client,
-              workspaceGid,
-              false,
-              requestId,
-            );
-
-            // Try exact match first (case-insensitive)
-            const exactMatch = projects.find(
-              (p) => p.name.toLowerCase() === resolvedProjectName.toLowerCase(),
-            );
-
-            if (exactMatch) {
-              projectGid = exactMatch.gid;
+          // Also check if notes weren't captured but are present in the actionDescription
+          let finalTaskNotes = resolvedTaskNotes;
+          if (!finalTaskNotes) {
+            const notesMatch =
+              actionDescription.match(
+                /(?:with|and)\s+(?:notes?|description)\s*(?:that says?|:)?\s*["']([^"']+)["']/i,
+              ) || actionDescription.match(/note\s*["']([^"']+)["']/i);
+            if (notesMatch) {
+              finalTaskNotes = notesMatch[1];
               console.log(
-                `[AsanaTool] [${requestId}] Found exact project match: "${exactMatch.name}" (${exactMatch.gid})`,
+                `[AsanaTool] [${requestId}] Extracted notes from actionDescription: "${finalTaskNotes}"`,
               );
-            } else {
-              // Fallback to fuzzy matching
-              projectGid = await findProjectGidByName(
-                this.client,
-                resolvedProjectName,
-                workspaceGid,
-                requestId,
-              );
-
-              if (projectGid === 'ambiguous') {
-                const projectOptions = projects.filter((p) =>
-                  p.name
-                    .toLowerCase()
-                    .includes(resolvedProjectName.toLowerCase()),
-                );
-                return `Which project should task "${resolvedTaskName}" be created in?\nFound ${projects.length} project(s):\n${formatProjectList(projectOptions.length > 0 ? projectOptions : projects, {}, requestContext)}\n(Request ID: ${requestId})\nReply with project name/GID.`;
-              }
-              if (!projectGid) {
-                return `Project "${resolvedProjectName}" not found. Do you want to create it, or try a different project name? (Request ID: ${requestId})`;
-              }
             }
-          } else if (!confirmationNeeded && !isConfirmation) {
-            const projects = await listProjects(
-              this.client,
-              workspaceGid,
-              false,
-              requestId,
-            );
-            if (!projects || projects.length === 0) {
-              return `No projects found. Please create a project first. (Request ID: ${requestId})`;
-            }
-            return `Which project should task "${resolvedTaskName}" be created in?\nFound ${projects.length} project(s):\n${formatProjectList(projects, {}, requestContext)}\n(Request ID: ${requestId})\nReply with project name/GID.`;
           }
 
-          // 2. Resolve Assignee
-          if (resolvedAssigneeName) {
-            if (resolvedAssigneeName.toLowerCase() === 'me') {
-              const meUser = await getUsersMe(this.client, requestId);
-              assigneeGid = meUser.gid;
-              resolvedAssigneeName = meUser.name;
+          // Task name is the only truly required field - if missing, ask for it
+          if (!resolvedTaskName) {
+            return `What is the name of the task you'd like to create? (Request ID: ${requestId})`;
+          }
+
+          // B. Project Resolution (attempt, but don't fail)
+          let projectResolutionStatus = '';
+          if (!resolvedProjectGid) {
+            console.log(
+              `[AsanaTool] [${requestId}] No project GID found, attempting to resolve project name: "${resolvedProjectName}"`,
+            );
+            if (resolvedProjectName) {
+              try {
+                const projectLookup = await findProjectGidByName(
+                  this.client,
+                  resolvedProjectName,
+                  workspaceGid,
+                  requestId,
+                );
+                console.log(
+                  `[AsanaTool] [${requestId}] Project lookup result for "${resolvedProjectName}": ${projectLookup}`,
+                );
+
+                if (projectLookup === 'ambiguous') {
+                  projectResolutionStatus = `Ambiguous: Multiple projects match "${resolvedProjectName}"`;
+                } else if (!projectLookup) {
+                  projectResolutionStatus = `Not found: No project named "${resolvedProjectName}"`;
+                } else {
+                  resolvedProjectGid = projectLookup;
+                  projectResolutionStatus = 'Resolved successfully';
+                  console.log(
+                    `[AsanaTool] [${requestId}] Successfully resolved project "${resolvedProjectName}" to GID: ${resolvedProjectGid}`,
+                  );
+                }
+              } catch (error) {
+                projectResolutionStatus = `Error: Could not resolve project "${resolvedProjectName}": ${error instanceof Error ? error.message : 'Unknown error'}`;
+                console.log(
+                  `[AsanaTool] [${requestId}] Project resolution error: ${projectResolutionStatus}`,
+                );
+              }
             } else {
-              const userLookup = await findUserGidByEmailOrName(
-                this.client,
-                workspaceGid,
-                resolvedAssigneeName,
-                requestId,
-              );
-              if (userLookup === 'ambiguous') {
-                return `Multiple users match "${resolvedAssigneeName}". Please provide a more specific name or user GID. (Request ID: ${requestId})`;
-              }
-              if (!userLookup) {
-                return `User "${resolvedAssigneeName}" not found. Create task unassigned or try a different assignee? (Request ID: ${requestId})`;
-              }
-              assigneeGid = userLookup;
-              const userDetails = await this.client.request<any>(
-                `users/${assigneeGid}`,
+              projectResolutionStatus = 'Not specified';
+              console.log(`[AsanaTool] [${requestId}] No project name found`);
+            }
+          }
+
+          // Fetch project details if resolved
+          if (resolvedProjectGid) {
+            try {
+              const projectDetails = await this.client.request<any>(
+                `projects/${resolvedProjectGid}`,
                 'GET',
                 undefined,
-                { opt_fields: 'name' },
+                { opt_fields: 'name,permalink_url' },
                 requestId,
               );
-              resolvedAssigneeName = userDetails.name || resolvedAssigneeName;
+              resolvedProjectName = projectDetails.name;
+              projectPermalink = projectDetails.permalink_url;
+              projectResolutionStatus = 'Resolved successfully';
+            } catch (e) {
+              console.warn(
+                `[AsanaTool] [${requestId}] Failed to fetch details for project GID ${resolvedProjectGid}: ${e}`,
+              );
+              projectResolutionStatus = `Warning: Project GID ${resolvedProjectGid} exists but details couldn't be fetched`;
+              if (!resolvedProjectName)
+                resolvedProjectName = resolvedProjectGid;
             }
           }
 
-          // 3. Skip final confirmation for confirmations and direct project matches
-          if (
-            !confirmationNeeded &&
-            !isConfirmation &&
-            projectGid &&
-            projectGid !== 'ambiguous' &&
-            (resolvedAssigneeName
-              ? assigneeGid && assigneeGid !== 'ambiguous'
-              : true)
-          ) {
-            let confirmationMessage = `Ready to create task "${resolvedTaskName}"`;
-            if (
-              resolvedProjectName &&
-              projectGid &&
-              typeof projectGid === 'string'
-            ) {
-              confirmationMessage += ` in project "${resolvedProjectName}"`;
-            }
+          // C. Assignee Resolution (attempt, but don't fail)
+          let assigneeResolutionStatus = '';
+          if (createTaskIntent.assigneeName && !resolvedAssigneeGid) {
+            resolvedAssigneeName = createTaskIntent.assigneeName;
             if (
               resolvedAssigneeName &&
-              assigneeGid &&
-              typeof assigneeGid === 'string'
+              resolvedAssigneeName.toLowerCase() === 'me'
             ) {
-              confirmationMessage += ` and assign it to ${resolvedAssigneeName}`;
+              try {
+                const meUser = await getUsersMe(this.client, requestId);
+                resolvedAssigneeGid = meUser.gid;
+                resolvedAssigneeName = meUser.name;
+                assigneeResolutionStatus = 'Resolved to current user';
+              } catch (error) {
+                assigneeResolutionStatus = `Error: Could not resolve "me": ${error instanceof Error ? error.message : 'Unknown error'}`;
+              }
+            } else if (resolvedAssigneeName) {
+              try {
+                const userLookup = await findUserGidByEmailOrName(
+                  this.client,
+                  workspaceGid,
+                  resolvedAssigneeName,
+                  requestId,
+                );
+                if (userLookup === 'ambiguous') {
+                  assigneeResolutionStatus = `Ambiguous: Multiple users match "${resolvedAssigneeName}"`;
+                } else if (!userLookup) {
+                  assigneeResolutionStatus = `Not found: No user named or emailed "${resolvedAssigneeName}"`;
+                } else {
+                  resolvedAssigneeGid = userLookup;
+                  assigneeResolutionStatus = 'Resolved successfully';
+                  // Fetch canonical name if GID was resolved
+                  try {
+                    const userDetails = await this.client.request<any>(
+                      `users/${resolvedAssigneeGid}`,
+                      'GET',
+                      undefined,
+                      { opt_fields: 'name' },
+                      requestId,
+                    );
+                    resolvedAssigneeName =
+                      userDetails.name || resolvedAssigneeName;
+                  } catch (e) {
+                    console.warn(
+                      `[AsanaTool] [${requestId}] Failed to fetch details for user GID ${resolvedAssigneeGid}: ${e}`,
+                    );
+                  }
+                }
+              } catch (error) {
+                assigneeResolutionStatus = `Error: Could not resolve assignee "${resolvedAssigneeName}": ${error instanceof Error ? error.message : 'Unknown error'}`;
+              }
             }
-            confirmationMessage += `.\nPlease confirm (yes/no). (Request ID: ${requestId})`;
-
-            return JSON.stringify({
-              action: AsanaOperationType.CREATE_TASK,
-              confirmationRequired: true,
-              details: {
-                taskName: resolvedTaskName,
-                taskNotes: resolvedTaskNotes,
-                projectName: resolvedProjectName,
-                assigneeName: resolvedAssigneeName,
-                projectGid,
-                assigneeGid,
-              },
-              message: confirmationMessage,
-            });
+          } else if (!createTaskIntent.assigneeName) {
+            assigneeResolutionStatus = 'Not specified - will be unassigned';
           }
 
-          if (!projectGid || projectGid === 'ambiguous') {
-            return `Cannot create task: Project not resolved. Please specify a valid project. (Request ID: ${requestId})`;
-          }
-          if (
-            initialAssigneeName &&
-            (!assigneeGid || assigneeGid === 'ambiguous')
-          ) {
-            return `Cannot create task: Assignee "${initialAssigneeName}" not resolved. Please specify a valid assignee or omit. (Request ID: ${requestId})`;
-          }
-
-          const createTaskParams: CreateTaskParams = {
-            name: resolvedTaskName,
-            workspace: workspaceGid,
-            projects:
-              projectGid && typeof projectGid === 'string'
-                ? [projectGid]
-                : undefined,
-          };
-          if (resolvedTaskNotes) createTaskParams.notes = resolvedTaskNotes;
-          if (assigneeGid && typeof assigneeGid === 'string')
-            createTaskParams.assignee = assigneeGid;
-
-          // Process due date if provided
-          if (resolvedDueDate) {
-            const parsedDate = parseDateTime(resolvedDueDate);
+          // D. Due Date Resolution (attempt, but don't fail)
+          let dueDateResolutionStatus = '';
+          if (originalDueDateExpression) {
+            const parsedDate = parseDateTime(originalDueDateExpression);
             if (parsedDate.success && parsedDate.date) {
-              // Format date as YYYY-MM-DD for Asana API
-              const formattedDate = parsedDate.date.toISOString().split('T')[0];
-              createTaskParams.due_on = formattedDate;
-              console.log(
-                `[AsanaTool] [${requestId}] Parsed due date "${resolvedDueDate}" as ${formattedDate}`,
-              );
+              resolvedDueDate = parsedDate.date.toISOString().split('T')[0]; // YYYY-MM-DD
+              dueDateResolutionStatus = 'Parsed successfully';
+            } else {
+              dueDateResolutionStatus = `Could not parse: "${originalDueDateExpression}"`;
+            }
+          } else {
+            dueDateResolutionStatus = 'Not specified';
+          }
+
+          // --- Comprehensive Confirmation or Direct Creation ---
+
+          // If this is a confirmation response and we have minimum required info, proceed to creation
+          if (shouldProceedToCreation && resolvedTaskName) {
+            console.log(
+              `[AsanaTool] [${requestId}] User confirmed, proceeding with task creation`,
+            );
+            console.log(
+              `[AsanaTool] [${requestId}] Final values for creation: taskName="${resolvedTaskName}", projectGid="${resolvedProjectGid}", assigneeGid="${resolvedAssigneeGid}", dueDate="${resolvedDueDate}"`,
+            );
+
+            // Check if we have critical issues that would prevent creation
+            if (
+              !resolvedProjectGid &&
+              projectResolutionStatus.includes('Ambiguous')
+            ) {
+              return `Cannot create task: Project "${resolvedProjectName}" is ambiguous. Please specify which project by providing a more specific name or GID. (Request ID: ${requestId})`;
+            }
+
+            if (!resolvedProjectGid && !resolvedProjectName) {
+              return `Cannot create task: No project specified. Please specify a project for the task. (Request ID: ${requestId})`;
+            }
+
+            if (
+              !resolvedProjectGid &&
+              projectResolutionStatus.includes('Not found')
+            ) {
+              return `Cannot create task: Project "${resolvedProjectName}" was not found. Please check the project name or provide a valid project GID. (Request ID: ${requestId})`;
+            }
+
+            // Proceed with creation using available information
+            const createTaskParams: CreateTaskParams = {
+              name: resolvedTaskName,
+              workspace: workspaceGid,
+            };
+
+            // Add project if resolved - verify it's public to ensure task visibility
+            if (resolvedProjectGid) {
+              // Verify the project is actually public before creating tasks
+              try {
+                const visibilityCheck = await verifyProjectVisibility(
+                  this.client,
+                  resolvedProjectGid,
+                  requestId,
+                );
+
+                if (visibilityCheck.isPublic) {
+                  createTaskParams.projects = [resolvedProjectGid];
+                  console.log(
+                    `[AsanaTool] [${requestId}] ✅ Verified project ${resolvedProjectGid} is public (${visibilityCheck.details}). Task will inherit public visibility.`,
+                  );
+                } else {
+                  createTaskParams.projects = [resolvedProjectGid];
+                  console.warn(
+                    `[AsanaTool] [${requestId}] ⚠️ Warning: Project ${resolvedProjectGid} appears to be private (${visibilityCheck.details}). Task may inherit private visibility.`,
+                  );
+                }
+              } catch (error) {
+                // Still create the task but warn about verification failure
+                createTaskParams.projects = [resolvedProjectGid];
+                console.warn(
+                  `[AsanaTool] [${requestId}] ⚠️ Could not verify project visibility for ${resolvedProjectGid}: ${error}. Task will be created but visibility is uncertain.`,
+                );
+              }
             } else {
               console.warn(
-                `[AsanaTool] [${requestId}] Could not parse due date: "${resolvedDueDate}"`,
+                `[AsanaTool] [${requestId}] ⚠️ Warning: Creating task without a project. Task will default to private visibility. Consider specifying a public project.`,
               );
+            }
+
+            // Add notes if provided
+            if (finalTaskNotes) {
+              createTaskParams.notes = finalTaskNotes;
+            }
+
+            // Add assignee if resolved
+            if (resolvedAssigneeGid) {
+              createTaskParams.assignee = resolvedAssigneeGid;
+            }
+
+            // Add due date if resolved
+            if (resolvedDueDate) {
+              createTaskParams.due_on = resolvedDueDate; // Expects YYYY-MM-DD
+            }
+
+            console.log(
+              `[AsanaTool] [${requestId}] Creating task with params:`,
+              createTaskParams,
+            );
+
+            try {
+              const taskData = await createTask(
+                this.client,
+                createTaskParams,
+                requestId,
+              );
+              return formatTaskCreation(
+                taskData,
+                {
+                  projectName: resolvedProjectName || resolvedProjectGid,
+                  assigneeName: resolvedAssigneeName,
+                },
+                requestContext,
+              );
+            } catch (error) {
+              console.error(
+                `[AsanaTool] [${requestId}] Task creation failed:`,
+                error,
+              );
+              return `Error creating task: ${error instanceof Error ? error.message : 'Unknown error'}. (Request ID: ${requestId})`;
             }
           }
 
-          const taskData = await createTask(
-            this.client,
-            createTaskParams,
-            requestId,
+          // --- Comprehensive Confirmation ---
+          console.log(
+            `[AsanaTool] [${requestId}] Presenting comprehensive confirmation for task creation`,
           );
-          return formatTaskCreation(
-            taskData,
-            {
-              projectName: resolvedProjectName,
-              assigneeName: resolvedAssigneeName,
-            },
-            requestContext,
-          );
+
+          const confirmationMessageParts = [`**Task:** ${resolvedTaskName}`];
+
+          // Project display
+          let projectDisplay = '';
+          if (resolvedProjectGid && projectPermalink) {
+            projectDisplay = `[${resolvedProjectName}](${projectPermalink})`;
+          } else if (resolvedProjectName) {
+            projectDisplay = resolvedProjectName;
+          } else {
+            projectDisplay = 'Not specified';
+          }
+          if (projectResolutionStatus !== 'Resolved successfully') {
+            projectDisplay += ` _(${projectResolutionStatus})_`;
+          }
+          confirmationMessageParts.push(`**Project:** ${projectDisplay}`);
+
+          // Assignee display
+          let assigneeDisplay = '';
+          if (resolvedAssigneeGid && resolvedAssigneeName) {
+            assigneeDisplay = resolvedAssigneeName; // Could add user link if Asana provides user URLs
+          } else if (resolvedAssigneeName) {
+            assigneeDisplay = resolvedAssigneeName;
+          } else {
+            assigneeDisplay = 'Unassigned';
+          }
+          if (
+            assigneeResolutionStatus &&
+            assigneeResolutionStatus !== 'Resolved successfully' &&
+            assigneeResolutionStatus !== 'Not specified - will be unassigned'
+          ) {
+            assigneeDisplay += ` _(${assigneeResolutionStatus})_`;
+          }
+          confirmationMessageParts.push(`**Assignee:** ${assigneeDisplay}`);
+
+          // Due date display
+          let dueDateDisplay = '';
+          if (resolvedDueDate) {
+            dueDateDisplay = resolvedDueDate;
+          } else if (originalDueDateExpression) {
+            dueDateDisplay = `Not set _(${dueDateResolutionStatus})_`;
+          } else {
+            dueDateDisplay = 'Not set';
+          }
+          confirmationMessageParts.push(`**Due Date:** ${dueDateDisplay}`);
+
+          // Notes display
+          const notesDisplay = finalTaskNotes || 'None';
+          confirmationMessageParts.push(`**Notes:** ${notesDisplay}`);
+
+          const fullConfirmationPrompt = `I'm ready to create this Asana task. Please review the details:
+
+${confirmationMessageParts.join('\n')}
+
+${
+  projectResolutionStatus.includes('Ambiguous') ||
+  projectResolutionStatus.includes('Not found') ||
+  assigneeResolutionStatus.includes('Ambiguous') ||
+  assigneeResolutionStatus.includes('Not found') ||
+  dueDateResolutionStatus.includes('Could not parse')
+    ? "\n⚠️ **Note:** Some fields couldn't be resolved as shown above. The task will be created with available information.\n"
+    : ''
+}
+Confirm to create this task, or provide corrections. (Request ID: ${requestId})`;
+
+          return fullConfirmationPrompt;
         }
 
         case AsanaOperationType.UPDATE_TASK: {
@@ -410,12 +752,11 @@ export class AsanaTool extends Tool {
 
           const updateFields = extractTaskUpdateFields(actionDescription);
 
-          // Ensure at least one updatable field is present
           if (
             !updateFields.notes &&
             !updateFields.dueDate &&
             updateFields.completed === undefined &&
-            !updateFields.name // Assuming name updates might be added here later
+            !updateFields.name
           ) {
             return `Could not determine the changes to make to the task. Please specify what to update (e.g., description, due date, status). (Request ID: ${requestContext.requestId})`;
           }
@@ -427,7 +768,6 @@ export class AsanaTool extends Tool {
 
           let actualTaskGid = taskGidFromInput;
           if (!actualTaskGid && taskNameFromInput) {
-            // For UPDATE_TASK, find the task regardless of its current completion status.
             const taskLookup = await findTaskGidByName(
               this.client,
               taskNameFromInput,
@@ -447,7 +787,6 @@ export class AsanaTool extends Tool {
             return `Error: Could not identify the task for update. (Request ID: ${requestContext.requestId})`;
           }
 
-          // Prepare the payload for the API call
           const updatePayload: UpdateTaskParams = {};
           if (updateFields.notes) {
             updatePayload.notes = updateFields.notes;
@@ -465,7 +804,6 @@ export class AsanaTool extends Tool {
               return `Error: Could not understand the due date "${updateFields.dueDate}". ${parsedResult.errorMessage}${parsedResult.suggestions ? `\n\n${parsedResult.suggestions.join('\n')}` : ''} (Request ID: ${requestContext.requestId})`;
             }
 
-            // Use the formatted result from our enhanced parser
             if (parsedResult.hasTime) {
               updatePayload.due_at = parsedResult.formattedForAsana.due_at;
             } else {
@@ -502,7 +840,6 @@ export class AsanaTool extends Tool {
           let actualTaskGid = taskGidFromInput;
 
           if (!actualTaskGid && taskNameFromInput) {
-            // For GET_TASK_DETAILS, find the task regardless of its current completion status.
             const findResult = await findTaskGidByName(
               this.client,
               taskNameFromInput,
@@ -535,49 +872,64 @@ export class AsanaTool extends Tool {
         }
 
         case AsanaOperationType.LIST_TASKS: {
-          // Get the list tasks intent
           const listTasksIntent = parsedIntent as any;
 
-          // Get the workspace GID
           const workspaceGid = getWorkspaceGid();
           if (!workspaceGid) {
             return `Error: Default Asana workspace is not configured. Please configure ASANA_DEFAULT_WORKSPACE_GID in your environment. (Request ID: ${requestContext.requestId})`;
           }
 
-          // Prepare list tasks params
           const listTasksParams: any = {
             workspace: workspaceGid,
           };
 
-          // Add filters
+          // Handle assignee resolution
           if (listTasksIntent.assignedToMe) {
             listTasksParams.assignee = 'me';
+          } else if (
+            listTasksIntent.assigneeName ||
+            listTasksIntent.assigneeEmail
+          ) {
+            // Resolve assignee name/email to GID
+            const assigneeIdentifier =
+              listTasksIntent.assigneeEmail || listTasksIntent.assigneeName;
+
+            try {
+              const assigneeGid = await findUserGidByEmailOrName(
+                this.client,
+                workspaceGid,
+                assigneeIdentifier,
+                requestContext.requestId,
+              );
+
+              if (assigneeGid === 'ambiguous') {
+                return `Error: Multiple users found matching "${assigneeIdentifier}". Please be more specific with the user name or provide an email. (Request ID: ${requestContext.requestId})`;
+              }
+
+              if (!assigneeGid) {
+                return `Error: No user found matching "${assigneeIdentifier}". Please check the name/email and try again. (Request ID: ${requestContext.requestId})`;
+              }
+
+              listTasksParams.assignee = assigneeGid;
+              console.log(
+                `[AsanaTool] [${requestContext.requestId}] Resolved assignee "${assigneeIdentifier}" to GID: ${assigneeGid}`,
+              );
+            } catch (error) {
+              return `Error looking up user "${assigneeIdentifier}": ${error instanceof Error ? error.message : 'Unknown error'}. (Request ID: ${requestContext.requestId})`;
+            }
           }
 
-          // Handle completion status for task listing
           if (listTasksIntent.completed === true) {
-            // Asana's `completed_since` parameter is for incomplete tasks.
-            // To get *only* completed tasks reliably, one typically needs to use
-            // `completed_on` with a date or `completed_until`, or fetch all and filter.
-            // For now, inform the user and show active tasks.
-            // We'll still set completed_since to 'now' to show active tasks predominantly.
             console.warn(
               `[AsanaTool] [${requestContext.requestId}] User requested completed tasks. Current implementation primarily shows active tasks. Consider enhancing completed task filtering.`,
             );
-            // By default, if neither completed nor incomplete is specified, we show incomplete tasks.
-            // If 'completed' is specified, for now, we still show active tasks as this is what completed_since=now does.
-            // A future improvement could be to fetch with a wider date range for 'completed_on' or leave completed_since unset.
-            listTasksParams.completed_since = 'now'; // Shows incomplete, which is the active view.
-            // It might be better to return a message here and not proceed if this is not the desired behavior.
-            // For now, let's proceed with showing active tasks and potentially add a note in the formatter.
+            listTasksParams.completed_since = 'now';
           } else if (listTasksIntent.completed === false) {
-            listTasksParams.completed_since = 'now'; // Explicitly ask for incomplete
+            listTasksParams.completed_since = 'now';
           } else {
-            // Default to incomplete tasks if not specified
             listTasksParams.completed_since = 'now';
           }
 
-          // If project name is specified, resolve it to a GID
           if (listTasksIntent.projectName) {
             try {
               const projectGid = await findProjectGidByName(
@@ -594,7 +946,6 @@ export class AsanaTool extends Tool {
               if (projectGid) {
                 listTasksParams.project = projectGid;
               } else {
-                // Project not found, so return a helpful message
                 return `No project found matching "${listTasksIntent.projectName}". Please check the project name and try again. (Request ID: ${requestContext.requestId})`;
               }
             } catch (error) {
@@ -603,22 +954,29 @@ export class AsanaTool extends Tool {
             }
           }
 
-          // List the tasks
+          // Create custom filter description for specific assignee
+          let customFilterDescription = '';
+          if (listTasksIntent.assigneeName || listTasksIntent.assigneeEmail) {
+            const assigneeName =
+              listTasksIntent.assigneeName || listTasksIntent.assigneeEmail;
+            customFilterDescription = ` assigned to ${assigneeName}`;
+          }
+
           const tasksData = await listTasks(
             this.client,
             listTasksParams,
             requestContext.requestId,
           );
 
-          return formatTaskList(
-            tasksData,
-            {
-              projectName: listTasksIntent.projectName,
-              assignedToMe: listTasksIntent.assignedToMe,
-              completed: listTasksIntent.completed,
-            },
-            requestContext,
-          );
+          // Enhanced filter context for formatting
+          const filterContext = {
+            projectName: listTasksIntent.projectName,
+            assignedToMe: listTasksIntent.assignedToMe,
+            completed: listTasksIntent.completed,
+            customDescription: customFilterDescription,
+          };
+
+          return formatTaskList(tasksData, filterContext, requestContext);
         }
 
         case AsanaOperationType.COMPLETE_TASK:
@@ -659,7 +1017,6 @@ export class AsanaTool extends Tool {
             }
           }
 
-          // If after trying to get by GID or by Name, we still don't have a GID, then error out.
           if (!actualTaskGid) {
             const actionVerb =
               parsedIntent.operationType === AsanaOperationType.COMPLETE_TASK
@@ -668,13 +1025,12 @@ export class AsanaTool extends Tool {
             return `Error: Could not identify the task to ${actionVerb}. Please provide a task GID or name. (Request ID: ${requestContext.requestId})`;
           }
 
-          // By this point, actualTaskGid is guaranteed to be a string.
           const newCompletedStatus =
             parsedIntent.operationType === AsanaOperationType.COMPLETE_TASK;
 
           const updatedTask = await updateTask(
             this.client,
-            actualTaskGid, // No non-null assertion needed here
+            actualTaskGid,
             { completed: newCompletedStatus },
             requestContext.requestId,
           );
@@ -686,30 +1042,65 @@ export class AsanaTool extends Tool {
           );
         }
 
-        case AsanaOperationType.CREATE_PROJECT:
-          // Implementation of project creation
-          // This is a placeholder
-          return `This operation is not yet implemented: Create Project (Request ID: ${requestContext.requestId})`;
+        case AsanaOperationType.CREATE_PROJECT: {
+          const createProjectIntent = parsedIntent as any;
+          const workspaceGid = getWorkspaceGid();
+
+          if (!workspaceGid) {
+            return `Error: Default Asana workspace is not configured. Please configure ASANA_DEFAULT_WORKSPACE_GID. (Request ID: ${requestContext.requestId})`;
+          }
+
+          if (!createProjectIntent.projectName) {
+            return `Error: Project name is required to create a project. (Request ID: ${requestContext.requestId})`;
+          }
+
+          // Prepare project creation parameters with public visibility by default
+          const createProjectParams = {
+            name: createProjectIntent.projectName,
+            workspace: workspaceGid,
+            privacy_setting: 'public_to_workspace' as const,
+            public: true,
+            ...(createProjectIntent.teamGid && {
+              team: createProjectIntent.teamGid,
+            }),
+            ...(createProjectIntent.notes && {
+              notes: createProjectIntent.notes,
+            }),
+          };
+
+          try {
+            const projectData = await createProject(
+              this.client,
+              createProjectParams,
+              requestContext.requestId,
+            );
+
+            return `Successfully created public Asana project: "${projectData.name}" (GID: ${projectData.gid})
+Privacy: Public to workspace
+${projectData.permalink_url ? `Permalink: ${projectData.permalink_url}` : ''}
+(Request ID: ${requestContext.requestId})`;
+          } catch (error) {
+            console.error(
+              `[AsanaTool] [${requestContext.requestId}] Project creation failed:`,
+              error,
+            );
+            return `Error creating project: ${error instanceof Error ? error.message : 'Unknown error'}. (Request ID: ${requestContext.requestId})`;
+          }
+        }
 
         case AsanaOperationType.UPDATE_PROJECT:
-          // Implementation of project update
-          // This is a placeholder
           return `This operation is not yet implemented: Update Project (Request ID: ${requestContext.requestId})`;
 
         case AsanaOperationType.LIST_PROJECTS: {
-          // Get the workspace GID
           const workspaceGid = getWorkspaceGid();
           if (!workspaceGid) {
             return `Error: Default Asana workspace is not configured. Please configure ASANA_DEFAULT_WORKSPACE_GID in your environment. (Request ID: ${requestContext.requestId})`;
           }
 
-          // Get the list projects intent
           const listProjectsIntent = parsedIntent as any;
 
-          // Get archived parameter
           const archived = listProjectsIntent.archived || false;
 
-          // List the projects
           const projectsData = await listProjects(
             this.client,
             workspaceGid,
@@ -745,8 +1136,8 @@ export class AsanaTool extends Tool {
             {
               workspaceGid,
               query,
-              resourceType, // Will be undefined if not specified by user, leading to mixed results
-              count: 10, // Default to 10 results for general search
+              resourceType,
+              count: 10,
             },
             requestContext.requestId,
           );
@@ -780,7 +1171,7 @@ export class AsanaTool extends Tool {
               taskNameFromInput,
               workspaceGid,
               projectContext,
-              true, // Search for task regardless of completion status
+              true,
               requestContext.requestId,
             );
             if (taskLookup.type === 'found') actualTaskGid = taskLookup.gid;
@@ -805,7 +1196,7 @@ export class AsanaTool extends Tool {
             } else {
               const userLookupResult = await findUserGidByEmailOrName(
                 this.client,
-                workspaceGid, // Corrected order: client, workspaceGid, userNameOrEmail
+                workspaceGid,
                 userNameOrEmail,
                 requestContext.requestId,
               );
@@ -814,7 +1205,6 @@ export class AsanaTool extends Tool {
               } else if (userLookupResult === 'ambiguous') {
                 return `Error: User "${userNameOrEmail}" to add as follower is ambiguous. Please provide a unique identifier or GID. (Request ID: ${requestContext.requestId})`;
               } else {
-                // userLookupResult is undefined (not found)
                 return `Error: User "${userNameOrEmail}" not found to add as follower. (Request ID: ${requestContext.requestId})`;
               }
             }
@@ -832,8 +1222,8 @@ export class AsanaTool extends Tool {
           );
           return formatAddFollowerResponse(
             updatedTaskData,
-            userNameOrEmail || actualUserGid, // Pass the identifier used by the user or the resolved GID
-            taskNameFromInput || actualTaskGid, // Pass the task name used by user or resolved GID
+            userNameOrEmail || actualUserGid,
+            taskNameFromInput || actualTaskGid,
             requestContext,
           );
         }
@@ -859,7 +1249,7 @@ export class AsanaTool extends Tool {
               taskNameFromInput,
               workspaceGid,
               projectContext,
-              true, // Search for task regardless of completion status
+              true,
               requestContext.requestId,
             );
             if (taskLookup.type === 'found') actualTaskGid = taskLookup.gid;
@@ -893,7 +1283,6 @@ export class AsanaTool extends Tool {
               } else if (userLookupResult === 'ambiguous') {
                 return `Error: User "${userNameOrEmail}" to remove as follower is ambiguous. Please provide a unique identifier or GID. (Request ID: ${requestContext.requestId})`;
               } else {
-                // userLookupResult is undefined (not found)
                 return `Error: User "${userNameOrEmail}" not found to remove as follower. (Request ID: ${requestContext.requestId})`;
               }
             }
@@ -910,7 +1299,7 @@ export class AsanaTool extends Tool {
             requestContext.requestId,
           );
           return formatRemoveFollowerResponse(
-            updatedTaskData, // This might be an empty object if Asana returns 204 No Content
+            updatedTaskData,
             userNameOrEmail || actualUserGid,
             taskNameFromInput || actualTaskGid,
             requestContext,
@@ -962,7 +1351,6 @@ export class AsanaTool extends Tool {
 
           const updatePayload: { due_on?: string; due_at?: string } = {};
 
-          // Use the formatted result from our enhanced parser
           if (parsedResult.hasTime) {
             updatePayload.due_at = parsedResult.formattedForAsana.due_at;
           } else {
@@ -984,6 +1372,9 @@ export class AsanaTool extends Tool {
             parentTaskName,
             parentProjectName,
             subtaskName,
+            assigneeName,
+            dueDate,
+            notes,
           } = extractSubtaskCreationDetails(actionDescription);
 
           if (!subtaskName) {
@@ -995,36 +1386,59 @@ export class AsanaTool extends Tool {
             return `Error: Default Asana workspace GID is not configured. (Request ID: ${requestContext.requestId})`;
           }
 
-          // If no parent project specified, prompt the user to select one for context (optional, but can help with parent task disambiguation)
-          if (!parentProjectName) {
-            const projects = await listProjects(
-              this.client,
-              workspaceGid,
-              false,
-              requestContext.requestId,
-            );
-            if (!projects || projects.length === 0) {
-              return `No projects found in your Asana workspace. Please create a project first. (Request ID: ${requestContext.requestId})`;
+          // Resolve input parameters with conversation context if needed
+          const resolvedParentTaskGid = parentGidFromInput;
+          const resolvedParentTaskName = parentTaskName;
+          const resolvedParentProjectName = parentProjectName;
+          let resolvedParentProjectGid: string | undefined;
+
+          // If we have a project name, resolve it to a GID for task lookup
+          if (resolvedParentProjectName) {
+            try {
+              const projectLookupResult = await findProjectGidByName(
+                this.client,
+                resolvedParentProjectName,
+                workspaceGid,
+                requestContext.requestId,
+              );
+              if (
+                typeof projectLookupResult === 'string' &&
+                projectLookupResult !== 'ambiguous'
+              ) {
+                resolvedParentProjectGid = projectLookupResult;
+              } else if (projectLookupResult === 'ambiguous') {
+                return `Error: Project "${resolvedParentProjectName}" is ambiguous - multiple projects found with that name. Please be more specific. (Request ID: ${requestContext.requestId})`;
+              } else {
+                return `Error: Project "${resolvedParentProjectName}" not found. (Request ID: ${requestContext.requestId})`;
+              }
+            } catch (error) {
+              return `Error: Failed to resolve project "${resolvedParentProjectName}": ${error} (Request ID: ${requestContext.requestId})`;
             }
-            return `Please specify which project the parent task belongs to (for better subtask association). Here are your available projects:\n\n${formatProjectList(projects, {}, requestContext)}\n\nReply with the project name or GID.`;
           }
 
-          let actualParentTaskGid = parentGidFromInput;
-          if (!actualParentTaskGid && parentTaskName) {
+          // If no parent task info provided, try to infer from conversation context
+          if (!resolvedParentTaskGid && !resolvedParentTaskName) {
+            // This would be enhanced with conversation memory lookup
+            // For now, provide a helpful error message
+            return `Error: Could not identify the parent task for the subtask. Please specify:\n- The parent task name (e.g., "add subtask to task 'test5'")\n- Or provide more context about which task should be the parent\n(Request ID: ${requestContext.requestId})`;
+          }
+
+          let actualParentTaskGid = resolvedParentTaskGid;
+          if (!actualParentTaskGid && resolvedParentTaskName) {
             const parentTaskLookup = await findTaskGidByName(
               this.client,
-              parentTaskName,
+              resolvedParentTaskName,
               workspaceGid,
-              parentProjectName, // Use project context if available for parent task
-              true, // Include completed tasks in search for parent
+              resolvedParentProjectGid, // Now using the resolved project GID, not name
+              true,
               requestContext.requestId,
             );
             if (parentTaskLookup.type === 'found') {
               actualParentTaskGid = parentTaskLookup.gid;
             } else if (parentTaskLookup.type === 'ambiguous') {
-              return `Error: Parent task "${parentTaskName}" is ambiguous: ${parentTaskLookup.message} (Request ID: ${requestContext.requestId})`;
+              return `Error: Parent task "${resolvedParentTaskName}" is ambiguous: ${parentTaskLookup.message} (Request ID: ${requestContext.requestId})`;
             } else {
-              return `Error: Parent task "${parentTaskName}" not found. (Request ID: ${requestContext.requestId})`;
+              return `Error: Parent task "${resolvedParentTaskName}" not found in project "${resolvedParentProjectName}". (Request ID: ${requestContext.requestId})`;
             }
           }
 
@@ -1032,37 +1446,99 @@ export class AsanaTool extends Tool {
             return `Error: Could not identify the parent task to add a subtask to. Please provide a parent task GID or a clear name. (Request ID: ${requestContext.requestId})`;
           }
 
-          // Create subtask params
+          // Prepare subtask creation parameters
           const subtaskParams: CreateTaskParams = {
             name: subtaskName,
-            workspace: workspaceGid, // Subtasks still need workspace GID
+            workspace: workspaceGid,
             parent: actualParentTaskGid,
           };
 
-          // Create the subtask
+          // Handle notes if provided
+          if (notes) {
+            subtaskParams.notes = notes;
+          }
+
+          // Handle assignee if provided
+          let assigneeGid: string | undefined;
+          let resolvedAssigneeName: string | undefined;
+          if (assigneeName) {
+            if (assigneeName.toLowerCase() === 'me') {
+              // Get current user
+              const currentUser = await getUsersMe(
+                this.client,
+                requestContext.requestId,
+              );
+              assigneeGid = currentUser.gid;
+              resolvedAssigneeName = currentUser.name;
+            } else {
+              // Lookup user by name/email
+              const userGidResult = await findUserGidByEmailOrName(
+                this.client,
+                workspaceGid,
+                assigneeName,
+                requestContext.requestId,
+              );
+              if (userGidResult && userGidResult !== 'ambiguous') {
+                assigneeGid = userGidResult;
+                resolvedAssigneeName = assigneeName;
+              } else if (userGidResult === 'ambiguous') {
+                return `Error: User "${assigneeName}" is ambiguous. Please provide a more specific name or email. (Request ID: ${requestContext.requestId})`;
+              } else {
+                return `Error: Could not find user "${assigneeName}". Please provide a valid Asana username or email. (Request ID: ${requestContext.requestId})`;
+              }
+            }
+            subtaskParams.assignee = assigneeGid;
+          }
+
+          // Handle due date if provided
+          if (dueDate) {
+            const parsedDate = parseDateTime(dueDate);
+            if (parsedDate.success) {
+              // For subtask creation, we can only use due_on (date only)
+              // If the parsed date has time components, we'll use the date part
+              if (parsedDate.formattedForAsana.due_on) {
+                subtaskParams.due_on = parsedDate.formattedForAsana.due_on;
+              } else if (parsedDate.formattedForAsana.due_at) {
+                // Extract date part from ISO string for due_on
+                const isoDate = parsedDate.formattedForAsana.due_at;
+                subtaskParams.due_on = isoDate.split('T')[0]; // Extract YYYY-MM-DD part
+              }
+            } else {
+              return `Error: Could not parse due date "${dueDate}". Please use formats like "tomorrow", "monday", "2024-12-25". (Request ID: ${requestContext.requestId})`;
+            }
+          }
+
           const createdSubtask = await createTask(
             this.client,
             subtaskParams,
             requestContext.requestId,
           );
 
-          // Use the existing formatTaskCreation, it should work fine for subtasks too.
-          // We might want a more specific formatter later if needed.
-          return formatTaskCreation(
-            createdSubtask,
-            {
-              projectName: parentProjectName,
-            },
-            requestContext,
-          );
+          // Format the response with subtask-specific information
+          let responseMessage = `Successfully created subtask: [${createdSubtask.name}](${createdSubtask.permalink_url}) (GID: ${createdSubtask.gid})\n`;
+          responseMessage += `- Parent task: ${resolvedParentTaskName || actualParentTaskGid}\n`;
+          responseMessage += `- Project: ${resolvedParentProjectName}\n`;
+          if (resolvedAssigneeName) {
+            responseMessage += `- Assignee: ${resolvedAssigneeName}\n`;
+          }
+          if (notes) {
+            responseMessage += `- Description: ${notes}\n`;
+          }
+          if (dueDate && subtaskParams.due_on) {
+            responseMessage += `- Due on: ${subtaskParams.due_on}\n`;
+          }
+          responseMessage += `\n📋 Note: Task visibility inherits from project "${resolvedParentProjectName}" settings.\n`;
+          responseMessage += `(Request ID: ${requestContext.requestId})`;
+
+          return responseMessage;
         }
 
         case AsanaOperationType.LIST_SUBTASKS: {
           const {
             gid: parentGidFromInput,
             name: parentTaskNameFromInput,
-            projectName: parentProjectContext, // Project context of the parent task
-          } = extractTaskIdentifier(actionDescription); // Use existing extractor for parent task
+            projectName: parentProjectContext,
+          } = extractTaskIdentifier(actionDescription);
 
           const workspaceGid = getWorkspaceGid();
           if (!workspaceGid) {
@@ -1070,7 +1546,7 @@ export class AsanaTool extends Tool {
           }
 
           let actualParentTaskGid = parentGidFromInput;
-          let resolvedParentTaskName = parentTaskNameFromInput; // Keep for formatter
+          let resolvedParentTaskName = parentTaskNameFromInput;
 
           if (!actualParentTaskGid && parentTaskNameFromInput) {
             const parentTaskLookup = await findTaskGidByName(
@@ -1078,12 +1554,12 @@ export class AsanaTool extends Tool {
               parentTaskNameFromInput,
               workspaceGid,
               parentProjectContext,
-              true, // Include completed tasks in search for parent
+              true,
               requestContext.requestId,
             );
             if (parentTaskLookup.type === 'found') {
               actualParentTaskGid = parentTaskLookup.gid;
-              resolvedParentTaskName = parentTaskLookup.name; // Use the name from lookup
+              resolvedParentTaskName = parentTaskLookup.name;
             } else if (parentTaskLookup.type === 'ambiguous') {
               return `Error: Parent task "${parentTaskNameFromInput}" is ambiguous: ${parentTaskLookup.message} (Request ID: ${requestContext.requestId})`;
             } else {
@@ -1098,11 +1574,10 @@ export class AsanaTool extends Tool {
           const subtasksData = await getSubtasks(
             this.client,
             actualParentTaskGid,
-            undefined, // Use default opt_fields for now
+            undefined,
             requestContext.requestId,
           );
 
-          // Use existing formatTaskList, but add context about the parent task
           const parentTaskIdentifier =
             resolvedParentTaskName || actualParentTaskGid;
           const listTitle = `Subtasks for parent task "${parentTaskIdentifier}"`;
@@ -1110,14 +1585,12 @@ export class AsanaTool extends Tool {
           if (subtasksData.length === 0) {
             return `${listTitle}: None found. (Request ID: ${requestContext.requestId})`;
           }
-          // Re-using formatTaskList might be okay, or a dedicated subtask list formatter could be better for clarity
-          // For now, prepend a title to the existing formatter's output.
           const formattedSubtaskList = formatTaskList(
             subtasksData,
             {},
             requestContext,
           );
-          return `${listTitle}:\n${formattedSubtaskList.substring(formattedSubtaskList.indexOf(':\n') + 2)}`; // Attempt to clean up original title
+          return `${listTitle}:\n${formattedSubtaskList.substring(formattedSubtaskList.indexOf(':\n') + 2)}`;
         }
 
         case AsanaOperationType.ADD_TASK_DEPENDENCY:
@@ -1135,7 +1608,6 @@ export class AsanaTool extends Tool {
             return `Error: Default Asana workspace GID is not configured. (Request ID: ${requestContext.requestId})`;
           }
 
-          // Resolve dependent task GID
           let actualDependentTaskGid = dependentGidFromInput;
           if (!actualDependentTaskGid && dependentTaskName) {
             const dependentTaskLookup = await findTaskGidByName(
@@ -1143,7 +1615,7 @@ export class AsanaTool extends Tool {
               dependentTaskName,
               workspaceGid,
               projectContext,
-              true, // Search for task regardless of completion status
+              true,
               requestContext.requestId,
             );
             if (dependentTaskLookup.type === 'found') {
@@ -1155,7 +1627,6 @@ export class AsanaTool extends Tool {
             }
           }
 
-          // Resolve dependency task GID
           let actualDependencyTaskGid = dependencyGidFromInput;
           if (!actualDependencyTaskGid && dependencyTaskName) {
             const dependencyTaskLookup = await findTaskGidByName(
@@ -1163,7 +1634,7 @@ export class AsanaTool extends Tool {
               dependencyTaskName,
               workspaceGid,
               projectContext,
-              true, // Search for task regardless of completion status
+              true,
               requestContext.requestId,
             );
             if (dependencyTaskLookup.type === 'found') {
@@ -1183,7 +1654,6 @@ export class AsanaTool extends Tool {
             return `Error: Could not identify the dependency task. Please provide a task GID or clear name. (Request ID: ${requestContext.requestId})`;
           }
 
-          // Perform the dependency operation
           try {
             if (
               parsedIntent.operationType ===
@@ -1256,7 +1726,7 @@ ${updatedTask.permalink_url ? `View task at: ${updatedTask.permalink_url}` : ''}
           const sectionsData = await getProjectSections(
             this.client,
             actualProjectGid,
-            undefined, // Use default opt_fields
+            undefined,
             requestContext.requestId,
           );
 
@@ -1349,7 +1819,7 @@ ${updatedTask.permalink_url ? `View task at: ${updatedTask.permalink_url}` : ''}
               taskNameFromInput,
               workspaceGid,
               taskProjectName,
-              true, // Include completed tasks
+              true,
               requestContext.requestId,
             );
             if (taskLookup.type === 'found') {
@@ -1369,8 +1839,6 @@ ${updatedTask.permalink_url ? `View task at: ${updatedTask.permalink_url}` : ''}
           const resolvedSectionName = sectionNameFromInput;
 
           if (!actualSectionGid && sectionNameFromInput) {
-            // Need to find the section, but we need the project GID for that
-            // Try to get project GID from the task details first
             let projectGidForSection: string | undefined;
 
             if (taskProjectName) {
@@ -1386,7 +1854,6 @@ ${updatedTask.permalink_url ? `View task at: ${updatedTask.permalink_url}` : ''}
             }
 
             if (!projectGidForSection) {
-              // Get task details to find its project
               const taskDetails = await getTaskDetails(
                 this.client,
                 actualTaskGid,
@@ -1442,9 +1909,67 @@ ${updatedTask.permalink_url ? `View task at: ${updatedTask.permalink_url}` : ''}
           );
         }
 
+        case AsanaOperationType.DELETE_TASK: {
+          const {
+            gid: taskGidFromInput,
+            name: taskNameFromInput,
+            projectName: projectContext,
+          } = extractTaskIdentifier(actionDescription);
+
+          const workspaceGid = getWorkspaceGid();
+          if (!workspaceGid) {
+            return `Error: Default Asana workspace GID is not configured. (Request ID: ${requestContext.requestId})`;
+          }
+
+          let actualTaskGid = taskGidFromInput;
+          let actualTaskName = taskNameFromInput;
+
+          if (!actualTaskGid && taskNameFromInput) {
+            const taskLookup = await findTaskGidByName(
+              this.client,
+              taskNameFromInput,
+              workspaceGid,
+              projectContext,
+              true,
+              requestContext.requestId,
+            );
+            if (taskLookup.type === 'found') {
+              actualTaskGid = taskLookup.gid;
+              actualTaskName = taskLookup.name;
+            } else if (taskLookup.type === 'ambiguous') {
+              return `Error: Task to delete is ambiguous: ${taskLookup.message} (Request ID: ${requestContext.requestId})`;
+            } else {
+              return `Error: Task named "${taskNameFromInput}"${projectContext ? ` in project "${projectContext}"` : ''} not found to delete. (Request ID: ${requestContext.requestId})`;
+            }
+          }
+
+          if (!actualTaskGid) {
+            return `Error: Could not identify the task to delete. Please provide a task GID or clear name. (Request ID: ${requestContext.requestId})`;
+          }
+
+          try {
+            const success = await deleteTask(
+              this.client,
+              actualTaskGid,
+              requestContext.requestId,
+            );
+
+            if (success) {
+              return `Successfully deleted task "${actualTaskName || actualTaskGid}"${projectContext ? ` in project "${projectContext}"` : ''}. The task has been moved to the trash and can be recovered within a limited time. (Request ID: ${requestContext.requestId})`;
+            } else {
+              return `Failed to delete task "${actualTaskName || actualTaskGid}". (Request ID: ${requestContext.requestId})`;
+            }
+          } catch (error) {
+            console.error(
+              `[AsanaTool] [${requestContext.requestId}] Task deletion failed:`,
+              error,
+            );
+            return `Error deleting task: ${error instanceof Error ? error.message : 'Unknown error'}. (Request ID: ${requestContext.requestId})`;
+          }
+        }
+
         case AsanaOperationType.UNKNOWN:
         default: {
-          // Handle unknown or unsupported operations
           let finalErrorMessage = `I couldn't understand what Asana operation you want to perform. Please try rephrasing your request. (Request ID: ${requestContext.requestId})`;
           if (
             'errorMessage' in parsedIntent &&
@@ -1456,7 +1981,6 @@ ${updatedTask.permalink_url ? `View task at: ${updatedTask.permalink_url}` : ''}
         }
       }
     } catch (error) {
-      // Handle errors
       if (error instanceof AsanaIntegrationError) {
         console.error(
           `[AsanaTool] [${requestContext.requestId}] ${error.toLogString()}`,
@@ -1464,7 +1988,6 @@ ${updatedTask.permalink_url ? `View task at: ${updatedTask.permalink_url}` : ''}
         return error.toUserFriendlyMessage();
       }
 
-      // Generic error handling
       return logAndFormatError(
         error,
         'Asana operation',
@@ -1474,5 +1997,4 @@ ${updatedTask.permalink_url ? `View task at: ${updatedTask.permalink_url}` : ''}
   }
 }
 
-// Create a singleton instance
 export const asanaTool = new AsanaTool();
