@@ -74,10 +74,16 @@ export function extractTaskParameters(input: string): {
       /(?:due|due date|deadline)\s+(?:by|on|at)\s+(\w+\s+\d+(?:st|nd|rd|th)?(?:,\s+\d{4})?)/i,
     ) ||
     input.match(
-      /(?:due|due date|deadline)\s+(?:by|on|at)\s+(today|tomorrow|next week|next month)/i,
+      /(?:due|due date|deadline)\s+(?:by|on|at|for)\s+(today|tomorrow|next\s+(?:week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday))/i,
     ) ||
     input.match(
-      /(?:make|set)\s+(?:the\s+)?(?:due\s+date|deadline)\s+(?:to\s+)?(today|tomorrow|next\s+\w+)/i,
+      /(?:make|set)\s+(?:the\s+)?(?:due\s+date|deadline)\s+(?:to\s+|for\s+)?(today|tomorrow|next\s+(?:week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday))/i,
+    ) ||
+    input.match(
+      /(?:and|with)\s+(?:a\s+)?(?:due\s+date|deadline)\s+(?:of|on|at|for)\s+(today|tomorrow|next\s+(?:week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday))/i,
+    ) ||
+    input.match(
+      /(?:due|deadline)\s+(?:for|on)\s+(today|tomorrow|next\s+(?:week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday))/i,
     );
   const dueDate = dueDateMatch?.[1];
 
@@ -234,13 +240,77 @@ export function isMyTasksRequest(input: string): boolean {
 
   const lowerInput = input.toLowerCase();
 
-  return (
+  // Direct "my tasks" patterns
+  if (
     lowerInput.includes('my tasks') ||
-    lowerInput.includes('assigned to me') ||
+    lowerInput.includes('my current tasks') ||
+    lowerInput.includes('my active tasks') ||
+    lowerInput.includes('my open tasks') ||
+    lowerInput.includes('my pending tasks') ||
+    lowerInput.includes('my incomplete tasks') ||
+    lowerInput.includes('my outstanding tasks') ||
     lowerInput.includes('my to-do') ||
     lowerInput.includes('my todo') ||
+    lowerInput.includes('my work')
+  ) {
+    return true;
+  }
+
+  // "All my" patterns
+  if (
+    lowerInput.includes('all my tasks') ||
+    lowerInput.includes('all my current tasks') ||
+    lowerInput.includes('all my active tasks') ||
+    lowerInput.includes('all my work')
+  ) {
+    return true;
+  }
+
+  // "Show me" patterns - these are very strong indicators of "my tasks"
+  if (
+    /(?:show|list|get|display)\s+(?:me\s+)?(?:all\s+)?my\s+(?:current\s+|active\s+|open\s+|pending\s+)?tasks?/i.test(
+      lowerInput,
+    ) ||
+    /(?:show|list|get|display)\s+me\s+(?:all\s+)?(?:current\s+|active\s+|open\s+|pending\s+)?tasks?/i.test(
+      lowerInput,
+    )
+  ) {
+    return true;
+  }
+
+  // Assignment patterns
+  if (
+    lowerInput.includes('assigned to me') ||
     lowerInput.match(/tasks\s+(?:for|assigned to)\s+me\b/i) !== null
-  );
+  ) {
+    return true;
+  }
+
+  // "I have" patterns
+  if (
+    /(?:tasks|work|assignments)\s+(?:i\s+have|that\s+i\s+have)/i.test(
+      lowerInput,
+    )
+  ) {
+    return true;
+  }
+
+  // Direct requests without explicit "my" but clearly personal
+  // Only match if there are no indicators that it's for someone else
+  if (
+    /^(?:show|list|get|display)\s+(?:me\s+)?(?:all\s+)?(?:current\s+|active\s+|open\s+|pending\s+)?tasks?/.test(
+      lowerInput,
+    ) &&
+    !lowerInput.includes('for ') &&
+    !lowerInput.includes('assigned to ') &&
+    !lowerInput.includes("'s ") &&
+    !lowerInput.includes(' by ') &&
+    !lowerInput.includes(' from ')
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -620,86 +690,202 @@ export function extractSubtaskCreationDetails(input: string): {
   parentTaskName?: string;
   parentProjectName?: string; // Context for finding parent task by name
   subtaskName?: string;
+  assigneeName?: string; // Added for subtask assignee
+  dueDate?: string; // Added for subtask due date
 } {
   if (!input) return {};
 
   let parentTaskGid: string | undefined;
   let parentTaskName: string | undefined;
   let subtaskName: string | undefined;
+  let assigneeName: string | undefined;
+  let dueDate: string | undefined;
+  let parentProjectName: string | undefined;
 
-  // Try to extract parent task GID first
-  // Look for patterns like "add subtask to task GID 123..."
-  const parentGidMatch = input.match(
-    /(?:to|for|under|on|parent)\s+(?:task|item|parent)?\s*(\d{16,})/i,
+  // NEW PATTERN: Handle "add a subtask to [task] in [project] for [assignee] called [name]"
+  const complexSubtaskMatch = input.match(
+    /add\s+(?:a\s+)?subtask\s+to\s*["']([^"']+)["']\s+in\s+(?:the\s+)?([A-Za-z0-9\s_-]+)\s+project\s+for\s+([^"']+?)\s+called\s*["']([^"']+)["']/i,
   );
-  if (parentGidMatch?.[1]) {
-    parentTaskGid = parentGidMatch[1];
+
+  if (complexSubtaskMatch) {
+    parentTaskName = complexSubtaskMatch[1];
+    parentProjectName = complexSubtaskMatch[2].trim();
+    const rawAssigneeName = complexSubtaskMatch[3].trim();
+    subtaskName = complexSubtaskMatch[4];
+
+    // Clean up assignee name, removing any trailing phrases
+    const assigneeCleanMatch = rawAssigneeName.match(
+      /^([^,]+?)(?:\s+with\s+|\s+called\s+|\s+and\s+|$)/i,
+    );
+    if (assigneeCleanMatch) {
+      assigneeName = assigneeCleanMatch[1].trim();
+    } else {
+      assigneeName = rawAssigneeName;
+    }
   }
 
-  // Extract names for parent task and project context using existing utility
-  const names = extractNamesFromInput(input);
-  parentTaskName = names.taskName; // extractNamesFromInput might pick up the *parent* task name here
-  const parentProjectName = names.projectName;
+  // Enhanced pattern for "add a subtask for [assignee] called [name]"
+  const subtaskForAssigneeMatch = input.match(
+    /add\s+(?:a\s+)?subtask\s+for\s+([^"']+?)\s+called\s*["']([^"']+)["']/i,
+  );
 
-  // Extract subtask name
-  // Pattern: "add subtask (named|called) 'New Subtask Name' ..."
-  // Pattern: "... subtask 'New Subtask Name' to parent ..."
-  const subtaskNameMatch =
-    input.match(
-      /(?:sub-?task|child task|item under|new task)\s*(?:named|called|titled)?\s*['"]([^'"]+)['"]/i,
-    ) ||
-    input.match(
-      /['"]([^'"]+)['"]\s*(?:as|is the name of the|for the)?\s*(?:sub-?task|child task|item)/i,
+  if (!subtaskName && subtaskForAssigneeMatch) {
+    const rawAssigneeName = subtaskForAssigneeMatch[1].trim();
+    subtaskName = subtaskForAssigneeMatch[2];
+
+    // Extract just the assignee name, removing any trailing phrases
+    const assigneeCleanMatch = rawAssigneeName.match(
+      /^([^,]+?)(?:\s+with\s+|\s+called\s+|\s+and\s+|$)/i,
+    );
+    if (assigneeCleanMatch) {
+      assigneeName = assigneeCleanMatch[1].trim();
+    } else {
+      assigneeName = rawAssigneeName;
+    }
+  }
+
+  // Enhanced pattern for "add a subtask called [name] to the task [parent] in the [project] project"
+  if (!subtaskName) {
+    const subtaskToTaskMatch = input.match(
+      /add\s+(?:a\s+)?subtask\s+called\s*["']([^"']+)["']\s+to\s+(?:the\s+)?task\s*["']([^"']+)["']\s+in\s+the\s+([A-Za-z0-9\s_-]+)\s+project/i,
     );
 
-  if (subtaskNameMatch?.[1]) {
-    subtaskName = subtaskNameMatch[1];
-
-    // Clean up: If extractNamesFromInput picked up the subtask name as the main taskName, clear it from parentTaskName
-    if (
-      parentTaskName &&
-      parentTaskName.toLowerCase() === subtaskName.toLowerCase()
-    ) {
-      // This logic is tricky because extractNamesFromInput is general.
-      // If the input is "add subtask 'A' to task 'B'", extractNamesFromInput might return taskName 'B'.
-      // If input is "add subtask to task 'B' named 'A'", extractNamesFromInput might return taskName 'B'.
-      // If input is "add subtask 'A'", extractNamesFromInput might return taskName 'A'.
-      // For now, we assume if a subtask name is explicitly found, and it matches what extractNamesFromInput found for taskName,
-      // the user likely didn't specify a parent task name explicitly in a way extractNamesFromInput could distinguish.
-      // The intent classifier should make this less ambiguous. The GID for parent is more reliable.
-      // A more robust solution might involve more complex NLP or iterative extraction.
+    if (subtaskToTaskMatch) {
+      subtaskName = subtaskToTaskMatch[1];
+      parentTaskName = subtaskToTaskMatch[2];
+      parentProjectName = subtaskToTaskMatch[3].trim();
     }
-  } else {
-    // This is less reliable and might be removed if too problematic.
-    const allQuotes = input.match(/['']([^'']+)['']/g); // Get all quoted strings
-    if (allQuotes && parentTaskName) {
-      const otherQuote = allQuotes.find((q) => {
-        const qText = q.slice(1, -1).toLowerCase();
-        const pNameLower = parentTaskName?.toLowerCase();
-        return pNameLower ? qText !== pNameLower : true; // If parentTaskName is undefined, consider it not a match
-      });
-      if (otherQuote) {
-        subtaskName = otherQuote.slice(1, -1);
+  }
+
+  // Pattern for "add a subtask called [name] to [parent]"
+  if (!subtaskName) {
+    const subtaskCalledMatch = input.match(
+      /add\s+(?:a\s+)?subtask\s+called\s*["']([^"']+)["']\s+to\s+(?:the\s+)?(?:task\s+)?["']?([^"']+?)["']?(?:\s+in\s+|\s*$)/i,
+    );
+
+    if (subtaskCalledMatch) {
+      subtaskName = subtaskCalledMatch[1];
+      const potentialParent = subtaskCalledMatch[2].trim();
+
+      // Don't use common words as parent names
+      if (
+        !['task', 'parent', 'item', 'the'].includes(
+          potentialParent.toLowerCase(),
+        )
+      ) {
+        parentTaskName = potentialParent;
       }
     }
   }
 
-  // If a parent GID was found, it takes precedence for identifying the parent.
-  // If parentTaskName was extracted by extractNamesFromInput, and a subtaskName was also found,
-  // we need to ensure parentTaskName is indeed the parent and not the subtask.
-  // This heuristic might need refinement.
-  if (
-    subtaskName &&
-    parentTaskName &&
-    subtaskName.toLowerCase() === parentTaskName.toLowerCase()
-  ) {
-    // If a specific parent GID isn't found, and the subtask name is the only task-like name extracted,
-    // assume the user intends to specify the parent differently or expects context.
-    // This state might require clarification from the user by the calling tool if no GID is present.
-    // For now, we'll clear parentTaskName if it seems it was actually the subtask's name.
-    if (!parentGidMatch) {
-      // Only do this if we don't have a GID for the parent
-      parentTaskName = undefined;
+  // If no subtask name found yet, try original extraction logic
+  if (!subtaskName) {
+    // Try to extract parent task GID first
+    // Look for patterns like "add subtask to task GID 123..."
+    const parentGidMatch = input.match(
+      /(?:to|for|under|on|parent)\s+(?:task|item|parent)?\s*(\d{16,})/i,
+    );
+    if (parentGidMatch?.[1]) {
+      parentTaskGid = parentGidMatch[1];
+    }
+
+    // Extract subtask name from general patterns
+    const subtaskNameMatch =
+      input.match(
+        /(?:sub-?task|child task|item under|new task)\s*(?:named|called|titled)?\s*['"]([^'"]+)['"]/i,
+      ) ||
+      input.match(
+        /['"]([^'"]+)['"]\s*(?:as|is the name of the|for the)?\s*(?:sub-?task|child task|item)/i,
+      );
+
+    if (subtaskNameMatch?.[1]) {
+      subtaskName = subtaskNameMatch[1];
+    }
+  }
+
+  // Extract assignee if not already found
+  if (!assigneeName) {
+    // Look for "assign it to [name]" or "for [name]"
+    const assigneeMatch =
+      input.match(
+        /(?:assign(?:ed)?\s+(?:it\s+)?to|for)\s+([^"'\s,]+(?:\s+[^"'\s,]+)*)/i,
+      ) ||
+      input.match(
+        /(?:assignee|assigned to)\s*:\s*([^"'\s,]+(?:\s+[^"'\s,]+)*)/i,
+      );
+
+    if (assigneeMatch?.[1]) {
+      const candidateAssignee = assigneeMatch[1].trim();
+      // Remove trailing prepositions and common words
+      const cleanedAssignee = candidateAssignee
+        .replace(/\s*(?:with|and|in|on|at|by|,).*$/i, '')
+        .trim();
+      if (
+        cleanedAssignee &&
+        !['the', 'task', 'project'].includes(cleanedAssignee.toLowerCase())
+      ) {
+        assigneeName = cleanedAssignee;
+      }
+    }
+  }
+
+  // Extract due date if not already found
+  if (!dueDate) {
+    const dueDateMatch =
+      input.match(
+        /(?:due date|deadline)\s+(?:of|is|on)?\s*([^,]+?)(?:\s+with|\s*$)/i,
+      ) ||
+      input.match(
+        /(?:due date|deadline)\s+(?:for|on|by|at)\s*([^,]+?)(?:\s+with|\s*$)/i,
+      ) ||
+      input.match(
+        /(?:with|and)\s+(?:a\s+)?due\s+date\s+(?:of|on|for|by)?\s*([^,]+?)(?:\s+with|\s*$)/i,
+      ) ||
+      input.match(
+        /(?:due|deadline)\s+(?:on|by|for)?\s*([^,]+?)(?:\s+with|\s*$)/i,
+      ) ||
+      input.match(
+        /(?:set|make)\s+(?:the\s+)?due\s+date\s+(?:to|for|on|by)?\s*([^,]+?)(?:\s+with|\s*$)/i,
+      );
+    if (dueDateMatch?.[1]) {
+      const extractedDate = dueDateMatch[1].trim();
+      // Don't capture prepositions or common words, but allow multi-word expressions
+      const cleanedDate = extractedDate
+        .replace(/^(?:for|on|by|to|with|and|the)\s+/i, '')
+        .replace(/\s+(?:for|on|by|to|with|and|the)\s*$/i, '')
+        .trim();
+
+      if (
+        cleanedDate &&
+        !['for', 'on', 'by', 'to', 'with', 'and', 'the'].includes(
+          cleanedDate.toLowerCase(),
+        )
+      ) {
+        dueDate = cleanedDate;
+      }
+    }
+  }
+
+  // Extract project name if not already found
+  if (!parentProjectName) {
+    // Look for "in the [project] project" pattern
+    const projectMatch = input.match(
+      /in\s+the\s+([A-Za-z0-9\s_-]+)\s+project/i,
+    );
+    if (projectMatch?.[1]) {
+      parentProjectName = projectMatch[1].trim();
+    }
+  }
+
+  // Look for parent task context if not already found
+  if (!parentTaskGid && !parentTaskName) {
+    // Look for patterns like "under test5" or "to the task test5"
+    const parentTaskMatch =
+      input.match(
+        /(?:under|to)\s+(?:the\s+)?(?:task\s+)?["']?([^"'\s]+)["']?/i,
+      ) || input.match(/(?:parent|task)\s+["']?([^"'\s]+)["']?/i);
+    if (parentTaskMatch?.[1] && parentTaskMatch[1] !== subtaskName) {
+      parentTaskName = parentTaskMatch[1];
     }
   }
 
@@ -708,6 +894,8 @@ export function extractSubtaskCreationDetails(input: string): {
     parentTaskName,
     parentProjectName,
     subtaskName,
+    assigneeName,
+    dueDate,
   };
 }
 
@@ -1028,3 +1216,6 @@ export function extractTaskAndSectionIdentifiers(input: string): {
 
   return result;
 }
+
+// Re-export utility functions from gidUtils for convenience
+export { extractProjectGidFromInput, extractTaskGidFromInput, isValidGid };
