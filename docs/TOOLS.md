@@ -3,7 +3,7 @@
 > Comprehensive guide to all available AI tools in Quibit RAG
 
 **Last Updated**: 2024-12-23  
-**Version**: 2.3.0
+**Version**: 2.4.0
 
 ## Overview
 
@@ -12,18 +12,37 @@ Quibit RAG includes a comprehensive suite of AI tools that enable the assistant 
 ## Available Tools
 
 ### 📋 **Asana Integration** (`asana`)
-*Comprehensive modular Asana project and task management*
+*Complete Phase 2 & Epic 3.1 implementation with 100% API coverage*
 
-**Description**: Production-ready Asana integration with modular architecture, natural language processing, intelligent caching, and comprehensive API coverage.
+**Description**: Production-ready native Asana integration with full modular architecture, advanced natural language processing, intelligent caching, and comprehensive API coverage. All Phase 2 epics and Epic 3.1 features are fully implemented and tested.
 
-**Capabilities**:
-- **Task Management**: Create, update, list, complete/incomplete, get details, search
-- **Advanced Task Features**: Due dates, followers, subtasks, dependencies
-- **Project Management**: List, search, sections, task organization
-- **User Operations**: Authentication, current user info, assignee resolution
-- **Natural Language Processing**: Intent classification and entity extraction
-- **Performance**: Intelligent caching (TTL-based) and retry mechanisms
-- **Reliability**: Exponential backoff retry with rate limit awareness
+**Phase 2 Completed Features**:
+- **Epic 2.1**: Get User Info ✅ - Current user information and workspace details
+- **Epic 2.2**: Task Creation ✅ - Comprehensive task creation with validation
+- **Epic 2.3**: Project Listing & GID Resolution ✅ - Project discovery and identification
+- **Epic 2.4**: Task Listing ✅ - Advanced task filtering and retrieval
+- **Epic 2.5**: Task Details Retrieval ✅ - Complete task information access
+- **Epic 2.6**: Task Updates ✅ - Full task modification capabilities
+- **Epic 2.7**: Search Functionality ✅ - Advanced search across all resources
+- **Epic 2.8**: Transition from Old Tool ✅ - Complete modular architecture migration
+
+**Epic 3.1 Advanced Features**:
+- **Story 3.1.1**: Complete/incomplete tasks ✅ - Task status management
+- **Story 3.1.2**: Add/remove followers ✅ - Task collaboration management
+- **Story 3.1.3**: Set due dates ✅ - Advanced date parsing and scheduling
+- **Story 3.1.4**: Add subtasks ✅ - Hierarchical task management
+- **Story 3.1.5**: List subtasks ✅ - Subtask discovery and organization
+- **Story 3.1.6**: Task Dependencies ✅ - Complete dependency management system
+
+**Core Capabilities**:
+- **Task Management**: Create, update, list, complete/incomplete, get details, search, dependencies
+- **Advanced Task Features**: Due dates, followers, subtasks, dependencies, status management
+- **Project Management**: List, search, sections, task organization, visibility verification
+- **User Operations**: Authentication, current user info, assignee resolution, workspace integration
+- **Natural Language Processing**: Intent classification and entity extraction for complex operations
+- **Context Management**: Task context memory for cross-session awareness
+- **Performance**: Intelligent caching (TTL-based) and retry mechanisms with rate limiting
+- **Reliability**: Exponential backoff retry with comprehensive error handling
 
 **Environment Variables**:
 ```env
@@ -42,7 +61,11 @@ ASANA_REQUEST_TIMEOUT_MS=30000 (optional)
 - "Add john@company.com as follower to 'Project Alpha'"
 - "Create subtask 'Review section 1' under 'Budget Review'"
 - "Make task A dependent on task B"
+- "Remove dependency between task X and task Y"
+- "List all subtasks for the 'Project Alpha' task"
 - "Search for tasks related to 'mobile app'"
+- "Get user details for andy@company.com"
+- "List all users in the workspace"
 
 **Architecture**: 
 - **Modular Structure**: 20+ specialized modules across intent-parser/, api-client/, formatters/, utils/
