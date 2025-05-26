@@ -30,6 +30,13 @@ import type { UseChatHelpers } from '@ai-sdk/react';
 import type { VisibilityType } from './visibility-selector';
 import { FileText, Code, Image as ImageIcon, Table } from 'lucide-react';
 
+const isValidUUID = (id: string | null | undefined): boolean => {
+  if (!id) return false;
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(id);
+};
+
 export const artifactDefinitions = [
   textArtifact,
   codeArtifact,
@@ -119,12 +126,137 @@ function PureArtifact({
 
   const { open: isSidebarOpen } = useSidebar();
 
-  const isContentDirty = false;
-  const saveContent = () => {};
-  const isCurrentVersion = true;
-  const mode = 'edit';
-  const getDocumentContentById = (index: number) => artifact.content;
-  const handleVersionChange = () => {};
+  const {
+    data: documents,
+    isLoading: isDocumentsFetching,
+    mutate: mutateDocuments,
+  } = useSWR<Array<Document>>(
+    isValidUUID(documentId) && artifact.status !== 'streaming'
+      ? `/api/document?id=${documentId}`
+      : null,
+    fetcher,
+  );
+
+  const [mode, setMode] = useState<'edit' | 'diff'>('edit');
+  const [document, setDocument] = useState<Document | null>(null);
+  const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
+  const [isContentDirty, setIsContentDirty] = useState(false);
+  const [isToolbarVisible, setIsToolbarVisible] = useState(false);
+
+  useEffect(() => {
+    if (documents && documents.length > 0) {
+      const mostRecentDocument = documents.at(-1);
+      if (mostRecentDocument) {
+        setDocument(mostRecentDocument);
+        setCurrentVersionIndex(documents.length - 1);
+      }
+    }
+  }, [documents]);
+
+  useEffect(() => {
+    mutateDocuments();
+  }, [artifact.status, mutateDocuments]);
+
+  const { mutate } = useSWRConfig();
+
+  const handleContentChange = useCallback(
+    (updatedContent: string) => {
+      if (!documentId || documentId === 'init') return;
+
+      mutate<Array<Document>>(
+        `/api/document?id=${documentId}`,
+        async (currentDocuments) => {
+          if (!currentDocuments) return undefined;
+
+          const currentDocument = currentDocuments.at(-1);
+
+          if (!currentDocument || !currentDocument.content) {
+            setIsContentDirty(false);
+            return currentDocuments;
+          }
+
+          if (currentDocument.content !== updatedContent) {
+            await fetch(`/api/document?id=${documentId}`, {
+              method: 'POST',
+              body: JSON.stringify({
+                title: title,
+                content: updatedContent,
+                kind: kind,
+              }),
+            });
+
+            setIsContentDirty(false);
+
+            const newDocument = {
+              ...currentDocument,
+              content: updatedContent,
+              createdAt: new Date(),
+            };
+
+            return [...currentDocuments, newDocument];
+          }
+          return currentDocuments;
+        },
+        { revalidate: false },
+      );
+    },
+    [documentId, title, kind, mutate],
+  );
+
+  const debouncedHandleContentChange = useDebounceCallback(
+    handleContentChange,
+    2000,
+  );
+
+  const saveContent = useCallback(
+    (updatedContent: string, debounce: boolean = true) => {
+      if (document && updatedContent !== document.content) {
+        setIsContentDirty(true);
+
+        if (debounce) {
+          debouncedHandleContentChange(updatedContent);
+        } else {
+          handleContentChange(updatedContent);
+        }
+      }
+    },
+    [document, debouncedHandleContentChange, handleContentChange],
+  );
+
+  function getDocumentContentById(index: number) {
+    if (!documents) return '';
+    if (!documents[index]) return '';
+    return documents[index].content ?? '';
+  }
+
+  const handleVersionChange = (type: 'next' | 'prev' | 'toggle' | 'latest') => {
+    if (!documents) return;
+
+    if (type === 'latest') {
+      setCurrentVersionIndex(documents.length - 1);
+      setMode('edit');
+    }
+
+    if (type === 'toggle') {
+      setMode((mode) => (mode === 'edit' ? 'diff' : 'edit'));
+    }
+
+    if (type === 'prev') {
+      if (currentVersionIndex > 0) {
+        setCurrentVersionIndex((index) => index - 1);
+      }
+    } else if (type === 'next') {
+      if (currentVersionIndex < documents.length - 1) {
+        setCurrentVersionIndex((index) => index + 1);
+      }
+    }
+  };
+
+  const isCurrentVersion =
+    documents && documents.length > 0
+      ? currentVersionIndex === documents.length - 1
+      : true;
+
   const isLoading = isStreaming && !artifact.content;
 
   const { width: windowWidth, height: windowHeight } = useWindowSize();
@@ -391,8 +523,8 @@ function PureArtifact({
               <AnimatePresence>
                 {isCurrentVersion && (
                   <Toolbar
-                    isToolbarVisible={false}
-                    setIsToolbarVisible={(value) => {}}
+                    isToolbarVisible={isToolbarVisible}
+                    setIsToolbarVisible={setIsToolbarVisible}
                     append={append}
                     status={status}
                     stop={stop}
