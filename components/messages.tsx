@@ -43,34 +43,18 @@ function PureMessages(props: MessagesProps) {
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
 
-  // Improve scroll behavior for the container
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (container) {
-      // Ensure the container can receive focus for keyboard scrolling
-      container.setAttribute('tabindex', '-1');
-
-      // Add wheel event listener to ensure smooth scrolling
-      const handleWheel = (e: WheelEvent) => {
-        // Allow normal scroll behavior and prevent event bubbling
-        e.stopPropagation();
-      };
-
-      // Add keyboard event listener for arrow key scrolling
+      container.setAttribute('tabindex', '-1'); // For keyboard focus
+      const handleWheel = (e: WheelEvent) => e.stopPropagation();
       const handleKeyDown = (e: KeyboardEvent) => {
-        if (
-          e.key === 'ArrowUp' ||
-          e.key === 'ArrowDown' ||
-          e.key === 'PageUp' ||
-          e.key === 'PageDown'
-        ) {
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(e.key)) {
           e.stopPropagation();
         }
       };
-
       container.addEventListener('wheel', handleWheel, { passive: true });
       container.addEventListener('keydown', handleKeyDown);
-
       return () => {
         container.removeEventListener('wheel', handleWheel);
         container.removeEventListener('keydown', handleKeyDown);
@@ -81,13 +65,8 @@ function PureMessages(props: MessagesProps) {
   return (
     <div
       ref={messagesContainerRef}
-      className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-auto overflow-x-hidden pt-4 scroll-smooth focus:outline-none"
-      style={{
-        // Ensure proper scrolling behavior
-        overscrollBehavior: 'contain',
-        scrollBehavior: 'smooth',
-      }}
-      tabIndex={-1}
+      className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-auto overflow-x-hidden pt-4 focus:outline-none"
+      tabIndex={-1} // Added for focusability
     >
       {messages.length === 0 && <Greeting />}
 

@@ -30,34 +30,18 @@ function PureArtifactMessages({
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
 
-  // Improve scroll behavior for the container
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (container) {
-      // Ensure the container can receive focus for keyboard scrolling
-      container.setAttribute('tabindex', '-1');
-
-      // Add wheel event listener to ensure smooth scrolling
-      const handleWheel = (e: WheelEvent) => {
-        // Allow normal scroll behavior and prevent event bubbling
-        e.stopPropagation();
-      };
-
-      // Add keyboard event listener for arrow key scrolling
+      container.setAttribute('tabindex', '-1'); // For keyboard focus
+      const handleWheel = (e: WheelEvent) => e.stopPropagation();
       const handleKeyDown = (e: KeyboardEvent) => {
-        if (
-          e.key === 'ArrowUp' ||
-          e.key === 'ArrowDown' ||
-          e.key === 'PageUp' ||
-          e.key === 'PageDown'
-        ) {
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(e.key)) {
           e.stopPropagation();
         }
       };
-
       container.addEventListener('wheel', handleWheel, { passive: true });
       container.addEventListener('keydown', handleKeyDown);
-
       return () => {
         container.removeEventListener('wheel', handleWheel);
         container.removeEventListener('keydown', handleKeyDown);
@@ -68,13 +52,8 @@ function PureArtifactMessages({
   return (
     <div
       ref={messagesContainerRef}
-      className="flex flex-col gap-4 h-full items-center overflow-y-auto px-4 pt-20 scroll-smooth focus:outline-none"
-      style={{
-        // Ensure proper scrolling behavior
-        overscrollBehavior: 'contain',
-        scrollBehavior: 'smooth',
-      }}
-      tabIndex={-1}
+      className="flex flex-col gap-4 h-full items-center overflow-y-auto px-4 pt-20 focus:outline-none"
+      tabIndex={-1} // Added for focusability
     >
       {messages.map((message, index) => (
         <PreviewMessage
@@ -92,7 +71,6 @@ function PureArtifactMessages({
           isReadonly={isReadonly}
         />
       ))}
-
       <div ref={messagesEndRef} className="shrink-0 min-h-[24px]" />
     </div>
   );
