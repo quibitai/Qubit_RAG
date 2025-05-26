@@ -5,6 +5,21 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] - 2024-12-26
+
+### Fixed
+- **Critical Artifact Editing Issue**: Restored document editing capabilities in artifact pane that were broken in v2.5.0 migration
+- **Toolbar Functionality**: Fixed toolbar visibility and interaction issues preventing "Add final polish" and editing tools from working
+- **State Management**: Restored proper state management for content changes, version handling, and document persistence
+- **Document Fetching**: Fixed SWR query for document fetching with proper UUID validation
+- **Content Saving**: Restored debounced content saving functionality with proper error handling
+
+### Technical Improvements
+- **Component Architecture**: Restored proper useEffect hooks and state management patterns
+- **UUID Validation**: Added isValidUUID utility function for proper document ID validation
+- **Error Handling**: Enhanced error handling for document operations
+- **Performance**: Restored proper debouncing for content changes to prevent excessive API calls
+
 ## [2.5.0] - 2024-12-26
 
 ### Added
