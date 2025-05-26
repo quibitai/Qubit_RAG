@@ -7,6 +7,7 @@ export function useScrollToBottom<T extends HTMLElement>(): [
   const containerRef = useRef<T>(null);
   const endRef = useRef<T>(null);
   const userScrolledUpRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -17,23 +18,45 @@ export function useScrollToBottom<T extends HTMLElement>(): [
       const handleScroll = () => {
         if (!container) return;
 
-        // Check if user is near bottom (within 100px) or has scrolled up
-        const isAtBottom =
-          container.scrollHeight -
-            container.scrollTop -
-            container.clientHeight <
-          100;
+        const currentScrollTop = container.scrollTop;
+        const scrollHeight = container.scrollHeight;
+        const clientHeight = container.clientHeight;
 
-        userScrolledUpRef.current = !isAtBottom;
+        // Check if user is near bottom (within 150px) - increased threshold for better UX
+        const isNearBottom =
+          scrollHeight - currentScrollTop - clientHeight < 150;
+
+        // Check if user scrolled up manually (not just content being added)
+        const scrolledUp = currentScrollTop < lastScrollTopRef.current - 10; // 10px threshold to avoid tiny movements
+
+        if (scrolledUp) {
+          userScrolledUpRef.current = true;
+        } else if (isNearBottom) {
+          // Reset the flag if user scrolls back near bottom
+          userScrolledUpRef.current = false;
+        }
+
+        lastScrollTopRef.current = currentScrollTop;
       };
 
       // Add scroll event listener to detect manual scrolling
-      container.addEventListener('scroll', handleScroll);
+      container.addEventListener('scroll', handleScroll, { passive: true });
 
       const observer = new MutationObserver(() => {
-        // Only auto-scroll if user hasn't manually scrolled up
-        if (!userScrolledUpRef.current) {
-          end.scrollIntoView({ behavior: 'instant', block: 'end' });
+        // Only auto-scroll if user hasn't manually scrolled up AND is near bottom
+        const isNearBottom =
+          container.scrollHeight -
+            container.scrollTop -
+            container.clientHeight <
+          150;
+
+        if (!userScrolledUpRef.current || isNearBottom) {
+          // Use requestAnimationFrame for smoother scrolling
+          requestAnimationFrame(() => {
+            if (end && container) {
+              end.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            }
+          });
         }
       });
 

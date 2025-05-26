@@ -2,7 +2,7 @@ import { PreviewMessage } from './message';
 import { useScrollToBottom } from './use-scroll-to-bottom';
 import type { Vote } from '@/lib/db/schema';
 import type { UIMessage } from 'ai';
-import { memo } from 'react';
+import { memo, useEffect } from 'react';
 import equal from 'fast-deep-equal';
 import type { UIArtifact } from './artifact';
 import type { UseChatHelpers } from '@ai-sdk/react';
@@ -30,10 +30,51 @@ function PureArtifactMessages({
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
 
+  // Improve scroll behavior for the container
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      // Ensure the container can receive focus for keyboard scrolling
+      container.setAttribute('tabindex', '-1');
+
+      // Add wheel event listener to ensure smooth scrolling
+      const handleWheel = (e: WheelEvent) => {
+        // Allow normal scroll behavior and prevent event bubbling
+        e.stopPropagation();
+      };
+
+      // Add keyboard event listener for arrow key scrolling
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (
+          e.key === 'ArrowUp' ||
+          e.key === 'ArrowDown' ||
+          e.key === 'PageUp' ||
+          e.key === 'PageDown'
+        ) {
+          e.stopPropagation();
+        }
+      };
+
+      container.addEventListener('wheel', handleWheel, { passive: true });
+      container.addEventListener('keydown', handleKeyDown);
+
+      return () => {
+        container.removeEventListener('wheel', handleWheel);
+        container.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, [messagesContainerRef]);
+
   return (
     <div
       ref={messagesContainerRef}
-      className="flex flex-col gap-4 h-full items-center overflow-y-scroll px-4 pt-20"
+      className="flex flex-col gap-4 h-full items-center overflow-y-auto px-4 pt-20 scroll-smooth focus:outline-none"
+      style={{
+        // Ensure proper scrolling behavior
+        overscrollBehavior: 'contain',
+        scrollBehavior: 'smooth',
+      }}
+      tabIndex={-1}
     >
       {messages.map((message, index) => (
         <PreviewMessage
@@ -63,14 +104,17 @@ function areEqual(
 ) {
   if (
     prevProps.artifactStatus === 'streaming' &&
-    nextProps.artifactStatus === 'streaming'
-  )
+    nextProps.artifactStatus === 'streaming' &&
+    prevProps.status !== 'streaming' &&
+    nextProps.status !== 'streaming'
+  ) {
     return true;
+  }
 
   if (prevProps.status !== nextProps.status) return false;
-  if (prevProps.status && nextProps.status) return false;
   if (prevProps.messages.length !== nextProps.messages.length) return false;
   if (!equal(prevProps.votes, nextProps.votes)) return false;
+  if (!equal(prevProps.messages, nextProps.messages)) return false;
 
   return true;
 }
