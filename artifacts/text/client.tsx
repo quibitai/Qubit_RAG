@@ -2,6 +2,7 @@ import { Artifact } from '@/components/create-artifact';
 import { DiffView } from '@/components/diffview';
 import { DocumentSkeleton } from '@/components/document-skeleton';
 import { Editor } from '@/components/text-editor';
+import { Markdown } from '@/components/markdown';
 import {
   ClockRewind,
   CopyIcon,
@@ -193,14 +194,20 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
     return (
       <>
         <div className="flex flex-row py-8 md:p-20 px-4">
-          <Editor
-            content={content}
-            suggestions={metadata ? metadata.suggestions : []}
-            isCurrentVersion={isCurrentVersion}
-            currentVersionIndex={currentVersionIndex}
-            status={status}
-            onSaveContent={onSaveContent}
-          />
+          {isCurrentVersion && status === 'streaming' ? (
+            <Editor
+              content={content}
+              suggestions={metadata?.suggestions || []}
+              isCurrentVersion={isCurrentVersion}
+              currentVersionIndex={currentVersionIndex}
+              status={status}
+              onSaveContent={onSaveContent}
+            />
+          ) : (
+            <div className="prose prose-gray dark:prose-invert max-w-none">
+              <Markdown>{content}</Markdown>
+            </div>
+          )}
 
           {metadata?.suggestions && metadata.suggestions.length > 0 ? (
             <div className="md:hidden h-dvh w-12 shrink-0" />

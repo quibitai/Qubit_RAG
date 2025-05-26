@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
-import { LayoutGrid, PanelLeft, FileEdit, MessageSquare } from 'lucide-react';
+import { PanelLeft, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { memo, useCallback, useMemo } from 'react';
 
@@ -117,16 +117,14 @@ const SidebarHeaderContent = memo(
     state,
     setOpenMobile,
     toggleSidebar,
-    isDashboardActive,
     isChatActive,
-    isEditorActive,
+    pathname,
   }: {
     state: 'expanded' | 'collapsed';
     setOpenMobile: (open: boolean) => void;
     toggleSidebar: () => void;
-    isDashboardActive: boolean;
     isChatActive: boolean;
-    isEditorActive: boolean;
+    pathname: string;
   }) => (
     <SidebarMenu>
       <div className="flex flex-row justify-between items-center">
@@ -146,44 +144,26 @@ const SidebarHeaderContent = memo(
         <SidebarToggleButton toggleSidebar={toggleSidebar} />
       </div>
 
-      <NavLink
-        href="/dashboard"
-        setOpenMobile={setOpenMobile}
-        isActive={isDashboardActive}
-        icon={LayoutGrid}
-        label="Dashboard"
-        sidebarState={state}
-      />
-
-      {/* Bits Section */}
-      {state === 'expanded' && (
-        <div className="mt-6 px-2">
-          <div className="text-xs font-semibold text-muted-foreground mb-2 px-2">
-            Bits
-          </div>
-        </div>
-      )}
-
-      {/* Chat Bit */}
+      {/* Chat Section */}
       <div className="mt-2">
         <NavLink
           href="/"
           setOpenMobile={setOpenMobile}
           isActive={isChatActive}
           icon={MessageSquare}
-          label="Chat Bit"
+          label="Chat"
           sidebarState={state}
         />
       </div>
 
-      {/* Document Bit */}
+      {/* Test Artifacts (temporary) */}
       <div className="mt-2">
         <NavLink
-          href="/editor/new"
+          href="/test-artifacts"
           setOpenMobile={setOpenMobile}
-          isActive={isEditorActive}
-          icon={FileEdit}
-          label="Document Bit"
+          isActive={pathname === '/test-artifacts'}
+          icon={MessageSquare}
+          label="Test Artifacts"
           sidebarState={state}
         />
       </div>
@@ -203,13 +183,9 @@ export const AppSidebar = memo(function AppSidebar({
 
   // Memoize the active state calculations to prevent unnecessary recalculations
   const activeStates = useMemo(() => {
-    const isDashboardActive = pathname === '/dashboard';
-    const isEditorActive = pathname.startsWith('/editor');
     const isChatActive = pathname === '/' || pathname.startsWith('/chat');
 
     return {
-      isDashboardActive,
-      isEditorActive,
       isChatActive,
     };
   }, [pathname]);
@@ -229,9 +205,8 @@ export const AppSidebar = memo(function AppSidebar({
           state={state}
           setOpenMobile={handleSetOpenMobile}
           toggleSidebar={toggleSidebar}
-          isDashboardActive={activeStates.isDashboardActive}
           isChatActive={activeStates.isChatActive}
-          isEditorActive={activeStates.isEditorActive}
+          pathname={pathname}
         />
       </SidebarHeader>
       {state === 'expanded' && (

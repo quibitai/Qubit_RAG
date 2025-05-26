@@ -13,9 +13,7 @@ import {
 import { getAvailableSpecialists } from '@/lib/ai/prompts/specialists';
 
 export async function GET(request: NextRequest) {
-  console.error(
-    `[API /api/history ENTRY POINT] >>> RAW Request URL: ${request.url}, Timestamp: ${new Date().toISOString()}`,
-  );
+  // Reduced API logging
 
   try {
     const session = (await auth()) as Session;
@@ -99,15 +97,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log(
-      `[API History] GET request: type=${historyType}, bitContextId=${resolvedContextId} (original=${bitContextId}), page=${page}, limit=${limit}, userId=${userId}, clientId=${clientId}`,
-    );
-
-    // Log all search params for debugging
-    console.log(
-      `[API History] All search params:`,
-      Object.fromEntries([...searchParams.entries()]),
-    );
+    // Reduced verbose parameter logging
 
     const chatSummaries: ChatSummary[] = await getChatSummaries({
       userId,
@@ -120,28 +110,7 @@ export async function GET(request: NextRequest) {
 
     const hasMore = chatSummaries.length === limit;
 
-    console.log(
-      `[API History] Returning ${chatSummaries.length} chat summaries, hasMore=${hasMore}`,
-    );
-
-    // Log the first few summaries for debugging
-    if (chatSummaries.length > 0) {
-      console.log(`[API History] Sample of returned chats (first 3):`);
-      chatSummaries.slice(0, 3).forEach((chat, idx) => {
-        console.log(`[API History] Chat ${idx + 1}:`, {
-          id: chat.id,
-          title: chat.title,
-          bitContextId: chat.bitContextId,
-          isGlobal: chat.isGlobal,
-          // Log if this chat matches expected context ID patterns
-          matchesGlobalContext:
-            chat.bitContextId === GLOBAL_ORCHESTRATOR_CONTEXT_ID,
-          matchesChatBitContext: chat.bitContextId === CHAT_BIT_CONTEXT_ID,
-        });
-      });
-    } else {
-      console.log(`[API History] No chat summaries returned`);
-    }
+    // Only log errors, not successful operations
 
     return NextResponse.json(
       {

@@ -2,8 +2,8 @@
 
 > Comprehensive guide to all available AI tools in Quibit RAG
 
-**Last Updated**: 2024-12-23  
-**Version**: 2.4.0
+**Last Updated**: 2024-12-26  
+**Version**: 2.5.0
 
 ## Overview
 

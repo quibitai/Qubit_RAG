@@ -827,45 +827,26 @@ export async function getChatSummaries({
   page,
   limit,
 }: GetChatSummariesParams): Promise<ChatSummary[]> {
-  console.log(
-    `[DB getChatSummaries] Params: userId=${userId}, clientId=${clientId}, type=${historyType}, bitContextId=${queryBitContextId}, page=${page}, limit=${limit}`,
-  );
-
+  // Reduced DB query logging
   const offset = (page - 1) * limit;
 
   try {
     // Define base conditions
     const conditions = [eq(chat.userId, userId), eq(chat.clientId, clientId)];
-    console.log(
-      `[DB getChatSummaries] Base conditions: userId=${userId}, clientId=${clientId}`,
-    );
 
     // Define specific filters based on historyType
     if (historyType === 'global') {
-      console.log(
-        `[DB getChatSummaries] Filtering for GLOBAL history. Target bitContextId: ${GLOBAL_ORCHESTRATOR_CONTEXT_ID}`,
-      );
       if (GLOBAL_ORCHESTRATOR_CONTEXT_ID === null) {
         conditions.push(isNull(chat.bitContextId));
       } else {
         conditions.push(eq(chat.bitContextId, GLOBAL_ORCHESTRATOR_CONTEXT_ID));
       }
     } else if (historyType === 'sidebar' && queryBitContextId) {
-      console.log(
-        `[DB getChatSummaries] Filtering for SIDEBAR history. Target bitContextId: ${queryBitContextId}`,
-      );
       conditions.push(eq(chat.bitContextId, queryBitContextId));
     } else if (historyType === 'sidebar' && !queryBitContextId) {
       // Default for sidebar if no specific contextId given - use CHAT_BIT_CONTEXT_ID
-      console.log(
-        `[DB getChatSummaries] Filtering for SIDEBAR history (default). Target bitContextId: ${CHAT_BIT_CONTEXT_ID}`,
-      );
       conditions.push(eq(chat.bitContextId, CHAT_BIT_CONTEXT_ID));
     }
-
-    console.log(
-      `[DB getChatSummaries] Final query conditions applied: ${conditions.length} conditions`,
-    );
 
     // Fetch chats with most recent messages in a single query
     const groupedAndFilteredChats = await db
@@ -894,22 +875,8 @@ export async function getChatSummaries({
       .limit(limit)
       .offset(offset);
 
-    console.log(
-      `[DB getChatSummaries] Found ${groupedAndFilteredChats.length} chats after DB query.`,
-    );
-
-    // Log actual chat data for debugging
-    if (groupedAndFilteredChats.length > 0) {
-      console.log(`[DB getChatSummaries] Sample chat data (first 3 chats):`);
-      groupedAndFilteredChats.slice(0, 3).forEach((chatData, idx) => {
-        console.log(`[DB getChatSummaries] Chat ${idx + 1}:`, {
-          id: chatData.id,
-          title: chatData.title,
-          bitContextId: chatData.bitContextId,
-          createdAt: chatData.createdAt,
-        });
-      });
-    } else {
+    // Only log if no chats found (potential issue)
+    if (groupedAndFilteredChats.length === 0) {
       console.log(
         `[DB getChatSummaries] No chats found with the current filters.`,
       );
@@ -936,20 +903,7 @@ export async function getChatSummaries({
       }),
     );
 
-    console.log(
-      `[DB getChatSummaries] Processed ${chatSummaries.length} chat summaries with isGlobal calculation.`,
-    );
-    if (chatSummaries.length > 0) {
-      console.log(
-        `[DB getChatSummaries] Sample of processed summaries (first 1):`,
-        chatSummaries.slice(0, 1).map((cs) => ({
-          id: cs.id,
-          title: cs.title,
-          bitContextId: cs.bitContextId,
-          isGlobal: cs.isGlobal,
-        })),
-      );
-    }
+    // Reduced summary processing logs
 
     return chatSummaries;
   } catch (error) {

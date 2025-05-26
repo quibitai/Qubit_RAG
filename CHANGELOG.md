@@ -5,6 +5,73 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2024-12-26
+
+### Added
+- **Vercel AI SDK Artifact Streaming Migration**
+  - Complete migration from custom LangChain streaming to Vercel AI SDK patterns for artifacts
+  - New `/api/chat` route using modern Vercel AI SDK streaming protocols
+  - Enhanced `lib/ai/tools/artifacts.ts` with content generation for all artifact types
+  - Modern tool architecture with proper authentication and error handling
+  - Foundation for future generative UI features and micro-interactions
+
+- **Enhanced Artifact Rendering System**
+  - Proper Markdown support with clickable hyperlinks in text artifacts
+  - Replaced ProseMirror Editor with Markdown component for non-editing artifact view
+  - Maintained Editor functionality for streaming and editing modes
+  - Improved syntax highlighting for code artifacts
+  - Enhanced image and sheet artifact display
+
+- **Collapsed Artifact Functionality**
+  - New `CollapsedArtifact` component for inline chat display
+  - Smart content preview with configurable character and line limits
+  - Artifact type-specific icons and styling
+  - Expandable artifacts that restore to full view
+  - Conditional kind badges (hidden for text artifacts)
+  - Enhanced styling for better chat integration
+
+- **Advanced State Management**
+  - Fixed artifact close button functionality with proper state propagation
+  - Resolved stale closure issues in component memoization
+  - Improved `activeArtifactState` handling and synchronization
+  - Enhanced timing coordination between streaming completion and state updates
+  - Better error handling for incomplete artifact data
+
+### Changed
+- **Artifact Architecture Modernization**: Migrated from custom streaming implementation to industry-standard Vercel AI SDK patterns
+- **Component Memoization Strategy**: Updated `ArtifactCloseButton` memoization to allow proper prop updates
+- **Streaming Protocol**: Enhanced streaming with structured data events and better error handling
+- **User Experience**: Improved artifact interaction patterns with smoother transitions and better visual feedback
+- **Code Organization**: Cleaner separation between streaming logic and UI components
+
+### Fixed
+- **Critical Artifact Close Button Issue**: Fixed X button not working due to memoization preventing prop updates
+- **Hyperlink Rendering**: Links in text artifacts now display as clickable hyperlinks instead of plain text
+- **Collapsed Artifact Display**: Fixed artifacts not appearing inline in chat when closed
+- **Text Streaming**: Resolved issues with text not streaming properly in the artifact pane
+- **State Synchronization**: Fixed timing issues between streaming completion and artifact state updates
+- **Content Fetching**: Improved document content retrieval and state propagation
+
+### Technical Improvements
+- **Component Architecture**: Enhanced component design with better prop flow and state management
+- **Streaming Performance**: Optimized streaming protocols for better responsiveness
+- **Error Handling**: Comprehensive error handling throughout the artifact pipeline
+- **Type Safety**: Improved TypeScript compliance and type definitions
+- **Testing Foundation**: Established testing infrastructure for new Vercel AI SDK patterns
+
+### User Experience Enhancements
+- **Seamless Artifact Interaction**: Smooth transitions between expanded and collapsed artifact states
+- **Better Visual Integration**: Collapsed artifacts blend naturally with chat messages
+- **Improved Content Preview**: Smart content truncation with proper ellipsis handling
+- **Enhanced Accessibility**: Better keyboard navigation and screen reader support
+- **Responsive Design**: Improved artifact display across different screen sizes
+
+### Development Experience
+- **Modern Patterns**: Adoption of Vercel AI SDK best practices for maintainable code
+- **Debugging Improvements**: Better logging and error reporting for development
+- **Documentation**: Comprehensive migration tracking and implementation documentation
+- **Code Quality**: Cleaner, more maintainable codebase with reduced complexity
+
 ## [2.4.0] - 2024-12-23
 
 ### Added

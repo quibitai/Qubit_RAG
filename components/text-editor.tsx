@@ -146,9 +146,12 @@ function PureEditor({
 
   useEffect(() => {
     if (editorRef.current?.state.doc && content) {
+      // Ensure suggestions is always an array to prevent map errors
+      const safeSuggestions = suggestions || [];
+
       const projectedSuggestions = projectWithPositions(
         editorRef.current.state.doc,
-        suggestions,
+        safeSuggestions,
       ).filter(
         (suggestion) => suggestion.selectionStart && suggestion.selectionEnd,
       );

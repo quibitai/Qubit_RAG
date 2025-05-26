@@ -2,10 +2,12 @@ import type { UIMessage } from 'ai';
 import { PreviewMessage, ThinkingMessage } from './message';
 import { useScrollToBottom } from './use-scroll-to-bottom';
 import { Greeting } from './greeting';
-import { memo, useEffect } from 'react';
+import { memo } from 'react';
 import type { Vote } from '@/lib/db/schema';
 import equal from 'fast-deep-equal';
 import type { UseChatHelpers } from '@ai-sdk/react';
+import type { ArtifactKind } from './artifact';
+import { CollapsedArtifact } from './collapsed-artifact';
 
 interface MessagesProps {
   chatId: string;
@@ -16,44 +18,27 @@ interface MessagesProps {
   reload: UseChatHelpers['reload'];
   isReadonly: boolean;
   isArtifactVisible: boolean;
+  collapsedArtifacts?: Array<{
+    id: string;
+    title: string;
+    kind: ArtifactKind;
+    content: string;
+  }>;
+  onArtifactExpand?: (artifactId: string) => void;
 }
 
-// Keep debugging logs in the implementation but restore memoization
 function PureMessages(props: MessagesProps) {
-  const { chatId, status, votes, messages, setMessages, reload, isReadonly } =
-    props;
-
-  // Add a log to see when PureMessages itself re-renders
-  console.log(
-    '[PureMessages] Rendering. Message count:',
-    props.messages.length,
-    'Status:',
-    props.status,
-  );
-
-  // Add logging when messages array changes
-  useEffect(() => {
-    console.log(
-      '[Messages] Messages array updated:',
-      messages.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content:
-          typeof m.content === 'string'
-            ? `${m.content.substring(0, 30)}...`
-            : 'non-string content',
-        parts:
-          m.parts && m.parts.length > 0
-            ? `${m.parts.length} parts`
-            : 'no parts',
-      })),
-    );
-  }, [messages]);
-
-  // Add logging when status changes
-  useEffect(() => {
-    console.log('[Messages] Status changed:', status);
-  }, [status]);
+  const {
+    chatId,
+    status,
+    votes,
+    messages,
+    setMessages,
+    reload,
+    isReadonly,
+    collapsedArtifacts,
+    onArtifactExpand,
+  } = props;
 
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
@@ -68,23 +53,6 @@ function PureMessages(props: MessagesProps) {
       {messages.map((message, index) => {
         const isLastMessage = messages.length - 1 === index;
         const isLoading = status === 'streaming' && isLastMessage;
-
-        // Only log in development
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`[Messages] Rendering message ${index}:`, {
-            id: message.id,
-            role: message.role,
-            contentPreview:
-              typeof message.content === 'string'
-                ? message.content.length > 0
-                  ? `${message.content.substring(0, 30)}...`
-                  : '<empty string>'
-                : message.content === null
-                  ? '<null>'
-                  : `<non-string: ${typeof message.content}>`,
-            isLoading,
-          });
-        }
 
         return (
           <PreviewMessage
@@ -108,10 +76,29 @@ function PureMessages(props: MessagesProps) {
         messages.length > 0 &&
         messages[messages.length - 1].role === 'user' && <ThinkingMessage />}
 
+      {/* Display collapsed artifacts inline with messages */}
+      {collapsedArtifacts && collapsedArtifacts.length > 0 && (
+        <div className="px-4 md:max-w-3xl mx-auto w-full mb-4">
+          {collapsedArtifacts.map((artifact) => (
+            <div key={artifact.id} className="mb-3">
+              <CollapsedArtifact
+                title={artifact.title}
+                kind={artifact.kind}
+                content={artifact.content}
+                onExpand={() => onArtifactExpand?.(artifact.id)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
       <div ref={messagesEndRef} className="shrink-0 min-h-[24px]" />
     </div>
   );
 }
+
+// TEMPORARILY DISABLE MEMOIZATION FOR DEBUGGING
+// export const Messages = PureMessages;
 
 // Re-enable memoization for Messages with deep comparison
 export const Messages = memo(PureMessages, (prevProps, nextProps) => {
@@ -147,10 +134,9 @@ export const Messages = memo(PureMessages, (prevProps, nextProps) => {
 
   if (!equal(prevProps.votes, nextProps.votes)) reasonForRerender += 'votes ';
 
-  if (reasonForRerender) {
-    console.log('[Messages.memo] Re-rendering because:', reasonForRerender);
-    return false; // Props are different, re-render
+  if (!equal(prevProps.collapsedArtifacts, nextProps.collapsedArtifacts)) {
+    reasonForRerender += 'collapsedArtifacts ';
   }
-  console.log('[Messages.memo] Props are equal, skipping re-render.');
-  return true; // Props are equal, prevent re-render
+
+  return !reasonForRerender; // Return true if no reason to re-render (props are equal)
 });

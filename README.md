@@ -3,10 +3,10 @@
 > A modular, enterprise-grade Retrieval-Augmented Generation (RAG) system with native file handling, Google Drive integration, and modern chatbot interface
 
 **Status**: Stable  
-**Last Updated**: 2024-12-23  
-**Version**: 2.4.0
+**Last Updated**: 2024-12-26  
+**Version**: 2.5.0
 
-![Version](https://img.shields.io/badge/version-2.4.0-blue)
+![Version](https://img.shields.io/badge/version-2.5.0-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-15.3.0-black)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-green)
 ![LangChain](https://img.shields.io/badge/LangChain-0.3.24-yellow)
@@ -44,7 +44,15 @@ Quibit RAG is a modular, multi-tenant AI assistant platform that combines modern
 
 ## Key Features
 
-### Version 2.4.0 Features (Latest)
+### Version 2.5.0 Features (Latest)
+- **Vercel AI SDK Migration**: Complete migration from custom LangChain streaming to modern Vercel AI SDK patterns for artifacts
+- **Enhanced Artifact Rendering**: Proper Markdown support with clickable hyperlinks and improved visual integration
+- **Fixed Artifact Functionality**: Resolved critical issues with artifact close/collapse functionality and state management
+- **Collapsed Artifact Display**: New inline collapsed artifacts in chat with smart content preview and expandable functionality
+- **Modern Streaming Architecture**: Industry-standard streaming protocols with better error handling and performance
+- **Improved User Experience**: Seamless artifact interactions, better visual feedback, and enhanced accessibility
+
+### Version 2.4.0 Features
 - **Complete Phase 2 Implementation**: Full native Asana integration with 100% API coverage
 - **Advanced Task Management**: Complete task lifecycle support including dependencies, subtasks, and followers
 - **Sophisticated Project Operations**: Project management, sections, task organization with GID resolution
@@ -319,4 +327,4 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 
 **Built with ❤️ by the Quibit Team**  
 **Last Updated**: 2024-12-23  
-**Version**: 2.4.0
+**Version**: 2.5.0

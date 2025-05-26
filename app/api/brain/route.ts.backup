@@ -1291,12 +1291,6 @@ export async function POST(req: NextRequest) {
         url: string;
         extractedText: string;
       };
-      artifactContext?: {
-        documentId: string;
-        title: string;
-        kind: string;
-        content: string;
-      };
       // Support both activeBitContextId and currentActiveSpecialistId for backward compatibility
       activeBitContextId?: string | null;
       currentActiveSpecialistId?: string | null;
@@ -1327,7 +1321,6 @@ export async function POST(req: NextRequest) {
       id: chatId,
       selectedChatModel,
       fileContext,
-      artifactContext, // Add artifact context extraction
       // Extract the context variables from request with backward compatibility
       currentActiveSpecialistId = null,
       activeBitContextId = null,
@@ -1850,24 +1843,6 @@ export async function POST(req: NextRequest) {
         logger.info(
           '[Brain API] Integrated context window information into system prompt',
         );
-      }
-
-      // Add artifact context if available
-      if (artifactContext?.documentId) {
-        const artifactContextInfo = `
-CURRENT ARTIFACT CONTEXT:
-You are currently working with an artifact:
-- ID: ${artifactContext.documentId}
-- Title: "${artifactContext.title}"
-- Type: ${artifactContext.kind}
-- Content: "${artifactContext.content.substring(0, 1000)}${artifactContext.content.length > 1000 ? '...' : ''}"
-
-When the user asks to modify, edit, update, or change this artifact, they are referring to this current artifact.
-When they ask for changes like "make the title shorter", "add final polish", "improve this", etc., they are referring to this current artifact.
-Always reference the current artifact content when making modifications.`;
-
-        finalSystemPrompt = `${finalSystemPrompt}\n\n${artifactContextInfo.trim()}`;
-        logger.info('[Brain API] Added artifact context to system prompt');
       }
       // --- END CONTEXT INTEGRATION ---
 
