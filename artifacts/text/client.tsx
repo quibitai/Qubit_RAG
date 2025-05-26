@@ -192,10 +192,12 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
       return <DiffView oldContent={oldContent} newContent={newContent} />;
     }
 
-    return (
-      <>
-        <div className="flex flex-row py-8 md:p-20 px-4">
-          {isCurrentVersion && status === 'streaming' ? (
+    // If mode is 'edit' (since diff is handled above)
+    if (isCurrentVersion) {
+      // Current version, show Editor. Editor can use 'status' to manage editability during streaming.
+      return (
+        <>
+          <div className="flex flex-row py-8 md:p-20 px-4">
             <Editor
               content={content}
               suggestions={metadata?.suggestions || []}
@@ -204,15 +206,22 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
               status={status}
               onSaveContent={onSaveContent}
             />
-          ) : (
-            <div className="prose prose-gray dark:prose-invert max-w-none">
-              <Markdown>{content}</Markdown>
-            </div>
-          )}
-
-          {metadata?.suggestions && metadata.suggestions.length > 0 ? (
-            <div className="md:hidden h-dvh w-12 shrink-0" />
-          ) : null}
+            {metadata?.suggestions && metadata.suggestions.length > 0 ? (
+              <div className="md:hidden h-dvh w-12 shrink-0" />
+            ) : null}
+          </div>
+        </>
+      );
+    }
+    // Not current version, but mode is 'edit'. Show read-only Markdown of the specific version.
+    const versionContent = getDocumentContentById(currentVersionIndex);
+    return (
+      <>
+        <div className="flex flex-row py-8 md:p-20 px-4">
+          <div className="prose prose-gray dark:prose-invert max-w-none">
+            <Markdown>{versionContent}</Markdown>
+          </div>
+          {/* You could consider adding suggestions panel here too if applicable for old versions */}
         </div>
       </>
     );
@@ -262,15 +271,21 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
       icon: <PenIcon />,
       description: 'Add final polish',
       onClick: ({ appendMessage, content, title, kind }) => {
+        const fullMessage = `Please add final polish and check for grammar, add section titles for better structure, and ensure everything reads smoothly. Here is the current draft for your review:
+
+---
+**Document Title: ${title || 'Untitled Document'}**
+${content}
+---
+`;
         appendMessage({
           role: 'user',
-          content:
-            'Please add final polish and check for grammar, add section titles for better structure, and ensure everything reads smoothly. I have attached the current draft for your review.',
+          content: fullMessage,
           experimental_attachments: [
             {
-              contentType: `application/vnd.quibit.artifact.${kind || 'text'}`,
+              contentType: 'text/plain',
               name: title || 'document.txt',
-              content: content,
+              url: `data:text/plain;charset=utf-8,${encodeURIComponent(content)}`,
             } as unknown as Attachment,
           ],
         });

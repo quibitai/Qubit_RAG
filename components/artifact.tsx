@@ -1,5 +1,4 @@
 import type { Attachment, UIMessage } from 'ai';
-import { formatDistance } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   type Dispatch,
@@ -27,7 +26,6 @@ import { sheetArtifact } from '@/artifacts/sheet/client';
 import { textArtifact } from '@/artifacts/text/client';
 import equal from 'fast-deep-equal';
 import type { UseChatHelpers } from '@ai-sdk/react';
-import type { VisibilityType } from './visibility-selector';
 import { FileText, Code, Image as ImageIcon, Table } from 'lucide-react';
 
 const isValidUUID = (id: string | null | undefined): boolean => {
@@ -209,7 +207,7 @@ function PureArtifact({
   );
 
   const saveContent = useCallback(
-    (updatedContent: string, debounce: boolean = true) => {
+    (updatedContent: string, debounce = true) => {
       if (!documentId || documentId === 'init') {
         console.log('[saveContent] No valid documentId, skipping save');
         return;

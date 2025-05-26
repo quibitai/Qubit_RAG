@@ -5,6 +5,47 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2025-01-26
+
+### Added
+- **Collapsed Artifacts Context Awareness**: AI now maintains full awareness of collapsed artifacts when they are closed from the artifact pane
+- **Enhanced Scrolling System**: Complete rebuild of scrolling functionality for both main chat and artifact pane
+- **Auto-Scroll Intelligence**: Smart auto-scroll that detects user manual scrolling and prevents conflicts
+- **Improved User Experience**: Seamless interaction between collapsed artifacts and AI responses
+
+### Fixed
+- **Critical AI Context Issue**: Fixed AI losing awareness of document content after closing artifacts (hitting X button)
+- **Scrolling Functionality**: Resolved scrolling issues in both main chat UI and artifact chat pane
+- **Auto-Scroll Behavior**: Fixed auto-scroll never working and conflicts with manual scrolling
+- **Layout Constraints**: Fixed overflow issues preventing proper scrolling in chat containers
+- **Chronological Placement**: Fixed collapsed artifacts appearing out of order in conversation flow
+
+### Technical Improvements
+- **Backend Context Processing**: Enhanced Brain API to properly extract and process `collapsedArtifactsContext`
+- **Collapsed Artifacts Integration**: Added comprehensive context formatting for collapsed artifacts in AI prompts
+- **Scrolling Architecture**: Rebuilt `useScrollToBottom` hook with proper user detection and conflict prevention
+- **Layout Structure**: Fixed CSS layout issues with proper flex sizing and overflow handling
+- **Event Handling**: Improved scroll event management with proper propagation control
+
+### Enhanced Features
+- **Contextual AI Responses**: AI can now summarize, edit, or reference collapsed documents seamlessly
+- **Smart Scroll Detection**: System detects when user manually scrolls up and stops auto-scroll appropriately
+- **Smooth Scrolling**: Implemented proper scroll behavior with `requestAnimationFrame` for smooth operations
+- **Message Association**: Collapsed artifacts are now properly associated with their creating messages
+- **Cross-UI Context**: Maintained context awareness across different UI states (expanded/collapsed)
+
+### User Experience Improvements
+- **Seamless Document Interaction**: Users can close artifacts and continue discussing them naturally
+- **Intuitive Scrolling**: Chat scrolling now works as expected with proper auto-scroll to new messages
+- **Chronological Flow**: Collapsed artifacts appear inline with their associated messages
+- **Responsive Interface**: Improved responsiveness and interaction patterns throughout the application
+
+### Development Quality
+- **Type Safety**: Added proper TypeScript interfaces for collapsed artifacts context
+- **Error Handling**: Enhanced error handling with proper null checks and validation
+- **Code Organization**: Improved separation of concerns between scrolling logic and UI components
+- **Debugging Support**: Added comprehensive logging for troubleshooting context and scrolling issues
+
 ## [2.5.3] - 2025-01-27
 
 ### Fixed

@@ -17,7 +17,6 @@ import { toast } from 'sonner';
 import { ChatPaneToggle } from './ChatPaneToggle';
 import { useChatPane } from '@/context/ChatPaneContext';
 import type { ArtifactKind } from '@/components/artifact';
-import { CollapsedArtifact } from './collapsed-artifact';
 
 // Define the ChatRequestOptions interface based on the actual structure
 interface ChatRequestOptions {
@@ -192,6 +191,7 @@ export function Chat({
       title: string;
       kind: ArtifactKind;
       content: string;
+      messageId: string; // Track which message created this artifact
     }>
   >([]);
 
@@ -261,6 +261,19 @@ export function Chat({
           };
         }
 
+        // Include collapsed artifacts in context so AI remains aware of all documents
+        const collapsedArtifactsContext =
+          collapsedArtifacts.length > 0
+            ? {
+                collapsedArtifacts: collapsedArtifacts.map((artifact) => ({
+                  documentId: artifact.id,
+                  title: artifact.title,
+                  kind: artifact.kind,
+                  content: artifact.content,
+                })),
+              }
+            : null;
+
         // Use the original handleSubmit from AI SDK to handle streaming response
         await originalHandleSubmit(event, {
           ...chatRequestOptions,
@@ -268,6 +281,7 @@ export function Chat({
             ...chatRequestOptions?.body,
             fileContext: fileContext || null, // Include fileContext in the request payload
             artifactContext, // Include current artifact context
+            collapsedArtifactsContext, // Include collapsed artifacts context
             id: id,
             chatId: id,
             // Indicate this is from the main UI, not the global pane
@@ -287,7 +301,8 @@ export function Chat({
       toast,
       id,
       activeArtifactState,
-    ], // Add activeArtifactState dependency
+      collapsedArtifacts, // Add collapsedArtifacts dependency
+    ],
   );
 
   useEffect(() => {
@@ -666,39 +681,23 @@ export function Chat({
   // Function to handle closing the artifact panel
   const handleArtifactClose = useCallback(
     () => {
-      /* // REMOVE THESE LOGS
-      console.log(
-        '[Chat] handleArtifactClose called. Current activeArtifactState snapshot:',
-        JSON.parse(JSON.stringify(activeArtifactState)), // Deep copy for logging
-      );
-      */
-
       const { documentId, title, kind, content } = activeArtifactState;
 
-      /* // REMOVE THESE LOGS
-      console.log('[Chat] Internal check within handleArtifactClose:', {
-        docId: documentId,
-        hasDocId: !!documentId,
-        titleVal: title,
-        hasTitle: !!title,
-        kindVal: kind,
-        hasKind: !!kind,
-        contentLength: content?.length || 0,
-        hasContent: !!content,
-      });
-      */
-
       if (documentId && content && title && kind) {
+        // Find the most recent assistant message to associate this artifact with
+        const lastAssistantMessage = messages
+          .slice()
+          .reverse()
+          .find((msg) => msg.role === 'assistant');
+
         const collapsedArtifact = {
           id: documentId,
           title: title,
           kind: kind,
           content: content,
+          messageId: lastAssistantMessage?.id || documentId, // Fallback to documentId if no message found
         };
-        // console.log(
-        //   '[Chat] ✅ Adding to collapsed artifacts:',
-        //   collapsedArtifact.id,
-        // );
+
         setCollapsedArtifacts((prev) => {
           const exists = prev.some(
             (artifact) => artifact.id === collapsedArtifact.id,
@@ -709,6 +708,7 @@ export function Chat({
           const newList = [...prev, collapsedArtifact];
           return newList;
         });
+
         // This will also set isVisible: false and reset other fields
         setActiveArtifactState((prev) => ({
           ...prev,
@@ -721,9 +721,6 @@ export function Chat({
           isStreaming: false,
         }));
       } else {
-        // console.warn(
-        //   '[Chat] ❌ Missing required fields in activeArtifactState for collapsing, just closing panel and resetting.',
-        // );
         setActiveArtifactState((prev) => ({
           ...prev,
           isVisible: false,
@@ -736,7 +733,12 @@ export function Chat({
         }));
       }
     },
-    [activeArtifactState, setActiveArtifactState, setCollapsedArtifacts], // Restore setCollapsedArtifacts
+    [
+      activeArtifactState,
+      setActiveArtifactState,
+      setCollapsedArtifacts,
+      messages,
+    ], // Add messages dependency
   );
 
   // Function to handle expanding a collapsed artifact back to full view
@@ -784,7 +786,7 @@ export function Chat({
           <FileContextBanner />
         </div>
 
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 min-h-0">
           <Messages
             chatId={id}
             status={uiStatus}

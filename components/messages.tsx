@@ -23,6 +23,7 @@ interface MessagesProps {
     title: string;
     kind: ArtifactKind;
     content: string;
+    messageId: string; // Track which message created this artifact
   }>;
   onArtifactExpand?: (artifactId: string) => void;
 }
@@ -43,30 +44,20 @@ function PureMessages(props: MessagesProps) {
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
 
+  // Simple event handling that doesn't interfere with scrolling
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (container) {
-      container.setAttribute('tabindex', '-1'); // For keyboard focus
-      const handleWheel = (e: WheelEvent) => e.stopPropagation();
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(e.key)) {
-          e.stopPropagation();
-        }
-      };
-      container.addEventListener('wheel', handleWheel, { passive: true });
-      container.addEventListener('keydown', handleKeyDown);
-      return () => {
-        container.removeEventListener('wheel', handleWheel);
-        container.removeEventListener('keydown', handleKeyDown);
-      };
+      // Just set tabindex for keyboard accessibility
+      container.setAttribute('tabindex', '-1');
     }
   }, [messagesContainerRef]);
 
   return (
     <div
       ref={messagesContainerRef}
-      className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-auto overflow-x-hidden pt-4 focus:outline-none"
-      tabIndex={-1} // Added for focusability
+      className="flex flex-col min-w-0 gap-6 h-full overflow-y-auto overflow-x-hidden pt-4 focus:outline-none"
+      tabIndex={-1}
     >
       {messages.length === 0 && <Greeting />}
 
@@ -74,43 +65,50 @@ function PureMessages(props: MessagesProps) {
         const isLastMessage = messages.length - 1 === index;
         const isLoading = status === 'streaming' && isLastMessage;
 
+        // Find collapsed artifacts associated with this message
+        const messageArtifacts =
+          collapsedArtifacts?.filter(
+            (artifact) => artifact.messageId === message.id,
+          ) || [];
+
         return (
-          <PreviewMessage
-            key={message.id}
-            chatId={chatId}
-            message={message}
-            isLoading={isLoading}
-            vote={
-              votes
-                ? votes.find((vote) => vote.messageId === message.id)
-                : undefined
-            }
-            setMessages={setMessages}
-            reload={reload}
-            isReadonly={isReadonly}
-          />
+          <div key={message.id}>
+            <PreviewMessage
+              chatId={chatId}
+              message={message}
+              isLoading={isLoading}
+              vote={
+                votes
+                  ? votes.find((vote) => vote.messageId === message.id)
+                  : undefined
+              }
+              setMessages={setMessages}
+              reload={reload}
+              isReadonly={isReadonly}
+            />
+
+            {/* Display collapsed artifacts inline after their associated message */}
+            {messageArtifacts.length > 0 && (
+              <div className="px-4 md:max-w-3xl mx-auto w-full mt-4">
+                {messageArtifacts.map((artifact) => (
+                  <div key={artifact.id} className="mb-3">
+                    <CollapsedArtifact
+                      title={artifact.title}
+                      kind={artifact.kind}
+                      content={artifact.content}
+                      onExpand={() => onArtifactExpand?.(artifact.id)}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         );
       })}
 
       {status === 'submitted' &&
         messages.length > 0 &&
         messages[messages.length - 1].role === 'user' && <ThinkingMessage />}
-
-      {/* Display collapsed artifacts inline with messages */}
-      {collapsedArtifacts && collapsedArtifacts.length > 0 && (
-        <div className="px-4 md:max-w-3xl mx-auto w-full mb-4">
-          {collapsedArtifacts.map((artifact) => (
-            <div key={artifact.id} className="mb-3">
-              <CollapsedArtifact
-                title={artifact.title}
-                kind={artifact.kind}
-                content={artifact.content}
-                onExpand={() => onArtifactExpand?.(artifact.id)}
-              />
-            </div>
-          ))}
-        </div>
-      )}
 
       <div ref={messagesEndRef} className="shrink-0 min-h-[24px]" />
     </div>

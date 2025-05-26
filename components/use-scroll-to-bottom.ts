@@ -6,72 +6,68 @@ export function useScrollToBottom<T extends HTMLElement>(): [
 ] {
   const containerRef = useRef<T>(null);
   const endRef = useRef<T>(null);
-  const userScrolledUpRef = useRef(false);
-  const lastScrollTopRef = useRef(0);
+  const userHasScrolledRef = useRef(false);
+  const isAutoScrollingRef = useRef(false);
 
   useEffect(() => {
     const container = containerRef.current;
     const end = endRef.current;
 
-    if (container && end) {
-      // Track if user has scrolled up
-      const handleScroll = () => {
-        if (!container) return;
+    if (!container || !end) return;
 
-        const currentScrollTop = container.scrollTop;
-        const scrollHeight = container.scrollHeight;
-        const clientHeight = container.clientHeight;
+    // Function to scroll to bottom
+    const scrollToBottom = () => {
+      if (isAutoScrollingRef.current) return;
 
-        // Check if user is near bottom (within 150px) - increased threshold for better UX
-        const isNearBottom =
-          scrollHeight - currentScrollTop - clientHeight < 150;
+      isAutoScrollingRef.current = true;
+      container.scrollTop = container.scrollHeight;
 
-        // Check if user scrolled up manually (not just content being added)
-        const scrolledUp = currentScrollTop < lastScrollTopRef.current - 10; // 10px threshold to avoid tiny movements
+      // Reset flag after scroll completes
+      setTimeout(() => {
+        isAutoScrollingRef.current = false;
+      }, 100);
+    };
 
-        if (scrolledUp) {
-          userScrolledUpRef.current = true;
-        } else if (isNearBottom) {
-          // Reset the flag if user scrolls back near bottom
-          userScrolledUpRef.current = false;
-        }
+    // Track user scrolling
+    const handleScroll = () => {
+      if (isAutoScrollingRef.current) return;
 
-        lastScrollTopRef.current = currentScrollTop;
-      };
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 10;
 
-      // Add scroll event listener to detect manual scrolling
-      container.addEventListener('scroll', handleScroll, { passive: true });
+      // If user scrolls up from bottom, mark as manually scrolled
+      if (!isAtBottom && !userHasScrolledRef.current) {
+        userHasScrolledRef.current = true;
+      }
 
-      const observer = new MutationObserver(() => {
-        // Only auto-scroll if user hasn't manually scrolled up AND is near bottom
-        const isNearBottom =
-          container.scrollHeight -
-            container.scrollTop -
-            container.clientHeight <
-          150;
+      // If user scrolls back to bottom, reset the flag
+      if (isAtBottom && userHasScrolledRef.current) {
+        userHasScrolledRef.current = false;
+      }
+    };
 
-        if (!userScrolledUpRef.current || isNearBottom) {
-          // Use requestAnimationFrame for smoother scrolling
-          requestAnimationFrame(() => {
-            if (end && container) {
-              end.scrollIntoView({ behavior: 'smooth', block: 'end' });
-            }
-          });
-        }
-      });
+    // Auto-scroll when content changes
+    const observer = new MutationObserver(() => {
+      // Only auto-scroll if user hasn't manually scrolled up
+      if (!userHasScrolledRef.current) {
+        scrollToBottom();
+      }
+    });
 
-      observer.observe(container, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        characterData: true,
-      });
+    // Set up event listeners and observer
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+    });
 
-      return () => {
-        observer.disconnect();
-        container.removeEventListener('scroll', handleScroll);
-      };
-    }
+    // Initial scroll to bottom
+    scrollToBottom();
+
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      observer.disconnect();
+    };
   }, []);
 
   return [containerRef, endRef];

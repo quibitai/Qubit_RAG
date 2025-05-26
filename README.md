@@ -3,10 +3,10 @@
 > A modular, enterprise-grade Retrieval-Augmented Generation (RAG) system with native file handling, Google Drive integration, and modern chatbot interface
 
 **Status**: Stable  
-**Last Updated**: 2024-12-26  
-**Version**: 2.5.0
+**Last Updated**: 2025-01-26  
+**Version**: 2.6.0
 
-![Version](https://img.shields.io/badge/version-2.5.0-blue)
+![Version](https://img.shields.io/badge/version-2.6.0-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-15.3.0-black)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-green)
 ![LangChain](https://img.shields.io/badge/LangChain-0.3.24-yellow)
@@ -44,7 +44,14 @@ Quibit RAG is a modular, multi-tenant AI assistant platform that combines modern
 
 ## Key Features
 
-### Version 2.5.0 Features (Latest)
+### Version 2.6.0 Features (Latest)
+- **Collapsed Artifacts Context Awareness**: AI now maintains full awareness of collapsed artifacts when they are closed from the artifact pane
+- **Enhanced Scrolling System**: Complete rebuild of scrolling functionality for both main chat and artifact pane with smart auto-scroll
+- **Critical AI Context Fix**: Resolved AI losing awareness of document content after closing artifacts (hitting X button)
+- **Improved User Experience**: Seamless interaction between collapsed artifacts and AI responses with proper chronological placement
+- **Technical Architecture**: Enhanced Brain API context processing and rebuilt scrolling architecture with conflict prevention
+
+### Version 2.5.0 Features
 - **Vercel AI SDK Migration**: Complete migration from custom LangChain streaming to modern Vercel AI SDK patterns for artifacts
 - **Enhanced Artifact Rendering**: Proper Markdown support with clickable hyperlinks and improved visual integration
 - **Fixed Artifact Functionality**: Resolved critical issues with artifact close/collapse functionality and state management

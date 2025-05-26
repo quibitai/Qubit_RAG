@@ -30,22 +30,12 @@ function PureArtifactMessages({
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
 
+  // Simple event handling that doesn't interfere with scrolling
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (container) {
-      container.setAttribute('tabindex', '-1'); // For keyboard focus
-      const handleWheel = (e: WheelEvent) => e.stopPropagation();
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(e.key)) {
-          e.stopPropagation();
-        }
-      };
-      container.addEventListener('wheel', handleWheel, { passive: true });
-      container.addEventListener('keydown', handleKeyDown);
-      return () => {
-        container.removeEventListener('wheel', handleWheel);
-        container.removeEventListener('keydown', handleKeyDown);
-      };
+      // Just set tabindex for keyboard accessibility
+      container.setAttribute('tabindex', '-1');
     }
   }, [messagesContainerRef]);
 
@@ -53,7 +43,7 @@ function PureArtifactMessages({
     <div
       ref={messagesContainerRef}
       className="flex flex-col gap-4 h-full items-center overflow-y-auto px-4 pt-20 focus:outline-none"
-      tabIndex={-1} // Added for focusability
+      tabIndex={-1}
     >
       {messages.map((message, index) => (
         <PreviewMessage

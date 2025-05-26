@@ -37,14 +37,29 @@ const components: Partial<Components> = {
     );
   },
   a: ({ node, children, ...props }) => {
+    const href = props.href;
+    const isExternal =
+      href &&
+      (href.startsWith('http://') ||
+        href.startsWith('https://') ||
+        href.startsWith('mailto:'));
+
+    if (isExternal) {
+      return (
+        <a
+          className="text-blue-500 hover:underline"
+          target="_blank"
+          rel="noreferrer"
+          {...props}
+        >
+          {children}
+        </a>
+      );
+    }
+
     return (
       // @ts-expect-error
-      <Link
-        className="text-blue-500 hover:underline"
-        target="_blank"
-        rel="noreferrer"
-        {...props}
-      >
+      <Link className="text-blue-500 hover:underline" {...props}>
         {children}
       </Link>
     );

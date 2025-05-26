@@ -1297,6 +1297,14 @@ export async function POST(req: NextRequest) {
         kind: string;
         content: string;
       };
+      collapsedArtifactsContext?: {
+        collapsedArtifacts: Array<{
+          documentId: string;
+          title: string;
+          kind: string;
+          content: string;
+        }>;
+      };
       // Support both activeBitContextId and currentActiveSpecialistId for backward compatibility
       activeBitContextId?: string | null;
       currentActiveSpecialistId?: string | null;
@@ -1328,6 +1336,7 @@ export async function POST(req: NextRequest) {
       selectedChatModel,
       fileContext,
       artifactContext, // Add artifact context extraction
+      collapsedArtifactsContext, // Add collapsed artifacts context extraction
       // Extract the context variables from request with backward compatibility
       currentActiveSpecialistId = null,
       activeBitContextId = null,
@@ -2201,10 +2210,44 @@ ${extractedText}
       ? `I've included the content of a file that you should reference when answering my question. Please use the information from this file to inform your response.`
       : '';
 
+    // Add collapsed artifacts context if present
+    let collapsedArtifactsString = '';
+    if (
+      collapsedArtifactsContext?.collapsedArtifacts &&
+      collapsedArtifactsContext.collapsedArtifacts.length > 0
+    ) {
+      const artifactsInfo = collapsedArtifactsContext.collapsedArtifacts
+        .map((artifact, index) => {
+          return `${index + 1}. **${artifact.title}** (${artifact.kind})
+Document ID: ${artifact.documentId}
+
+Content:
+${artifact.content}
+
+---`;
+        })
+        .join('\n\n');
+
+      collapsedArtifactsString = `
+
+### COLLAPSED ARTIFACTS CONTEXT ###
+The following documents are currently collapsed but available for reference:
+
+${artifactsInfo}
+### END COLLAPSED ARTIFACTS CONTEXT ###
+
+`;
+      logger.info(
+        `[Brain API] Including ${collapsedArtifactsContext.collapsedArtifacts.length} collapsed artifacts in context.`,
+      );
+    }
+
     if (fileContextString) {
-      combinedMessage = `${fileContextInstruction}\n\n${combinedMessage}${fileContextString}`;
+      combinedMessage = `${fileContextInstruction}\n\n${combinedMessage}${fileContextString}${collapsedArtifactsString}`;
     } else if (attachmentContext) {
-      combinedMessage = `${combinedMessage}\n\n### ATTACHED FILE CONTENT ###${attachmentContext}`;
+      combinedMessage = `${combinedMessage}\n\n### ATTACHED FILE CONTENT ###${attachmentContext}${collapsedArtifactsString}`;
+    } else if (collapsedArtifactsString) {
+      combinedMessage = `${combinedMessage}${collapsedArtifactsString}`;
     }
 
     // Use createDataStreamResponse to handle the streaming response
