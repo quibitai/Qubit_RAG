@@ -512,10 +512,14 @@ function PureArtifact({
               {!error && artifactDefinition && (
                 <artifactDefinition.content
                   title={artifact.title}
-                  content={artifact.content}
+                  content={
+                    artifact.status === 'streaming' || !document
+                      ? content
+                      : (document.content ?? '')
+                  }
                   mode={mode}
                   status={artifact.status}
-                  currentVersionIndex={-1}
+                  currentVersionIndex={currentVersionIndex}
                   suggestions={metadata?.suggestions || []}
                   onSaveContent={saveContent}
                   isInline={false}
@@ -542,6 +546,13 @@ function PureArtifact({
                     stop={stop}
                     setMessages={setMessages}
                     artifactKind={artifact.kind}
+                    content={
+                      artifact.status === 'streaming' || !document
+                        ? content
+                        : (document.content ?? '')
+                    }
+                    title={title}
+                    kind={kind}
                   />
                 )}
               </AnimatePresence>

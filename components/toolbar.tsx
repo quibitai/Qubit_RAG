@@ -40,9 +40,18 @@ type ToolProps = {
   append: UseChatHelpers['append'];
   onClick: ({
     appendMessage,
+    content,
+    title,
+    kind,
   }: {
     appendMessage: UseChatHelpers['append'];
+    content: string;
+    title: string | null;
+    kind: ArtifactKind | null;
   }) => void;
+  content: string;
+  title: string | null;
+  kind: ArtifactKind | null;
 };
 
 const Tool = ({
@@ -55,6 +64,9 @@ const Tool = ({
   isAnimating,
   append,
   onClick,
+  content,
+  title,
+  kind,
 }: ToolProps) => {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -66,6 +78,7 @@ const Tool = ({
 
   const handleSelect = () => {
     if (!isToolbarVisible && setIsToolbarVisible) {
+      setIsHovered(true);
       setIsToolbarVisible(true);
       return;
     }
@@ -80,7 +93,7 @@ const Tool = ({
       setSelectedTool(description);
     } else {
       setSelectedTool(null);
-      onClick({ appendMessage: append });
+      onClick({ appendMessage: append, content, title, kind });
     }
   };
 
@@ -245,6 +258,9 @@ export const Tools = ({
   isAnimating,
   setIsToolbarVisible,
   tools,
+  content,
+  title,
+  kind,
 }: {
   isToolbarVisible: boolean;
   selectedTool: string | null;
@@ -253,6 +269,9 @@ export const Tools = ({
   isAnimating: boolean;
   setIsToolbarVisible: Dispatch<SetStateAction<boolean>>;
   tools: Array<ArtifactToolbarItem>;
+  content: string;
+  title: string | null;
+  kind: ArtifactKind | null;
 }) => {
   const [primaryTool, ...secondaryTools] = tools;
 
@@ -275,6 +294,9 @@ export const Tools = ({
               append={append}
               isAnimating={isAnimating}
               onClick={secondaryTool.onClick}
+              content={content}
+              title={title}
+              kind={kind}
             />
           ))}
       </AnimatePresence>
@@ -289,6 +311,9 @@ export const Tools = ({
         append={append}
         isAnimating={isAnimating}
         onClick={primaryTool.onClick}
+        content={content}
+        title={title}
+        kind={kind}
       />
     </motion.div>
   );
@@ -302,6 +327,9 @@ const PureToolbar = ({
   stop,
   setMessages,
   artifactKind,
+  content,
+  title,
+  kind,
 }: {
   isToolbarVisible: boolean;
   setIsToolbarVisible: Dispatch<SetStateAction<boolean>>;
@@ -310,6 +338,9 @@ const PureToolbar = ({
   stop: UseChatHelpers['stop'];
   setMessages: UseChatHelpers['setMessages'];
   artifactKind: ArtifactKind;
+  content: string;
+  title: string | null;
+  kind: ArtifactKind | null;
 }) => {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
@@ -443,6 +474,9 @@ const PureToolbar = ({
             setIsToolbarVisible={setIsToolbarVisible}
             setSelectedTool={setSelectedTool}
             tools={toolsByArtifactKind}
+            content={content}
+            title={title}
+            kind={kind}
           />
         )}
       </motion.div>
@@ -454,6 +488,9 @@ export const Toolbar = memo(PureToolbar, (prevProps, nextProps) => {
   if (prevProps.status !== nextProps.status) return false;
   if (prevProps.isToolbarVisible !== nextProps.isToolbarVisible) return false;
   if (prevProps.artifactKind !== nextProps.artifactKind) return false;
+  if (prevProps.content !== nextProps.content) return false;
+  if (prevProps.title !== nextProps.title) return false;
+  if (prevProps.kind !== nextProps.kind) return false;
 
   return true;
 });
