@@ -5,6 +5,18 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.3] - 2025-01-27
+
+### Fixed
+- **Document Editing**: Fixed issue where document editing wasn't working when document state hadn't loaded yet
+- **Toolbar Context**: Fixed "Add final polish" functionality by properly passing artifact content, title, and kind to toolbar tools
+- **Content Saving**: Improved saveContent function to handle cases during streaming or SWR loading delays
+
+### Technical Details
+- Modified `saveContent` function in `components/artifact.tsx` to allow saving when documentId is valid even if document state hasn't loaded
+- Updated `Toolbar` component to accept and pass `content`, `title`, and `kind` props to toolbar tools
+- Fixed toolbar tool `onClick` handlers to receive proper artifact context
+
 ## [2.5.2] - 2024-12-26
 
 ### Fixed
