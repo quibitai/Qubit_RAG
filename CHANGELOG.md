@@ -5,6 +5,18 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.2] - 2024-12-26
+
+### Fixed
+- **Artifact Interaction**: Synchronized `PureArtifact` internal state with props using `useEffect` to ensure correct rendering and data handling when props change.
+- **Polish Request**: Modified "Add final polish" toolbar action to include artifact `content`, `title`, and `kind` in `experimental_attachments` sent to the AI, enabling it to access the document draft.
+
+### Changed
+- **`ArtifactToolbarContext`**: Updated type definition in `components/create-artifact.tsx` to include `content`, `title`, and `kind` to support passing artifact data to toolbar actions.
+
+### Added
+- **Type Imports**: Imported `ArtifactKind` in `components/create-artifact.tsx` and `Attachment` in `artifacts/text/client.tsx` to resolve type errors.
+
 ## [2.5.1] - 2024-12-26
 
 ### Fixed
