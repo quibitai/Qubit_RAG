@@ -210,17 +210,26 @@ function PureArtifact({
 
   const saveContent = useCallback(
     (updatedContent: string, debounce: boolean = true) => {
-      if (document && updatedContent !== document.content) {
-        setIsContentDirty(true);
+      if (!documentId || documentId === 'init') {
+        console.log('[saveContent] No valid documentId, skipping save');
+        return;
+      }
 
-        if (debounce) {
-          debouncedHandleContentChange(updatedContent);
-        } else {
-          handleContentChange(updatedContent);
-        }
+      if (document && updatedContent === document.content) {
+        console.log('[saveContent] Content unchanged, skipping save');
+        return;
+      }
+
+      console.log('[saveContent] Saving content, debounce:', debounce);
+      setIsContentDirty(true);
+
+      if (debounce) {
+        debouncedHandleContentChange(updatedContent);
+      } else {
+        handleContentChange(updatedContent);
       }
     },
-    [document, debouncedHandleContentChange, handleContentChange],
+    [documentId, document, debouncedHandleContentChange, handleContentChange],
   );
 
   function getDocumentContentById(index: number) {
