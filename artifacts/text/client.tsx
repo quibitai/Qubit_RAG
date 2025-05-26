@@ -14,6 +14,7 @@ import {
 import type { Suggestion } from '@/lib/db/schema';
 import { toast } from 'sonner';
 import { getSuggestions } from '../actions';
+import type { Attachment } from 'ai';
 
 interface TextArtifactMetadata {
   suggestions: Array<Suggestion>;
@@ -260,11 +261,18 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
     {
       icon: <PenIcon />,
       description: 'Add final polish',
-      onClick: ({ appendMessage }) => {
+      onClick: ({ appendMessage, content, title, kind }) => {
         appendMessage({
           role: 'user',
           content:
-            'Please add final polish and check for grammar, add section titles for better structure, and ensure everything reads smoothly.',
+            'Please add final polish and check for grammar, add section titles for better structure, and ensure everything reads smoothly. I have attached the current draft for your review.',
+          experimental_attachments: [
+            {
+              contentType: `application/vnd.quibit.artifact.${kind || 'text'}`,
+              name: title || 'document.txt',
+              content: content,
+            } as unknown as Attachment,
+          ],
         });
       },
     },

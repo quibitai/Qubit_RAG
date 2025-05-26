@@ -277,6 +277,18 @@ function PureArtifact({
     }
   }, [artifact.documentId, artifactDefinition, setMetadata]);
 
+  useEffect(() => {
+    setArtifact((prevArtifact) => ({
+      ...prevArtifact,
+      documentId: documentId || 'init',
+      title: title || 'Document',
+      kind: kind || ('text' as ArtifactKind),
+      content: content,
+      isVisible: isVisible,
+      status: (isStreaming ? 'streaming' : 'idle') as 'streaming' | 'idle',
+    }));
+  }, [documentId, title, kind, content, isVisible, isStreaming, setArtifact]);
+
   const getIconForKind = (artifactKind: ArtifactKind | null) => {
     if (!artifactKind)
       return <FileText className="mr-2 flex-shrink-0 h-5 w-5" />;
