@@ -1,6 +1,14 @@
 /**
- * Asana integration module
- * Provides natural language interface to Asana API
+ * Asana Tool Integration
+ * Exports both legacy and modern implementations
  */
 
-export { asanaTool, AsanaTool } from './asanaTool';
+// Legacy implementation (regex-based)
+export { AsanaTool } from './asanaTool';
+
+// Modern implementation (LLM function calling)
+export { ModernAsanaTool, createModernAsanaTool } from './modernAsanaTool';
+
+// Shared types and utilities
+export * from './types';
+export * from './config';

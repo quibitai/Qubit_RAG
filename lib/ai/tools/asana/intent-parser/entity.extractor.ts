@@ -206,27 +206,105 @@ export function extractProjectParameters(input: string): {
 }
 
 /**
- * Extract project identifier from input
+ * Extract project identifier from natural language input
  *
  * @param input The natural language input
- * @returns Project identifier
+ * @returns Extracted project identifier
  */
 export function extractProjectIdentifier(input: string): {
   name?: string;
   gid?: string;
+  projectName?: string; // For backward compatibility
 } {
   if (!input) return {};
 
-  // Try to extract GID first
-  const gid = extractProjectGidFromInput(input);
+  // Extract project GID if present
+  const projectGid = extractProjectGidFromInput(input);
+  if (projectGid) {
+    return { gid: projectGid };
+  }
 
-  // Extract project name
-  const { projectName } = extractNamesFromInput(input);
+  // Priority 1: Extract from "project named/called 'X'" patterns (handles quoted names)
+  const namedMatch = input.match(
+    /(?:project\s+)?(?:named|called|titled)\s+["']([^"']+)["']/i,
+  );
+  if (namedMatch) {
+    return { name: namedMatch[1], projectName: namedMatch[1] };
+  }
 
-  return {
-    name: projectName,
-    gid,
-  };
+  // Priority 2: Extract from "details for/of/about 'X'" patterns (handles quoted names)
+  const quotedDetailsMatch = input.match(
+    /(?:details|info|information|status).*(?:for|of|about)\s+["']([^"']+)["']/i,
+  );
+  if (quotedDetailsMatch) {
+    return { name: quotedDetailsMatch[1], projectName: quotedDetailsMatch[1] };
+  }
+
+  // Priority 3: Extract from "details for/of/about X project" patterns (handles unquoted names)
+  const detailsProjectMatch = input.match(
+    /(?:details|info|information|status).*(?:for|of|about)\s+(?:the\s+)?([^"'\s]+(?:\s+[^"'\s]+)*?)\s+project/i,
+  );
+  if (detailsProjectMatch) {
+    return {
+      name: detailsProjectMatch[1].trim(),
+      projectName: detailsProjectMatch[1].trim(),
+    };
+  }
+
+  // Priority 4: Extract from "details for/of/about X" patterns (without "project" keyword)
+  const detailsMatch = input.match(
+    /(?:details|info|information|status).*(?:for|of|about)\s+(?:the\s+)?([^"'\s]+(?:\s+[^"'\s]+)*?)(?:\s+on\s+asana)?(?:\s|$)/i,
+  );
+  if (
+    detailsMatch &&
+    !['user', 'person', 'member', 'task'].includes(
+      detailsMatch[1].toLowerCase(),
+    )
+  ) {
+    return {
+      name: detailsMatch[1].trim(),
+      projectName: detailsMatch[1].trim(),
+    };
+  }
+
+  // Priority 5: Extract from "show/get/display project X" patterns
+  const showProjectMatch = input.match(
+    /(?:show|get|display|fetch|retrieve).*(?:project)\s+(?:details\s+(?:for|of|about)\s+)?["']?([^"']+?)["']?(?:\s|$)/i,
+  );
+  if (showProjectMatch) {
+    return {
+      name: showProjectMatch[1].trim(),
+      projectName: showProjectMatch[1].trim(),
+    };
+  }
+
+  // Priority 6: General quoted string (could be a project name)
+  const quotedMatch = input.match(/["']([^"']+)["']/);
+  if (quotedMatch) {
+    return { name: quotedMatch[1], projectName: quotedMatch[1] };
+  }
+
+  // Priority 7: Extract from "show me X" patterns where X could be a project name
+  const showMatch = input.match(
+    /(?:show|get|display)\s+(?:me\s+)?(?:the\s+)?([^"'\s]+)(?:\s+project)?/i,
+  );
+  if (
+    showMatch &&
+    ![
+      'details',
+      'info',
+      'information',
+      'all',
+      'my',
+      'user',
+      'person',
+      'member',
+    ].includes(showMatch[1].toLowerCase())
+  ) {
+    return { name: showMatch[1], projectName: showMatch[1] };
+  }
+
+  return {};
 }
 
 /**

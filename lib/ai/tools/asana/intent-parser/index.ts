@@ -244,7 +244,29 @@ export function parseIntent(input: string): ParsedIntent {
     }
 
     case AsanaOperationType.LIST_TASKS: {
-      const { projectName } = extractNamesFromInput(input);
+      // Use proper project extraction for LIST_TASKS instead of extractNamesFromInput
+      let projectName: string | undefined;
+
+      // First try to extract project identifier properly
+      const projectIdentifier = entityExtractor.extractProjectIdentifier(input);
+      if (projectIdentifier.name) {
+        projectName = projectIdentifier.name;
+      } else {
+        // Fallback: check for contextual references like "that project"
+        if (
+          input.toLowerCase().includes('that project') ||
+          input.toLowerCase().includes('this project')
+        ) {
+          // Context-aware: if user says "that project", we'll let the main tool handle context resolution
+          projectName = undefined; // Will be resolved from context
+        } else {
+          // Last resort: try the old method but only use projectName
+          const { projectName: fallbackProjectName } =
+            extractNamesFromInput(input);
+          projectName = fallbackProjectName;
+        }
+      }
+
       const assignedToMe = entityExtractor.isMyTasksRequest(input);
 
       // Extract assignee information for other users' tasks
@@ -286,7 +308,8 @@ export function parseIntent(input: string): ParsedIntent {
       } else if (
         input.toLowerCase().includes('incomplete') ||
         input.toLowerCase().includes('not completed') ||
-        input.toLowerCase().includes('open')
+        input.toLowerCase().includes('open') ||
+        input.toLowerCase().includes('active')
       ) {
         completed = false;
       }
@@ -379,6 +402,27 @@ export function parseIntent(input: string): ParsedIntent {
         projectName,
         teamName,
         notes,
+      };
+    }
+
+    case AsanaOperationType.GET_PROJECT_DETAILS: {
+      const projectIdentifier = entityExtractor.extractProjectIdentifier(input);
+
+      if (!projectIdentifier.name && !projectIdentifier.gid) {
+        return {
+          operationType: AsanaOperationType.UNKNOWN,
+          requestContext,
+          rawInput: input,
+          errorMessage: 'Could not determine which project to get details for.',
+          possibleOperations: [AsanaOperationType.GET_PROJECT_DETAILS],
+        };
+      }
+
+      return {
+        operationType,
+        requestContext,
+        rawInput: input,
+        projectIdentifier,
       };
     }
 

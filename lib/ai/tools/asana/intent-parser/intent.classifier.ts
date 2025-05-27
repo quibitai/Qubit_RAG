@@ -143,6 +143,15 @@ const INTENT_PATTERNS = {
     /(?:what|which).+(?:tasks|to-?dos)/i,
     /(?:find|search).+(?:tasks|to-?dos)/i,
 
+    // Outstanding/incomplete task patterns (high priority)
+    /(?:show|list|get|display).+(?:outstanding|incomplete|open|pending|active).+(?:tasks|items|work)/i,
+    /(?:outstanding|incomplete|open|pending|active).+(?:tasks|items|work).+(?:for|in|on)/i,
+    /(?:what|which).+(?:outstanding|incomplete|open|pending|active).+(?:tasks|items|work)/i,
+
+    // Project-specific task patterns
+    /(?:show|list|get|display).+(?:tasks|items|work).+(?:for|in|on).+(?:project|that project)/i,
+    /(?:tasks|items|work).+(?:for|in|on).+(?:project|that project)/i,
+
     // Conversational patterns
     /(?:can you|please).+(?:show|list|display).+(?:tasks|todos|items)/i,
     /(?:i want to see|let me see|show me).+(?:tasks|todos|items|work)/i,
@@ -159,7 +168,7 @@ const INTENT_PATTERNS = {
 
     // User-specific requests
     /(?:show|list|get).+(?:tasks|work|items).+(?:for|assigned to|belonging to).+/i,
-    /(?:what's|what are).+(?:[a-zA-Z]+(?:'s)?).+(?:tasks|work|assignments)/i,
+    /(?:what's|what are).+(?:[a-zA-Z]+(?:(?:'s)?)).+(?:tasks|work|assignments)/i,
   ],
 
   [AsanaOperationType.UPDATE_TASK]: [
@@ -196,50 +205,6 @@ const INTENT_PATTERNS = {
     /remove\s+(?:the\s+)?(?:task|item).+(?:named|called)/i,
   ],
 
-  // User operations (frequently used)
-  [AsanaOperationType.GET_USER_ME]: [
-    // Original patterns
-    /(?:my|current|own).+(?:info|profile|details|user)/i,
-    /(?:who am i|about me)/i,
-    /(?:show|get|display).+(?:my|current).+(?:info|profile|user)/i,
-
-    // Conversational patterns
-    /(?:can you show|please show).+(?:my|current).+(?:profile|info|details)/i,
-    /(?:what's|what is).+(?:my|current).+(?:profile|info|account)/i,
-    /(?:tell me about|show me).+(?:myself|my account|my profile)/i,
-  ],
-
-  [AsanaOperationType.LIST_WORKSPACE_USERS]: [
-    // Original patterns
-    /(?:list|show|display|get|all).+(?:users|members|people|team members?|colleagues).+(?:workspace|organization|team)/i,
-    /(?:list|show|display|get|all).+(?:workspace|organization|team).+(?:users|members|people|team members?)/i,
-    /(?:who|what).+(?:users|members|people|team members?).+(?:workspace|organization|team)/i,
-    /(?:all|show me).+(?:users|members|people|team members?).+(?:my|our|the).+(?:workspace|organization|team)/i,
-    /(?:team|workspace|organization).+(?:members?|users|people)/i,
-
-    // Conversational patterns
-    /(?:can you show|please show).+(?:who's|who is).+(?:on|in).+(?:team|workspace)/i,
-    /(?:i want to see|show me).+(?:team|colleagues|people|members)/i,
-    /(?:who's|who is|who are).+(?:on|in).+(?:our|my|the).+(?:team|workspace|organization)/i,
-
-    // Question formats
-    /(?:who|what).+(?:people|colleagues|team members).+(?:work here|are available)/i,
-    /(?:can you list|could you show).+(?:team|people|members)/i,
-  ],
-
-  [AsanaOperationType.GET_USER_DETAILS]: [
-    // Original patterns
-    /(?:show|get|display|find|lookup).+(?:profile|details|info).*(?:for|of|about)\s+["']?([^"']+)["']?/i,
-    /(?:user|person|member)\s+["']?([^"']+)["']?.*(?:profile|details|info)/i,
-    /(?:profile|details|info).*(?:for|of|about)\s+["']?([^"']+)["']?/i,
-    /["']?([^"']+)["']?(?:'s)?\s+(?:profile|details|info|user)/i,
-
-    // Conversational patterns
-    /(?:can you show|please show).+(?:profile|info|details).+(?:for|about).+/i,
-    /(?:tell me about|what about|who is).+/i,
-    /(?:i want to see|show me).+(?:profile|info|details)/i,
-  ],
-
   [AsanaOperationType.GET_TASK_DETAILS]: [
     // Original patterns
     /(?:get|show|display|fetch|retrieve).+(?:details|info|information|data).+(?:task|to-?do)/i,
@@ -260,22 +225,7 @@ const INTENT_PATTERNS = {
     /(?:more info|additional details).+(?:on|about|for).+(?:task|item)/i,
   ],
 
-  [AsanaOperationType.COMPLETE_TASK]: [
-    // Original patterns
-    /(?:complete|finish|done|mark as complete|close).+(?:task|to-?do|item)/i,
-    /(?:task|to-?do|item).+(?:complete|finish|done)/i,
-
-    // Conversational patterns
-    /(?:can you|please).+(?:mark|set).+(?:task|item).+(?:complete|done|finished)/i,
-    /(?:i'm done with|finished with|completed).+(?:task|item)/i,
-    /(?:mark|set|make).+(?:task|item).+(?:as )?(?:complete|done|finished)/i,
-
-    // Casual language
-    /(?:check off|cross off|tick off).+(?:task|item)/i,
-    /(?:wrap up|close out).+(?:task|item)/i,
-  ],
-
-  // Project operations
+  // Project operations - GET_PROJECT_DETAILS is now here, before user operations
   [AsanaOperationType.CREATE_PROJECT]: [
     // Original patterns
     /(?:create|add|make|new).+(?:project)/i,
@@ -290,6 +240,19 @@ const INTENT_PATTERNS = {
     /(?:kick off|begin|start).+(?:project)/i,
   ],
 
+  [AsanaOperationType.GET_PROJECT_DETAILS]: [
+    // High-priority specific patterns for project details
+    /(?:show|get|display|fetch|retrieve|give me).*(?:details|info|information|data|status).*(?:for|of|about|on)\s+(?:the\s+)?(?:project\s+)?["']?([^"'\s]+(?:\s+[^"'\s]+)*)["']?(?:\s+project)?(?:\s+on\s+asana)?/i,
+    /(?:project\s+)?details.*(?:for|of|about|on)\s+(?:the\s+)?(?:project\s+)?["']?([^"'\s]+(?:\s+[^"'\s]+)*)["']?/i,
+    /(?:what\s+(?:is|are)|tell me about).*(?:the\s+)?(?:project\s+)?["']?([^"'\s]+(?:\s+[^"'\s]+)*)["']?(?:\s+project)?/i,
+    /(?:status|info|information|data).*(?:for|of|about|on)\s+(?:the\s+)?(?:project\s+)?["']?([^"'\s]+(?:\s+[^"'\s]+)*)["']?(?:\s+project)?/i,
+    // Specific format: "project details for X" or "details for project X"
+    /project\s+details\s+for\s+["']?([^"'\s]+(?:\s+[^"'\s]+)*)["']?/i,
+    /details\s+for\s+(?:the\s+)?project\s+["']?([^"'\s]+(?:\s+[^"'\s]+)*)["']?/i,
+    // Handle "show me the details of the X project"
+    /(?:show|get|display|fetch|retrieve|give me).*(?:details|info|information|data|status).*(?:of|about)\s+(?:the\s+)?["']?([^"'\s]+(?:\s+[^"'\s]+)*)["']?\s+project/i,
+  ],
+
   [AsanaOperationType.LIST_PROJECTS]: [
     // Original patterns
     /(?:list|show|display|get|fetch).+(?:projects)/i,
@@ -297,150 +260,179 @@ const INTENT_PATTERNS = {
     /(?:find|search).+(?:projects)/i,
 
     // Conversational patterns
-    /(?:can you show|please show).+(?:projects|what projects)/i,
-    /(?:i want to see|show me).+(?:projects|what projects)/i,
-    /(?:what|which).+(?:projects).+(?:do we have|are available|exist)/i,
-
-    // Question formats
-    /(?:what's|what are).+(?:all|our|the).+(?:projects)/i,
-    /(?:can you list|could you display).+(?:projects)/i,
+    /(?:can you|please).+(?:show|list|display).+(?:projects)/i,
+    /(?:i want to see|let me see|show me).+(?:projects)/i,
+    /(?:what projects|show all projects)/i,
   ],
 
   [AsanaOperationType.UPDATE_PROJECT]: [
     // Original patterns
     /(?:update|edit|modify|change).+(?:project)/i,
-    /(?:change|update|modify).+(?:description|notes|details|status).+(?:project)/i,
+    /(?:change|update|modify).+(?:project).+(?:name|description|status|owner|team)/i,
 
     // Conversational patterns
-    /(?:can you|please).+(?:update|edit|change|modify).+(?:project)/i,
-    /(?:i need to|let's).+(?:update|edit|change|modify).+(?:project)/i,
+    /(?:can you|please|help me).+(?:update|edit|change|modify).+(?:project)/i,
+    /(?:i need to|let's|we should).+(?:update|edit|change|modify).+(?:project)/i,
   ],
 
-  // Search operations
+  // Section Operations
+  [AsanaOperationType.LIST_PROJECT_SECTIONS]: [
+    /(?:list|show|get|fetch|display).+(?:sections|columns|stages).+(?:in|for|of|within).+project/i,
+    /(?:what|which).+(?:sections|columns|stages).+(?:in|for|of|within).+project/i,
+    /(?:sections|columns|stages).+(?:for|of|in|within).+project/i,
+  ],
+
+  [AsanaOperationType.CREATE_PROJECT_SECTION]: [
+    /(?:create|add|make|new).+(?:section|column|stage).+(?:in|for|to).+project/i,
+    /(?:add|create|make).+(?:section|column|stage).+(?:called|named|titled)/i,
+  ],
+
+  [AsanaOperationType.MOVE_TASK_TO_SECTION]: [
+    /(?:move|transfer|send|put).+task.+(?:to|into|under).+(?:section|column|stage)/i,
+    /(?:change|update|set).+task.+(?:section|column|stage).+to/i,
+  ],
+
+  // User operations (frequently used, placed after more specific project/task operations)
+  [AsanaOperationType.GET_USER_ME]: [
+    // Original patterns
+    /(?:who am i|my profile|my details|my user info)/i,
+    /(?:get|show|display|fetch).+(?:my|current).+(?:user|profile|details|info)/i,
+    /(?:what is|what's).+(?:my|current).+(?:user id|email|name)/i,
+  ],
+
+  [AsanaOperationType.GET_USER_DETAILS]: [
+    // Specific user detail patterns - must explicitly mention "user", "person", "member" or be an email
+    /(?:show|get|display|find|lookup)\s+(?:user|person|member|profile)\s+(?:details|info|data).*(?:for|of|about)\s+["']?([^"']+)["']?/i,
+    /(?:user|person|member)\s+["']?([^"']+)["']?.*(?:profile|details|info|data)/i,
+    /(?:profile|details|info|data).*(?:for|of|about)\s+(?:user|person|member)\s+["']?([^"']+)["']?/i,
+
+    // Email-specific patterns (clearly a user lookup)
+    /(?:show|get|display|find|lookup).+(?:profile|details|info|data).*(?:for|of|about)\s+([\w.\-]+@[\w.\-]+\.[a-zA-Z]{2,})/i,
+
+    // Conversational patterns - must explicitly mention user/person/member
+    /(?:can you show|please show|what is|what's|tell me).*(?:profile|details|info|data).*(?:for|of|about)\s+(?:user|person|member)\s+["']?([^"']+)["']?/i,
+
+    // "Who is" patterns - but only if not followed by project-related context
+    /(?:who is|find user|look up user)\s+["']?([^"']+)["']?(?!\s+(?:project|task|lead|manager|owner|responsible))/i,
+
+    // Direct user reference with possessive
+    /["']?([^"']+)["']?(?:'s|s')\s+(?:profile|details|info|user\s+(?:profile|details|info))/i,
+  ],
+
+  [AsanaOperationType.LIST_WORKSPACE_USERS]: [
+    /(?:list|show|get|fetch|display).+(?:all|every|the).+(?:users|people|members|team members).+(?:in|on|for|within).+(?:workspace|organization|team)/i,
+    /(?:what|who).+(?:users|people|members|team members).+(?:in|on|for|within).+(?:workspace|organization|team)/i,
+    /(?:users|people|members|team members).+(?:in|on|for|within).+(?:workspace|organization|team)/i,
+  ],
+
+  // Search operations (general, can be lower priority)
   [AsanaOperationType.SEARCH_ASANA]: [
     // Original patterns
-    /(?:search|find|look up|query).+(?:in|on|for).+(?:asana)/i,
-    /(?:search|find|look up|query)\s*["']([^"']+)["'](?:\s*(?:in|on|for)\s*asana)?/i,
-    /asana\s*(?:search|find|look up|query)\s*["']([^"']+)["']/i,
-    /^(?:search|find|look up|query)\s+(?!task|project|user|team|portfolio|tag)/i,
+    /(?:search|find|look up|locate).+(?:in|on|within).+(?:asana)/i,
+    /(?:search|find|look up|locate).+(?:for)/i,
 
     // Conversational patterns
-    /(?:can you|please).+(?:search|find|look up).+(?:for|in)/i,
-    /(?:i'm looking for|help me find|where is).+/i,
-    /(?:i need to find|looking for).+/i,
-
-    // Question formats
-    /(?:where can i find|how do i find).+/i,
-    /(?:do we have|is there).+/i,
+    /(?:can you|please|help me).+(?:search|find|look for|locate)/i,
+    /(?:i need to|let's|we should).+(?:search|find|look for)/i,
   ],
 
-  // Advanced task operations
-  [AsanaOperationType.MARK_TASK_INCOMPLETE]: [
+  // Task completion/status operations (medium priority)
+  [AsanaOperationType.COMPLETE_TASK]: [
     // Original patterns
-    /(?:reopen|uncheck|mark as incomplete|uncancel|undone).+(?:task|to-?do|item)/i,
-    /(?:task|to-?do|item).+(?:reopen|uncheck|incomplete)/i,
+    /(?:complete|finish|done|mark as complete|close).+(?:task|to-?do|item)/i,
+    /(?:task|to-?do|item).+(?:complete|finish|done)/i,
 
     // Conversational patterns
-    /(?:can you|please).+(?:reopen|uncheck|mark incomplete).+(?:task|item)/i,
-    /(?:i need to|we should).+(?:reopen|uncheck).+(?:task|item)/i,
-    /(?:not done|still working on|need more time).+(?:task|item)/i,
+    /(?:can you|please).+(?:complete|finish|close|mark).+(?:task|item)/i,
+    /(?:i want to|let's).+(?:complete|finish|close).+(?:task|item)/i,
+  ],
+
+  [AsanaOperationType.MARK_TASK_INCOMPLETE]: [
+    // Original patterns
+    /(?:reopen|mark as incomplete|uncheck|undo complete|set to incomplete).+(?:task|to-?do|item)/i,
+    /(?:task|to-?do|item).+(?:reopen|mark as incomplete|uncheck)/i,
+
+    // Conversational patterns
+    /(?:can you|please).+(?:reopen|uncheck|mark as incomplete).+(?:task|item)/i,
+    /(?:i want to|let's).+(?:reopen|uncheck|mark as incomplete).+(?:task|item)/i,
   ],
 
   // Follower operations
   [AsanaOperationType.ADD_FOLLOWER_TO_TASK]: [
-    // Original patterns
-    /(?:add|assign|include).+(?:follower|watcher|subscriber|user|person).+(?:to|on).+(?:task|to-?do|item)/i,
-    /follow.+task/i,
-    /subscribe.+(?:to).+task/i,
-
-    // Conversational patterns
-    /(?:can you|please).+(?:add|include).+(?:as|to be).+(?:follower|watcher)/i,
-    /(?:i want|we need).+(?:to follow|following).+(?:task|item)/i,
-    /(?:keep|get).+(?:in the loop|updated).+(?:on|about).+(?:task|item)/i,
+    /(?:add|include|assign).+(?:follower|watcher|subscriber).+(?:to|for).+task/i,
+    /(?:follow|watch|subscribe to).+task/i,
   ],
 
   [AsanaOperationType.REMOVE_FOLLOWER_FROM_TASK]: [
-    // Original patterns
-    /(?:remove|delete|unassign|take off).+(?:follower|watcher|subscriber|user|person).+(?:from).+(?:task|to-?do|item)/i,
-    /unfollow.+task/i,
-    /unsubscribe.+(?:from).+task/i,
-
-    // Conversational patterns
-    /(?:can you|please).+(?:remove|take off).+(?:from|as).+(?:follower|watcher)/i,
-    /(?:stop|don't).+(?:following|watching).+(?:task|item)/i,
-    /(?:take me off|remove me from).+(?:task|item)/i,
+    /(?:remove|unassign|delete).+(?:follower|watcher|subscriber).+(?:from|on).+task/i,
+    /(?:unfollow|unwatch|unsubscribe from).+task/i,
   ],
 
   // Due date operations
   [AsanaOperationType.SET_TASK_DUE_DATE]: [
-    // Original patterns
-    /(?:set|change|update)\s+.*?\b(?:due date|deadline)\b.*?\s(?:to|for)\s+(?:(?:['"][^'"]+['"])|(?:.*?\b(?:task|to-?do)\b)).*?/i,
-    /(?:make|task|to-?do).+(?:due|deadline).+(?:on|by|at)/i,
-    /(?:due date|deadline).+(?:for).+(?:task|to-?do).+(?:is|to)/i,
-
-    // Conversational patterns
-    /(?:can you|please).+(?:set|make).+(?:due|deadline).+(?:for|on)/i,
-    /(?:i need|we need).+(?:due|deadline).+(?:by|on|for)/i,
-    /(?:schedule|plan).+(?:task|item).+(?:for|by|due)/i,
+    /(?:set|change|update).+(?:due date|deadline|due by|due on).+(?:for|to).+task/i,
+    /(?:task|item).+(?:due date|deadline).+(?:to|is|set to)/i,
   ],
 
-  // Dependency operations
+  // Dependency Operations
   [AsanaOperationType.ADD_TASK_DEPENDENCY]: [
-    /(?:make|set).+(?:task).+(?:dependent|depend)\s+on.+(?:task)/i,
-    /(?:add|create).+(?:dependency|dependence).+(?:from|between).+(?:task).+(?:to|and).+(?:task)/i,
-    /(?:block|blocking).+(?:task).+(?:until|on).+(?:task)/i,
-    /(?:task).+(?:depends|depend)\s+on.+(?:task)/i,
-
-    // Conversational patterns
-    /(?:can you|please).+(?:make|set).+(?:dependent|depend)/i,
-    /(?:i need|we need).+(?:dependency|dependence)/i,
-    /(?:wait for|hold until).+(?:task|item)/i,
+    /(?:add|create|make|set).+(?:dependency|blocking task|predecessor).+(?:for|on|to).+task/i,
+    /(?:task|item).+(?:depends on|is blocked by|requires).+task/i,
   ],
 
   [AsanaOperationType.REMOVE_TASK_DEPENDENCY]: [
-    /(?:remove|delete|clear).+(?:dependency|dependence).+(?:from|between).+(?:task).+(?:to|and).+(?:task)/i,
-    /(?:unblock|stop blocking).+(?:task)/i,
-    /(?:make|set).+(?:task).+(?:independent|not depend)/i,
-
-    // Conversational patterns
-    /(?:can you|please).+(?:remove|clear).+(?:dependency|dependence)/i,
-    /(?:free up|unblock).+(?:task|item)/i,
-    /(?:no longer|don't).+(?:depend|block)/i,
+    /(?:remove|delete|clear).+(?:dependency|blocking task|predecessor).+(?:for|on|from).+task/i,
+    /(?:task|item).+(?:no longer depends on|is no longer blocked by)/i,
   ],
 
-  // Section operations
-  [AsanaOperationType.LIST_PROJECT_SECTIONS]: [
-    /(?:list|show|get|display).+(?:sections|columns).+(?:for|in|of).+(?:project)/i,
-    /(?:what|which).+(?:sections|columns).+(?:in|for).+(?:project)/i,
-    /(?:sections|columns).+(?:for|in|of).+(?:project)/i,
-
-    // Conversational patterns
-    /(?:can you show|please show).+(?:sections|columns)/i,
-    /(?:what are|show me).+(?:sections|columns)/i,
-    /(?:how is|what's).+(?:organized|structured)/i,
-  ],
-
-  [AsanaOperationType.CREATE_PROJECT_SECTION]: [
-    /(?:create|add|make|new).+(?:section|column).+(?:in|for|to).+(?:project)/i,
-    /(?:add|create).+(?:section|column).+(?:named|called).+(?:in|for|to).+(?:project)/i,
-
-    // Conversational patterns
-    /(?:can you|please).+(?:create|add).+(?:section|column)/i,
-    /(?:i need|we need).+(?:section|column)/i,
-    /(?:set up|organize).+(?:section|column)/i,
-  ],
-
-  [AsanaOperationType.MOVE_TASK_TO_SECTION]: [
-    /(?:move|put|place|assign).+(?:task).+(?:to|in|into).+(?:section|column)/i,
-    /(?:task).+(?:to|in|into).+(?:section|column)/i,
-    /(?:change|update).+(?:task).+(?:section|column)/i,
-
-    // Conversational patterns
-    /(?:can you|please).+(?:move|put).+(?:task|item)/i,
-    /(?:i want to|we should).+(?:move|place).+(?:task|item)/i,
-    /(?:organize|categorize).+(?:task|item)/i,
-  ],
+  // Fallback / Unknown (this is not a pattern, but a placeholder for the logic in classifyIntent)
+  // [AsanaOperationType.UNKNOWN]: [],
 };
+
+// Order of intent checking. More specific intents should come before more generic ones.
+// This is CRITICAL for correct intent classification.
+const INTENT_CHECK_ORDER: AsanaOperationType[] = [
+  // HIGHEST PRIORITY: Specific detail operations that could be confused with other operations
+  AsanaOperationType.GET_PROJECT_DETAILS, // Must be first to avoid confusion with user details
+  AsanaOperationType.GET_TASK_DETAILS,
+
+  // Specific task modifications
+  AsanaOperationType.ADD_SUBTASK,
+  AsanaOperationType.LIST_SUBTASKS,
+
+  // LIST_TASKS must come before COMPLETE_TASK to avoid misclassification
+  AsanaOperationType.LIST_TASKS,
+
+  AsanaOperationType.COMPLETE_TASK,
+  AsanaOperationType.MARK_TASK_INCOMPLETE,
+  AsanaOperationType.SET_TASK_DUE_DATE,
+  AsanaOperationType.ADD_FOLLOWER_TO_TASK,
+  AsanaOperationType.REMOVE_FOLLOWER_FROM_TASK,
+  AsanaOperationType.ADD_TASK_DEPENDENCY,
+  AsanaOperationType.REMOVE_TASK_DEPENDENCY,
+  AsanaOperationType.MOVE_TASK_TO_SECTION, // Section-related task op
+  AsanaOperationType.UPDATE_TASK, // General update
+  AsanaOperationType.DELETE_TASK,
+
+  // Project section operations (before general project CRUD to catch specifics)
+  AsanaOperationType.CREATE_PROJECT_SECTION,
+  AsanaOperationType.LIST_PROJECT_SECTIONS,
+
+  // Core CRUD for tasks and projects
+  AsanaOperationType.CREATE_TASK,
+
+  AsanaOperationType.CREATE_PROJECT,
+  AsanaOperationType.LIST_PROJECTS,
+  AsanaOperationType.UPDATE_PROJECT,
+
+  // User operations (can be broad, so check after specifics)
+  AsanaOperationType.GET_USER_ME,
+  AsanaOperationType.GET_USER_DETAILS, // Now safely after GET_PROJECT_DETAILS
+  AsanaOperationType.LIST_WORKSPACE_USERS,
+
+  // General search (broadest)
+  AsanaOperationType.SEARCH_ASANA,
+];
 
 /**
  * Classify the intent from a natural language input
@@ -471,11 +463,15 @@ export function classifyIntent(input: string): AsanaOperationType {
     return AsanaOperationType.CREATE_TASK;
   }
 
-  // Check for each intent pattern
-  for (const [operationType, patterns] of Object.entries(INTENT_PATTERNS)) {
-    for (const pattern of patterns) {
-      if (pattern.test(lowerInput)) {
-        return operationType as AsanaOperationType;
+  // Check for each intent pattern in priority order
+  for (const operationType of INTENT_CHECK_ORDER) {
+    const patterns =
+      INTENT_PATTERNS[operationType as keyof typeof INTENT_PATTERNS];
+    if (patterns) {
+      for (const pattern of patterns) {
+        if (pattern.test(lowerInput)) {
+          return operationType;
+        }
       }
     }
   }

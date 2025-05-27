@@ -25,6 +25,7 @@ export enum AsanaOperationType {
   CREATE_PROJECT = 'CREATE_PROJECT',
   UPDATE_PROJECT = 'updateProject',
   LIST_PROJECTS = 'LIST_PROJECTS',
+  GET_PROJECT_DETAILS = 'GET_PROJECT_DETAILS',
 
   // Search operations
   SEARCH_ASANA = 'SEARCH_ASANA',
@@ -224,6 +225,17 @@ export interface ParsedListProjectsIntent extends ParsedIntentBase {
 }
 
 /**
+ * Interface for parsed get project details intent
+ */
+export interface ParsedGetProjectDetailsIntent extends ParsedIntentBase {
+  operationType: AsanaOperationType.GET_PROJECT_DETAILS;
+  projectIdentifier: {
+    name?: string;
+    gid?: string;
+  };
+}
+
+/**
  * Interface for parsed search Asana intent
  */
 export interface ParsedSearchAsanaIntent extends ParsedIntentBase {
@@ -416,6 +428,7 @@ export type ParsedIntent =
   | ParsedCreateProjectIntent
   | ParsedUpdateProjectIntent
   | ParsedListProjectsIntent
+  | ParsedGetProjectDetailsIntent
   | ParsedListProjectSectionsIntent
   | ParsedCreateProjectSectionIntent
   | ParsedMoveTaskToSectionIntent

@@ -35,6 +35,7 @@ import {
   findProjectGidByName,
   createProject,
   verifyProjectVisibility,
+  getProjectDetails,
 } from './api-client/operations/projects';
 import {
   getProjectSections,
@@ -78,6 +79,7 @@ import {
   formatTaskMoveToSection,
   formatUserDetails,
   formatWorkspaceUsersList,
+  formatProjectDetails,
 } from './formatters/responseFormatter';
 
 /**
@@ -968,27 +970,46 @@ Confirm to create this task, or provide corrections. (Request ID: ${requestId})`
             listTasksParams.completed_since = 'now';
           }
 
-          if (listTasksIntent.projectName) {
+          // Handle project context resolution
+          const resolvedProjectName = listTasksIntent.projectName;
+
+          // If no explicit project name but input mentions "that project" or "this project"
+          if (
+            !resolvedProjectName &&
+            (actionDescription.toLowerCase().includes('that project') ||
+              actionDescription.toLowerCase().includes('this project'))
+          ) {
+            // Simple context resolution: look for recent project mentions in the input or common project names
+            // This is a basic implementation - could be enhanced with proper conversation context
+            console.log(
+              `[AsanaTool] [${requestContext.requestId}] Attempting to resolve contextual project reference`,
+            );
+
+            // For now, we'll provide a helpful message asking for clarification
+            return `I understand you're referring to a specific project, but I need you to specify which project you'd like to list tasks for. Please mention the project name explicitly, for example: "list active tasks for the Twitch project". (Request ID: ${requestContext.requestId})`;
+          }
+
+          if (resolvedProjectName) {
             try {
               const projectGid = await findProjectGidByName(
                 this.client,
-                listTasksIntent.projectName,
+                resolvedProjectName,
                 workspaceGid,
                 requestContext.requestId,
               );
 
               if (projectGid === 'ambiguous') {
-                return `Error: Multiple projects found matching '${listTasksIntent.projectName}'. Please be more specific. (Request ID: ${requestContext.requestId})`;
+                return `Error: Multiple projects found matching '${resolvedProjectName}'. Please be more specific. (Request ID: ${requestContext.requestId})`;
               }
 
               if (projectGid) {
                 listTasksParams.project = projectGid;
               } else {
-                return `No project found matching "${listTasksIntent.projectName}". Please check the project name and try again. (Request ID: ${requestContext.requestId})`;
+                return `No project found matching "${resolvedProjectName}". Please check the project name and try again. (Request ID: ${requestContext.requestId})`;
               }
             } catch (error) {
               console.error(`[AsanaTool] Error resolving project: ${error}`);
-              return `Error finding project "${listTasksIntent.projectName}". (Request ID: ${requestContext.requestId})`;
+              return `Error finding project "${resolvedProjectName}". (Request ID: ${requestContext.requestId})`;
             }
           }
 
@@ -1123,6 +1144,74 @@ ${projectData.permalink_url ? `Permalink: ${projectData.permalink_url}` : ''}
               error,
             );
             return `Error creating project: ${error instanceof Error ? error.message : 'Unknown error'}. (Request ID: ${requestContext.requestId})`;
+          }
+        }
+
+        case AsanaOperationType.GET_PROJECT_DETAILS: {
+          const getProjectDetailsIntent = parsedIntent as any;
+          const workspaceGid = getWorkspaceGid();
+
+          if (!workspaceGid) {
+            return `Error: Default Asana workspace is not configured. Please configure ASANA_DEFAULT_WORKSPACE_GID. (Request ID: ${requestContext.requestId})`;
+          }
+
+          // Extract project identifier
+          let projectGid = getProjectDetailsIntent.projectIdentifier?.gid;
+          const projectName = getProjectDetailsIntent.projectIdentifier?.name;
+
+          // If no GID provided, try to find it by name
+          if (!projectGid && projectName) {
+            console.log(
+              `[AsanaTool] [${requestContext.requestId}] Looking up project GID for name: "${projectName}"`,
+            );
+
+            const projectLookupResult = await findProjectGidByName(
+              this.client,
+              projectName,
+              workspaceGid,
+              requestContext.requestId,
+            );
+
+            if (projectLookupResult === 'ambiguous') {
+              return `Error: Multiple projects found with similar names to "${projectName}". Please be more specific or provide the project GID. (Request ID: ${requestContext.requestId})`;
+            } else if (!projectLookupResult) {
+              return `Error: Project "${projectName}" not found in workspace. Please check the project name or ensure you have access to it. (Request ID: ${requestContext.requestId})`;
+            } else {
+              projectGid = projectLookupResult;
+              console.log(
+                `[AsanaTool] [${requestContext.requestId}] Found project GID: ${projectGid} for name: "${projectName}"`,
+              );
+            }
+          }
+
+          if (!projectGid) {
+            return `Error: Could not identify which project to get details for. Please specify a project name or GID. (Request ID: ${requestContext.requestId})`;
+          }
+
+          try {
+            const projectDetails = await getProjectDetails(
+              this.client,
+              projectGid,
+              requestContext.requestId,
+            );
+
+            return formatProjectDetails(projectDetails, requestContext);
+          } catch (error) {
+            console.error(
+              `[AsanaTool] [${requestContext.requestId}] Get project details failed:`,
+              error,
+            );
+
+            if (error instanceof Error && error.message.includes('403')) {
+              return `Error: Access denied to project. You may not have permission to view this project's details. (Request ID: ${requestContext.requestId})`;
+            } else if (
+              error instanceof Error &&
+              error.message.includes('404')
+            ) {
+              return `Error: Project not found. The project may have been deleted or you may not have access to it. (Request ID: ${requestContext.requestId})`;
+            } else {
+              return `Error getting project details: ${error instanceof Error ? error.message : 'Unknown error'}. (Request ID: ${requestContext.requestId})`;
+            }
           }
         }
 

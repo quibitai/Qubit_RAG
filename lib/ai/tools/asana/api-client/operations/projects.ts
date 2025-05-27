@@ -337,3 +337,122 @@ export async function verifyProjectVisibility(
     throw error;
   }
 }
+
+/**
+ * Get detailed information about a specific project
+ *
+ * @param apiClient Asana API client
+ * @param projectGid Project GID to get details for
+ * @param requestId Request ID for tracking
+ * @returns Detailed project information
+ */
+export async function getProjectDetails(
+  apiClient: AsanaApiClient,
+  projectGid: string,
+  requestId?: string,
+): Promise<
+  ProjectResponseData & {
+    notes?: string;
+    owner?: { gid: string; name: string };
+    members?: Array<{ gid: string; name: string }>;
+    followers?: Array<{ gid: string; name: string }>;
+    workspace?: { gid: string; name: string };
+    privacy_setting?: string;
+    public?: boolean;
+    start_on?: string;
+    due_on?: string;
+    created_by?: { gid: string; name: string };
+    modified_at?: string;
+    icon?: string;
+    default_view?: string;
+    completed?: boolean;
+    completed_at?: string;
+    completed_by?: { gid: string; name: string };
+  }
+> {
+  // Validate required parameters
+  if (!projectGid) {
+    throw new Error('Project GID is required');
+  }
+
+  // Prepare query parameters with comprehensive opt_fields
+  const queryParams: Record<string, string | string[]> = {
+    opt_fields: [
+      'name',
+      'gid',
+      'permalink_url',
+      'archived',
+      'color',
+      'notes',
+      'team.name',
+      'team.gid',
+      'owner.name',
+      'owner.gid',
+      'members.name',
+      'members.gid',
+      'followers.name',
+      'followers.gid',
+      'workspace.name',
+      'workspace.gid',
+      'privacy_setting',
+      'public',
+      'created_at',
+      'modified_at',
+      'created_by.name',
+      'created_by.gid',
+      'current_status.title',
+      'current_status.color',
+      'current_status.text',
+      'current_status.author.name',
+      'current_status.created_at',
+      'due_date',
+      'due_on',
+      'start_on',
+      'icon',
+      'default_view',
+      'completed',
+      'completed_at',
+      'completed_by.name',
+      'completed_by.gid',
+    ],
+  };
+
+  // Make the request
+  try {
+    console.log(
+      `[ProjectOperations] [${requestId || 'no-id'}] Getting details for project: ${projectGid}`,
+    );
+
+    const projectDetails = await apiClient.request<
+      ProjectResponseData & {
+        notes?: string;
+        owner?: { gid: string; name: string };
+        members?: Array<{ gid: string; name: string }>;
+        followers?: Array<{ gid: string; name: string }>;
+        workspace?: { gid: string; name: string };
+        privacy_setting?: string;
+        public?: boolean;
+        start_on?: string;
+        due_on?: string;
+        created_by?: { gid: string; name: string };
+        modified_at?: string;
+        icon?: string;
+        default_view?: string;
+        completed?: boolean;
+        completed_at?: string;
+        completed_by?: { gid: string; name: string };
+      }
+    >(`projects/${projectGid}`, 'GET', undefined, queryParams, requestId);
+
+    console.log(
+      `[ProjectOperations] [${requestId || 'no-id'}] Successfully retrieved details for project: ${projectDetails.name} (${projectGid})`,
+    );
+
+    return projectDetails;
+  } catch (error) {
+    console.error(
+      `[ProjectOperations] [${requestId || 'no-id'}] Error getting project details for ${projectGid}: ${error}`,
+    );
+    throw error;
+  }
+}

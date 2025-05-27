@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
-import { PanelLeft, MessageSquare } from 'lucide-react';
+import { PanelLeft, MessageSquare, LayoutDashboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { memo, useCallback, useMemo } from 'react';
 
@@ -156,14 +156,14 @@ const SidebarHeaderContent = memo(
         />
       </div>
 
-      {/* Test Artifacts (temporary) */}
+      {/* Dashboard */}
       <div className="mt-2">
         <NavLink
-          href="/test-artifacts"
+          href="/dashboard"
           setOpenMobile={setOpenMobile}
-          isActive={pathname === '/test-artifacts'}
-          icon={MessageSquare}
-          label="Test Artifacts"
+          isActive={pathname === '/dashboard'}
+          icon={LayoutDashboard}
+          label="Dashboard"
           sidebarState={state}
         />
       </div>

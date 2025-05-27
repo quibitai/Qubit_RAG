@@ -410,6 +410,150 @@ export function formatProjectList(
 }
 
 /**
+ * Format project details response
+ *
+ * @param projectData Detailed project data from Asana API
+ * @param requestContext Request context for tracking
+ * @returns Formatted project details message
+ */
+export function formatProjectDetails(
+  projectData: any,
+  requestContext: RequestContext,
+): string {
+  if (!projectData) {
+    return `Error: No project data received. (Request ID: ${requestContext.requestId})`;
+  }
+
+  // Create project name as a link if permalink_url is available
+  let projectDisplay = `"${projectData.name || 'N/A'}"`;
+  if (projectData.permalink_url) {
+    projectDisplay = `[${projectData.name || 'N/A'}](${projectData.permalink_url})`;
+  }
+
+  let formattedDetails = `Project Details for ${projectDisplay} (GID: ${projectData.gid || 'N/A'}):\n\n`;
+
+  // Basic Information
+  formattedDetails += `**Basic Information:**\n`;
+  formattedDetails += `- Status: ${projectData.archived ? 'Archived' : 'Active'}\n`;
+  if (projectData.color) {
+    formattedDetails += `- Color: ${projectData.color}\n`;
+  }
+  if (projectData.privacy_setting) {
+    formattedDetails += `- Privacy: ${projectData.privacy_setting.replace(/_/g, ' ')}\n`;
+  } else if (projectData.public !== undefined) {
+    formattedDetails += `- Visibility: ${projectData.public ? 'Public' : 'Private'}\n`;
+  }
+
+  // Description/Notes
+  if (projectData.notes) {
+    formattedDetails += `\n**Description:**\n${projectData.notes}\n`;
+  }
+
+  // Team and Workspace
+  formattedDetails += `\n**Organization:**\n`;
+  if (projectData.workspace?.name) {
+    formattedDetails += `- Workspace: ${projectData.workspace.name}\n`;
+  }
+  if (projectData.team?.name) {
+    formattedDetails += `- Team: ${projectData.team.name}\n`;
+  }
+
+  // Owner and Members
+  if (
+    projectData.owner?.name ||
+    (projectData.members && projectData.members.length > 0)
+  ) {
+    formattedDetails += `\n**People:**\n`;
+    if (projectData.owner?.name) {
+      formattedDetails += `- Owner: ${projectData.owner.name}\n`;
+    }
+    if (projectData.members && projectData.members.length > 0) {
+      const memberNames = projectData.members
+        .map((member: any) => member.name)
+        .join(', ');
+      formattedDetails += `- Members (${projectData.members.length}): ${memberNames}\n`;
+    }
+    if (projectData.followers && projectData.followers.length > 0) {
+      const followerNames = projectData.followers
+        .map((follower: any) => follower.name)
+        .join(', ');
+      formattedDetails += `- Followers (${projectData.followers.length}): ${followerNames}\n`;
+    }
+  }
+
+  // Dates
+  if (projectData.start_on || projectData.due_on || projectData.due_date) {
+    formattedDetails += `\n**Timeline:**\n`;
+    if (projectData.start_on) {
+      formattedDetails += `- Start Date: ${projectData.start_on}\n`;
+    }
+    if (projectData.due_on) {
+      formattedDetails += `- Due Date: ${projectData.due_on}\n`;
+    } else if (projectData.due_date) {
+      formattedDetails += `- Due Date: ${projectData.due_date}\n`;
+    }
+  }
+
+  // Current Status
+  if (projectData.current_status) {
+    formattedDetails += `\n**Current Status:**\n`;
+    if (projectData.current_status.title) {
+      formattedDetails += `- Title: ${projectData.current_status.title}\n`;
+    }
+    if (projectData.current_status.color) {
+      formattedDetails += `- Status Color: ${projectData.current_status.color}\n`;
+    }
+    if (projectData.current_status.text) {
+      formattedDetails += `- Update: ${projectData.current_status.text}\n`;
+    }
+    if (projectData.current_status.author?.name) {
+      formattedDetails += `- Last Updated By: ${projectData.current_status.author.name}\n`;
+    }
+    if (projectData.current_status.created_at) {
+      const statusDate = new Date(
+        projectData.current_status.created_at,
+      ).toLocaleDateString();
+      formattedDetails += `- Status Date: ${statusDate}\n`;
+    }
+  }
+
+  // Completion Information
+  if (projectData.completed) {
+    formattedDetails += `\n**Completion:**\n`;
+    formattedDetails += `- Completed: Yes\n`;
+    if (projectData.completed_at) {
+      const completedDate = new Date(
+        projectData.completed_at,
+      ).toLocaleDateString();
+      formattedDetails += `- Completed Date: ${completedDate}\n`;
+    }
+    if (projectData.completed_by?.name) {
+      formattedDetails += `- Completed By: ${projectData.completed_by.name}\n`;
+    }
+  }
+
+  // Metadata
+  formattedDetails += `\n**Metadata:**\n`;
+  if (projectData.created_at) {
+    const createdDate = new Date(projectData.created_at).toLocaleDateString();
+    formattedDetails += `- Created: ${createdDate}\n`;
+  }
+  if (projectData.created_by?.name) {
+    formattedDetails += `- Created By: ${projectData.created_by.name}\n`;
+  }
+  if (projectData.modified_at) {
+    const modifiedDate = new Date(projectData.modified_at).toLocaleDateString();
+    formattedDetails += `- Last Modified: ${modifiedDate}\n`;
+  }
+  if (projectData.default_view) {
+    formattedDetails += `- Default View: ${projectData.default_view}\n`;
+  }
+
+  formattedDetails += `\n(Request ID: ${requestContext.requestId})`;
+  return formattedDetails;
+}
+
+/**
  * Format typeahead search results response.
  *
  * @param searchResults Array of AsanaNamedResource from typeahead search

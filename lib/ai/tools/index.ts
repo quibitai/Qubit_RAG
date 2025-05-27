@@ -14,7 +14,11 @@ import { updateDocumentTool } from './update-document';
 import { tavilySearchTool } from './tavily-search';
 import { getMessagesFromOtherChatTool } from './getMessagesFromOtherChatTool';
 import { googleCalendarTool } from './googleCalendarTool';
-import { asanaTool } from './asana'; // New modular Asana tool
+import { AsanaTool, createModernAsanaTool } from './asana'; // Asana tools (legacy and modern)
+
+// Create tool instances
+const asanaTool = new AsanaTool();
+const modernAsanaTool = createModernAsanaTool();
 
 // Export all available tools
 export const availableTools = [
@@ -28,7 +32,8 @@ export const availableTools = [
   tavilySearchTool,
   getMessagesFromOtherChatTool,
   googleCalendarTool,
-  asanaTool, // New modular Asana tool
+  asanaTool, // Legacy Asana tool
+  // modernAsanaTool, // Modern Asana tool (enable when ready)
 ];
 
 export {
@@ -42,5 +47,6 @@ export {
   tavilySearchTool,
   getMessagesFromOtherChatTool,
   googleCalendarTool,
-  asanaTool, // New modular Asana tool
+  asanaTool, // Legacy Asana tool
+  modernAsanaTool, // Modern Asana tool
 };
