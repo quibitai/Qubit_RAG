@@ -5,6 +5,108 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2025-01-28
+
+### Added
+- **LLM Tool Selection & Routing Improvements Roadmap**: Comprehensive implementation plan for next-generation tool selection based on latest best practices
+  - Semantic routing with vector-based tool selection
+  - Dynamic tool filtering with "less-is-more" approach
+  - Preference-based routing (performance, cost, latency, accuracy)
+  - Adaptive learning system for continuous improvement
+  - Edge-optimized routing and context window optimization
+  - Advanced analytics and A/B testing framework
+  - **File**: `IMPLEMENTATION_ROADMAP_v2.8.0.md` - Complete 4-phase implementation plan
+
+- **Enhanced Asana Project Task Listing**: New dedicated function for reliable project task overview
+  - **Function**: `asana_list_project_tasks` - Specifically designed for project overviews
+  - Respects Asana API constraints requiring exactly one filtering parameter
+  - Improved reliability for project task breakdowns and status reviews
+
+### Fixed
+- **Critical Asana GID Handling Issues**: Comprehensive fix for all GID-related API errors
+  - **Task Updates**: Fixed `asana_update_task` incorrectly adding `@` prefix to numeric GIDs
+  - **Subtask Creation**: Fixed `asana_create_task` parent parameter GID handling
+  - **Task Assignment**: Fixed assignee parameter GID detection and formatting
+  - **Project Filtering**: Fixed `asana_list_tasks` project parameter GID handling
+  - **Project Arrays**: Fixed projects array in task creation to properly handle GIDs
+  - **Root Cause**: All functions now use regex `/^\d{16,19}$/` to detect GIDs and avoid adding `@` prefix
+
+- **Asana API Constraint Compliance**: Fixed "Must specify exactly one of project, tag, section, user task list, or assignee" error
+  - Updated `asana_list_tasks` to prioritize project over assignee when both provided
+  - Added clear function descriptions about API constraints
+  - Improved parameter handling logic to respect Asana's filtering requirements
+
+### Enhanced
+- **Comprehensive Error Handling**: Significantly improved user-friendly error messages
+  - **File**: `lib/ai/tools/asana/recovery/userFriendlyErrorHandler.ts`
+  - Added specific handling for "Not a Long" GID format errors
+  - Enhanced assignee format error detection and guidance
+  - Added Asana API constraint error handling with automatic retry logic
+  - Improved error messages assume users work with names, not GIDs
+  - **Tests**: 15 comprehensive test cases covering all error scenarios
+
+- **Robust Testing Infrastructure**: Expanded test coverage for all Asana operations
+  - **File**: `lib/ai/tools/asana/__tests__/userFriendlyErrorHandler.test.ts`
+  - Added tests for GID handling edge cases
+  - Added tests for API constraint violations
+  - Added tests for assignee format errors
+  - All 15 tests passing with comprehensive error scenario coverage
+
+### Technical Improvements
+- **GID Detection Logic**: Implemented consistent GID detection across all Asana functions
+  - Regex pattern `/^\d{16,19}$/` for reliable GID identification
+  - Applied to task_id, parent, assignee, and project parameters
+  - Prevents API errors from incorrect `@` prefix usage
+  - Maintains backward compatibility with name-based references
+
+- **API Constraint Awareness**: Enhanced functions to respect Asana's API limitations
+  - Intelligent parameter prioritization in `asana_list_tasks`
+  - Clear documentation of API constraints in function descriptions
+  - Automatic fallback strategies for constraint violations
+
+- **Error Recovery System**: Advanced error handling with learning capabilities
+  - Pattern recognition for common API errors
+  - Contextual error messages with specific guidance
+  - Automatic retry logic for recoverable errors
+  - User-friendly explanations assuming name-based workflows
+
+### User Experience Improvements
+- **Seamless Task Operations**: All Asana operations now work reliably without GID-related errors
+  - Task due date updates function correctly
+  - Subtask creation works with proper parent task references
+  - Task assignment handles user GIDs properly
+  - Project task listing respects API constraints
+
+- **Intelligent Error Guidance**: When operations fail, users receive specific, actionable guidance
+  - Clear explanations of what went wrong
+  - Specific suggestions for resolution
+  - Assumes users work with human-readable names
+  - Provides alternative approaches when needed
+
+### Development Quality
+- **Systematic Testing**: Comprehensive test coverage for all error scenarios
+  - 15 test cases covering GID handling, API constraints, and error recovery
+  - Automated testing for all Asana function calling tools
+  - Performance benchmarking for error handling systems
+
+- **Code Organization**: Improved modularity and maintainability
+  - Centralized error handling logic
+  - Consistent GID detection patterns
+  - Clear separation of concerns between API operations and error recovery
+
+### Foundation for Future Enhancements
+- **Tool Selection Intelligence**: Roadmap established for advanced LLM tool routing
+  - Semantic similarity-based tool selection
+  - Multi-objective optimization for tool choices
+  - Adaptive learning from user interactions
+  - Performance and cost optimization strategies
+
+- **Scalable Architecture**: Infrastructure prepared for next-generation tool management
+  - Tool capability profiling and modeling
+  - Dynamic tool filtering and organization
+  - Preference-based routing systems
+  - Advanced analytics and monitoring frameworks
+
 ## [2.7.0] - 2025-01-27
 
 ### Added
