@@ -113,14 +113,214 @@ Quibit RAG follows a modular, streaming architecture optimized for scalability a
 ### High-Level Data Flow
 
 ```mermaid
-graph TD
-    A[Frontend] --> B[Brain API]
-    B --> C[LangChain Agent]
-    C --> D[Tool Registry]
-    C --> E[Context Manager]
-    B --> F[Database Layer]
-    G[File Upload] --> H[Processing Pipeline]
-    H --> I[Content Extraction]
+graph TB
+    %% User Interface Layer
+    subgraph "🖥️ Frontend Layer"
+        UI[React Chat Interface]
+        MUI[Multimodal Input]
+        AC[Artifact Canvas]
+        GP[Global Chat Pane]
+        FU[File Upload UI]
+    end
+
+    %% API Gateway Layer
+    subgraph "🚪 API Gateway"
+        BR["/api/brain"]
+        FA["/api/files"]
+        AU["/api/auth"]
+    end
+
+    %% Core Processing Engine
+    subgraph "🧠 Brain Orchestrator"
+        direction TB
+        MP[Message Processor]
+        LC[LangChain Agent]
+        PS[Prompt Synthesizer]
+        SM[Streaming Manager]
+    end
+
+    %% Context Management System
+    subgraph "🎯 Context Engine"
+        direction TB
+        EE[Entity Extractor]
+        CM[Conversational Memory]
+        CS[Context Summarizer]
+        CR[Context Retriever]
+        FC[File Context Handler]
+    end
+
+    %% Tool Execution Framework
+    subgraph "🔧 Tool Registry"
+        direction TB
+        TR[Tool Router]
+        subgraph "Tools"
+            AT[Asana Tool]
+            GC[Google Calendar]
+            TS[Tavily Search]
+            DM[Document Manager]
+            WE[Weather Tool]
+        end
+        TF[Tool Formatter]
+    end
+
+    %% Artifact Generation System
+    subgraph "📄 Artifact System"
+        direction TB
+        AG[Artifact Generator]
+        AS[Artifact Streamer]
+        AR[Artifact Renderer]
+        subgraph "Artifact Types"
+            TA[Text/Markdown]
+            CA[Code Artifacts]
+            SA[Spreadsheets]
+            IA[Images]
+        end
+    end
+
+    %% Data Persistence Layer
+    subgraph "💾 Database Layer"
+        direction TB
+        PG[(PostgreSQL/Supabase)]
+        VDB[(Vector Store)]
+        BL[(Vercel Blob)]
+        subgraph "Tables"
+            CH[Chat History]
+            UM[User Messages]
+            AM[AI Messages]
+            DS[Document Store]
+            EN[Entities]
+            CV[Conversations]
+            AR_DB[Artifacts]
+        end
+    end
+
+    %% File Processing Pipeline
+    subgraph "📁 File Processing"
+        direction TB
+        FP[File Processor]
+        CE[Content Extractor]
+        EM[Embedding Generator]
+        FM[File Metadata]
+        subgraph "Extraction Types"
+            PDF[PDF Extraction]
+            DOC[DOCX/Office]
+            IMG[Image OCR]
+            CODE[Code Analysis]
+        end
+    end
+
+    %% External Services
+    subgraph "🌐 External APIs"
+        direction TB
+        OAI[OpenAI GPT-4]
+        ASA[Asana API]
+        GCA[Google Calendar]
+        TAV[Tavily Search]
+        N8N[n8n Workflows]
+    end
+
+    %% User Interaction Flow
+    UI -->|User Input| MUI
+    MUI -->|Process Message| BR
+    UI -->|File Upload| FU
+    FU -->|Upload Files| FA
+
+    %% Main Processing Flow
+    BR -->|Route Request| MP
+    MP -->|Extract Context| EE
+    MP -->|Retrieve Memory| CR
+    MP -->|Process Message| LC
+    
+    %% Context Management Flow
+    EE -->|Store Entities| EN
+    CR -->|Query Vector DB| VDB
+    CM -->|Update Memory| VDB
+    CS -->|Summarize| OAI
+    FC -->|File References| DS
+
+    %% LangChain Agent Processing
+    LC -->|Synthesize Prompt| PS
+    PS -->|Query LLM| OAI
+    LC -->|Route Tools| TR
+    LC -->|Generate Artifacts| AG
+
+    %% Tool Execution Flow
+    TR -->|Execute Tools| AT
+    TR -->|Execute Tools| GC
+    TR -->|Execute Tools| TS
+    TR -->|Execute Tools| DM
+    AT -->|API Calls| ASA
+    GC -->|API Calls| GCA
+    TS -->|API Calls| TAV
+    DM -->|Query DB| PG
+    
+    %% Tool Response Processing
+    AT -->|Format Response| TF
+    GC -->|Format Response| TF
+    TS -->|Format Response| TF
+    DM -->|Format Response| TF
+    TF -->|Return to Agent| LC
+
+    %% Artifact Generation Flow
+    AG -->|Create Artifact| AS
+    AS -->|Stream Content| SM
+    AS -->|Store Artifact| AR_DB
+    AR -->|Render UI| AC
+
+    %% Streaming Response Flow
+    SM -->|SSE Stream| UI
+    SM -->|Update Context| CM
+    SM -->|Save Messages| UM
+    SM -->|Save Messages| AM
+
+    %% File Processing Flow
+    FA -->|Process Files| FP
+    FP -->|Extract Content| CE
+    CE -->|PDF Processing| PDF
+    CE -->|Office Docs| DOC
+    CE -->|Image OCR| IMG
+    CE -->|Code Analysis| CODE
+    CE -->|Generate Embeddings| EM
+    EM -->|Store Vectors| VDB
+    FP -->|Store Metadata| FM
+    FM -->|Save to DB| DS
+
+    %% Database Operations
+    MP -->|Save Chat| CH
+    LC -->|Save Conversations| CV
+    EE -->|Store Entities| EN
+    
+    %% External API Integrations
+    N8N -->|Webhook Responses| GC
+    N8N -->|File Processing| CE
+
+    %% Response Flow Back to UI
+    PG -->|Query Results| DM
+    VDB -->|Search Results| CR
+    BL -->|File Access| FA
+    AC -->|Display Artifacts| UI
+    GP -->|Global Context| BR
+
+    %% Styling
+    classDef frontend fill:#e1f5fe
+    classDef api fill:#f3e5f5
+    classDef brain fill:#fff3e0
+    classDef context fill:#e8f5e8
+    classDef tools fill:#fff8e1
+    classDef artifacts fill:#fce4ec
+    classDef database fill:#e3f2fd
+    classDef files fill:#f1f8e9
+    classDef external fill:#ffebee
+
+    class UI,MUI,AC,GP,FU frontend
+    class BR,FA,AU api
+    class MP,LC,PS,SM brain
+    class EE,CM,CS,CR,FC context
+    class TR,AT,GC,TS,DM,WE,TF tools
+    class AG,AS,AR,TA,CA,SA,IA artifacts
+    class PG,VDB,BL,CH,UM,AM,DS,EN,CV,AR_DB database
+    class FP,CE,EM,FM,PDF,DOC,IMG,CODE files
+    class OAI,ASA,GCA,TAV,N8N external
 ```
 
 ### Key Components
