@@ -2,8 +2,7 @@
 
 import useSWR from 'swr';
 import type { UIArtifact } from '@/components/artifact';
-import { useCallback, useMemo, useEffect } from 'react';
-import { fetcher } from '@/lib/utils';
+import { useCallback, useMemo } from 'react';
 
 export const initialArtifactData: UIArtifact = {
   documentId: 'init',
@@ -74,41 +73,17 @@ export function useArtifact() {
       },
     );
 
-  // Add a way to fetch persisted document data when done streaming
-  const { data: persistedDocument } = useSWR(
-    () =>
-      artifact.documentId &&
-      artifact.documentId !== 'init' &&
-      artifact.documentId !== 'streaming' &&
-      artifact.status === 'idle'
-        ? `/api/document?id=${artifact.documentId}`
-        : null,
-    fetcher,
-    {
-      // Only fetch when streaming is complete and we have a valid ID
-      revalidateOnFocus: false,
+  const setArtifactMetadata = useCallback(
+    (updaterFn: any | ((currentMetadata: any) => any)) => {
+      setLocalArtifactMetadata((currentMetadata: any) => {
+        if (typeof updaterFn === 'function') {
+          return updaterFn(currentMetadata);
+        }
+        return updaterFn;
+      });
     },
+    [setLocalArtifactMetadata],
   );
-
-  // Sync with persisted document data after streaming is complete
-  useEffect(() => {
-    if (persistedDocument && persistedDocument.length > 0) {
-      const latestDocument = persistedDocument[persistedDocument.length - 1];
-
-      // Update the local artifact with the persisted data
-      if (
-        latestDocument?.content &&
-        artifact.documentId === latestDocument.id
-      ) {
-        setArtifact((currentArtifact) => ({
-          ...currentArtifact,
-          content: latestDocument.content || currentArtifact.content,
-          title: latestDocument.title || currentArtifact.title,
-          // Keep status 'idle' since streaming is done
-        }));
-      }
-    }
-  }, [persistedDocument, artifact.documentId, setArtifact]);
 
   // Additional helper functions for managing streaming state
   const startStreamingArtifact = useCallback(
@@ -159,25 +134,22 @@ export function useArtifact() {
       artifact,
       setArtifact,
       metadata: localArtifactMetadata,
-      setMetadata: setLocalArtifactMetadata,
+      setMetadata: setArtifactMetadata,
       // Add new streaming-specific methods
       startStreamingArtifact,
       updateStreamingContent,
       finishStreamingArtifact,
       closeArtifact,
-      // Add persisted document data
-      persistedDocument: persistedDocument?.[persistedDocument.length - 1],
     }),
     [
       artifact,
       setArtifact,
       localArtifactMetadata,
-      setLocalArtifactMetadata,
+      setArtifactMetadata,
       startStreamingArtifact,
       updateStreamingContent,
       finishStreamingArtifact,
       closeArtifact,
-      persistedDocument,
     ],
   );
 }

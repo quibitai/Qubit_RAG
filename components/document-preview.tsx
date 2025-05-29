@@ -15,7 +15,6 @@ import type { Document } from '@/lib/db/schema';
 import { InlineDocumentSkeleton } from './document-skeleton';
 import useSWR from 'swr';
 import { Editor } from './text-editor';
-import { DocumentToolCall, DocumentToolResult } from './document';
 import { CodeEditor } from './code-editor';
 import { useArtifact } from '@/hooks/use-artifact';
 import equal from 'fast-deep-equal';
@@ -26,6 +25,7 @@ interface DocumentPreviewProps {
   isReadonly: boolean;
   result?: any;
   args?: any;
+  onArtifactExpand?: (artifactId: string) => void;
 }
 
 // Improved UUID validation function
@@ -41,13 +41,15 @@ export function DocumentPreview({
   isReadonly,
   result,
   args,
+  onArtifactExpand,
 }: DocumentPreviewProps) {
   const { artifact, setArtifact } = useArtifact();
 
   const { data: documents, isLoading: isDocumentsFetching } = useSWR<
     Array<Document>
   >(
-    result && isValidUUID(result.id) ? `/api/document?id=${result.id}` : null,
+    // Disabled document fetching to prevent duplicates - use streaming content instead
+    null,
     fetcher,
   );
 
@@ -73,28 +75,6 @@ export function DocumentPreview({
       }));
     }
   }, [artifact.documentId, setArtifact]);
-
-  if (artifact.isVisible) {
-    if (result) {
-      return (
-        <DocumentToolResult
-          type="create"
-          result={{ id: result.id, title: result.title, kind: result.kind }}
-          isReadonly={isReadonly}
-        />
-      );
-    }
-
-    if (args) {
-      return (
-        <DocumentToolCall
-          type="create"
-          args={{ title: args.title }}
-          isReadonly={isReadonly}
-        />
-      );
-    }
-  }
 
   if (isDocumentsFetching) {
     return <LoadingSkeleton artifactKind={result?.kind ?? args?.kind} />;
@@ -122,6 +102,8 @@ export function DocumentPreview({
         hitboxRef={hitboxRef}
         result={result}
         setArtifact={setArtifact}
+        onArtifactExpand={onArtifactExpand}
+        artifact={artifact}
       />
       <DocumentHeader
         title={document.title}
@@ -162,38 +144,39 @@ const PureHitboxLayer = ({
   hitboxRef,
   result,
   setArtifact,
+  onArtifactExpand,
+  artifact,
 }: {
   hitboxRef: React.RefObject<HTMLDivElement>;
   result: any;
   setArtifact: (
     updaterFn: UIArtifact | ((currentArtifact: UIArtifact) => UIArtifact),
   ) => void;
+  onArtifactExpand?: (artifactId: string) => void;
+  artifact: UIArtifact;
 }) => {
   const handleClick = useCallback(
     (event: MouseEvent<HTMLElement>) => {
-      const boundingBox = event.currentTarget.getBoundingClientRect();
+      console.log('[DocumentPreview] Click handler called:', {
+        hasOnArtifactExpand: !!onArtifactExpand,
+        resultId: result?.id,
+        artifactStatus: artifact.status,
+      });
 
-      setArtifact((artifact) =>
-        artifact.status === 'streaming'
-          ? { ...artifact, isVisible: true }
-          : {
-              ...artifact,
-              title: result.title,
-              documentId: isValidUUID(result.id)
-                ? result.id
-                : artifact.documentId,
-              kind: result.kind,
-              isVisible: true,
-              boundingBox: {
-                left: boundingBox.x,
-                top: boundingBox.y,
-                width: boundingBox.width,
-                height: boundingBox.height,
-              },
-            },
-      );
+      // Always use the onArtifactExpand callback if available
+      if (onArtifactExpand && result?.id) {
+        console.log(
+          '[DocumentPreview] Using onArtifactExpand callback with ID:',
+          result.id,
+        );
+        onArtifactExpand(result.id);
+      } else {
+        console.log(
+          '[DocumentPreview] No onArtifactExpand callback or result ID available',
+        );
+      }
     },
-    [setArtifact, result],
+    [onArtifactExpand, result, artifact.status],
   );
 
   return (

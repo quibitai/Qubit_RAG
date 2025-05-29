@@ -133,6 +133,12 @@ export async function createTask(
   if (params.due_on) taskData.due_on = params.due_on;
   if (params.parent) taskData.parent = params.parent;
 
+  // Debug logging
+  console.log(
+    `[TaskOperations] [${requestId}] Creating task with data:`,
+    JSON.stringify(taskData, null, 2),
+  );
+
   // Default fields to include in the response
   const opt_fields = [
     'name',
@@ -153,6 +159,10 @@ export async function createTask(
     );
   } catch (error) {
     console.error(`[TaskOperations] Error creating task: ${error}`);
+    console.error(
+      `[TaskOperations] Task data that failed:`,
+      JSON.stringify(taskData, null, 2),
+    );
     throw error;
   }
 }

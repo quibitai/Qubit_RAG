@@ -12,7 +12,6 @@ import { Artifact } from './artifact';
 import { MultimodalInput } from './multimodal-input';
 import { Messages } from './messages';
 import type { VisibilityType } from './visibility-selector';
-import { useArtifactSelector } from '@/hooks/use-artifact';
 import { toast } from 'sonner';
 import { ChatPaneToggle } from './ChatPaneToggle';
 import { useChatPane } from '@/context/ChatPaneContext';
@@ -115,11 +114,8 @@ export function Chat({
 
   const { mutate, cache } = useSWRConfig();
   const [attachments, setAttachments] = useState<Array<Attachment>>([]);
-  const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
   const formRef = useRef<HTMLFormElement>(null);
   const chatPersistedRef = useRef<boolean>(initialMessages.length > 0);
-
-  // Reduced logging
 
   const router = useRouter();
 
@@ -194,6 +190,9 @@ export function Chat({
       messageId: string; // Track which message created this artifact
     }>
   >([]);
+
+  // Add a flag to track when an artifact was manually expanded
+  const manuallyExpandedRef = useRef<string | null>(null);
 
   // Reduced logging
 
@@ -400,6 +399,19 @@ export function Chat({
       return;
     }
 
+    // Skip processing if the current artifact was manually expanded
+    if (
+      manuallyExpandedRef.current &&
+      activeArtifactState.documentId === manuallyExpandedRef.current
+    ) {
+      console.log(
+        '[Chat] 🔒 Skipping data processing - artifact was manually expanded:',
+        manuallyExpandedRef.current,
+      );
+      processedDataIndexRef.current = data.length; // Mark all data as processed
+      return;
+    }
+
     // Only process new items since last time this effect ran
     if (data.length <= processedDataIndexRef.current) {
       return;
@@ -408,23 +420,36 @@ export function Chat({
     // If streaming was already finished for the current document, don't process more data
     // for the same document ID (unless it's a new artifact-start event)
     if (streamFinishedRef.current && lastStreamedDocIdRef.current) {
-      const newArtifactStart = data
-        .slice(processedDataIndexRef.current)
-        .some(
-          (item) =>
-            item &&
-            typeof item === 'object' &&
-            'type' in item &&
-            item.type === 'artifact-start',
-        );
+      // Check for new 'artifact-start' or 'id' events in the *new* data items.
+      const newDataSlice = data.slice(processedDataIndexRef.current);
+      const hasNewArtifactStartInNewData = newDataSlice.some(
+        (item) =>
+          item &&
+          typeof item === 'object' &&
+          'type' in item &&
+          item.type === 'artifact-start',
+      );
+      const hasNewIdInNewData = newDataSlice.some(
+        (item) =>
+          item &&
+          typeof item === 'object' &&
+          'type' in item &&
+          item.type === 'id',
+      );
 
-      if (!newArtifactStart) {
-        processedDataIndexRef.current = data.length; // Update index to avoid reprocessing
+      if (!hasNewArtifactStartInNewData && !hasNewIdInNewData) {
+        // If the current stream is marked finished (streamFinishedRef.current is true),
+        // and there are no 'artifact-start' or 'id' events in the new data items,
+        // then these new items are likely irrelevant for starting a new stream or continuing the finished one
+        // (e.g., trailing deltas for the finished stream, or other event types).
+        // We can safely update the processed index and skip further processing in this effect run.
+        processedDataIndexRef.current = data.length;
         return;
-      } else {
-        // Reset finished state when a new artifact starts
-        streamFinishedRef.current = false;
       }
+      // If there IS a new artifact-start or a new ID in newDataItems, we proceed.
+      // Crucially, we DO NOT reset streamFinishedRef.current here.
+      // The subsequent logic (shouldInitializeNewDocument and the switch cases)
+      // will handle resetting streamFinishedRef.current if a genuinely new stream context is established.
     }
 
     // Extract only the new items we haven't processed yet
@@ -491,6 +516,8 @@ export function Chat({
               stateActuallyChangedThisCycle = true;
               // Reset finished flag for new artifact
               streamFinishedRef.current = false;
+              // Clear manual expansion flag when new artifact starts
+              manuallyExpandedRef.current = null;
             }
             break;
 
@@ -498,6 +525,8 @@ export function Chat({
             if (shouldInitializeNewDocument) {
               newDocumentId = typedDataObject.content;
               stateActuallyChangedThisCycle = true;
+              // Clear manual expansion flag when new document ID is assigned
+              manuallyExpandedRef.current = null;
             }
             break;
 
@@ -525,64 +554,11 @@ export function Chat({
               newIsVisible = true;
               streamFinishedRef.current = true;
 
-              // Keep this important log, but maybe less verbose if needed in future
-              // console.log(
-              //   '[Chat] 🟢 Streaming finished. Current accumulated content length:',
-              //   newContent.length,
-              // );
-
-              // IMPORTANT: Fetch the full document content now that streaming is done
-              if (newDocumentId) {
-                const currentDocId = newDocumentId; // Capture for async context
-                // console.log(
-                //   `[Chat] Fetching full content for ${currentDocId} after stream finish...`,
-                // );
-                fetch(`/api/document?id=${currentDocId}`)
-                  .then((response) => {
-                    if (!response.ok) {
-                      throw new Error(
-                        `Failed to fetch document ${currentDocId}: ${response.status}`,
-                      );
-                    }
-                    return response.json();
-                  })
-                  .then((documentsArray) => {
-                    if (documentsArray && documentsArray.length > 0) {
-                      const fetchedDoc = documentsArray.at(-1); // Get the most recent version
-                      if (fetchedDoc?.content) {
-                        // console.log(
-                        //   `[Chat] ✅ Full content fetched for ${currentDocId}, length: ${fetchedDoc.content.length}. Updating active artifact state.`,
-                        // );
-                        setActiveArtifactState((prev) => {
-                          // Only update if the document ID still matches (user might have started a new artifact)
-                          if (prev.documentId === currentDocId) {
-                            return {
-                              ...prev,
-                              content: fetchedDoc.content,
-                              isStreaming: false,
-                            };
-                          }
-                          return prev;
-                        });
-                      } else {
-                        // console.warn(
-                        //   `[Chat] Fetched document for ${currentDocId} is empty or has no content.`,
-                        // );
-                      }
-                    } else {
-                      // console.warn(
-                      //   `[Chat] No document found for ${currentDocId} after fetch.`,
-                      // );
-                    }
-                  })
-                  .catch((error) => {
-                    console.error(
-                      `[Chat] Error fetching full content for ${currentDocId}:`,
-                      error,
-                    );
-                    // Optionally set an error state in activeArtifactState here
-                  });
-              }
+              // Content is already complete from streaming - no need to fetch again
+              console.log(
+                '[Chat] 🟢 Streaming finished. Content length:',
+                newContent.length,
+              );
 
               if (stop) {
                 stop();
@@ -664,6 +640,14 @@ export function Chat({
         //   error: newError,
         //   contentPreview: `${newContent.substring(0, 50)}...`,
         // });
+        console.log(
+          '[Chat] About to call setActiveArtifactState. New Content Length:',
+          newContent.length,
+          'Is Streaming:',
+          newIsStreaming,
+          'Content Preview:',
+          newContent.substring(0, 100),
+        );
 
         setActiveArtifactState({
           documentId: newDocumentId,
@@ -720,6 +704,9 @@ export function Chat({
           error: null,
           isStreaming: false,
         }));
+
+        // Clear manual expansion flag when artifact is closed
+        manuallyExpandedRef.current = null;
       } else {
         setActiveArtifactState((prev) => ({
           ...prev,
@@ -731,6 +718,9 @@ export function Chat({
           error: null,
           isStreaming: false,
         }));
+
+        // Clear manual expansion flag when artifact is closed
+        manuallyExpandedRef.current = null;
       }
     },
     [
@@ -744,26 +734,74 @@ export function Chat({
   // Function to handle expanding a collapsed artifact back to full view
   const handleArtifactExpand = useCallback(
     (artifactId: string) => {
-      const artifact = collapsedArtifacts.find((a) => a.id === artifactId);
-      if (artifact) {
-        // Set the artifact as active and visible
-        setActiveArtifactState({
-          documentId: artifact.id,
-          title: artifact.title,
-          kind: artifact.kind,
-          content: artifact.content,
+      console.log(
+        '[Chat] 🔴 handleArtifactExpand called with artifactId:',
+        artifactId,
+      );
+      console.log('[Chat] 🔴 Current collapsedArtifacts:', collapsedArtifacts);
+      console.log('[Chat] 🔴 Current activeArtifactState BEFORE expand:', {
+        documentId: activeArtifactState.documentId,
+        isVisible: activeArtifactState.isVisible,
+        isStreaming: activeArtifactState.isStreaming,
+        contentLength: activeArtifactState.content.length,
+      });
+
+      const artifactToExpand = collapsedArtifacts.find(
+        (a) => a.id === artifactId,
+      );
+      if (artifactToExpand) {
+        console.log(
+          '[Chat] 🔴 Found collapsed artifact, expanding:',
+          artifactToExpand,
+        );
+
+        // Signal that this artifact is now active, complete, and should not be re-streamed
+        // by the useEffect data processor.
+        lastStreamedDocIdRef.current = artifactToExpand.id;
+        streamFinishedRef.current = true; // It's fully loaded, not streaming.
+        processedDataIndexRef.current = data?.length || 0; // Mark all prior stream data as "seen" for this or other artifacts.
+
+        // Mark this artifact as manually expanded to prevent useEffect interference
+        manuallyExpandedRef.current = artifactToExpand.id;
+
+        console.log('[Chat] 🔴 About to setActiveArtifactState with:', {
+          documentId: artifactToExpand.id,
+          title: artifactToExpand.title,
+          kind: artifactToExpand.kind,
+          contentLength: artifactToExpand.content.length,
           isStreaming: false,
+          isVisible: true,
+        });
+
+        setActiveArtifactState({
+          documentId: artifactToExpand.id,
+          title: artifactToExpand.title,
+          kind: artifactToExpand.kind,
+          content: artifactToExpand.content,
+          isStreaming: false, // Explicitly not streaming
           isVisible: true,
           error: null,
         });
 
-        // Remove from collapsed list
         setCollapsedArtifacts((prev) =>
           prev.filter((a) => a.id !== artifactId),
         );
+
+        console.log('[Chat] 🔴 handleArtifactExpand completed');
+      } else {
+        console.log(
+          '[Chat] 🔴 No collapsed artifact found with ID:',
+          artifactId,
+        );
       }
     },
-    [collapsedArtifacts],
+    [
+      collapsedArtifacts,
+      setActiveArtifactState,
+      setCollapsedArtifacts,
+      data,
+      activeArtifactState,
+    ], // Added activeArtifactState to deps for logging
   );
 
   return (
@@ -795,7 +833,7 @@ export function Chat({
             setMessages={setMessages}
             reload={reload}
             isReadonly={isReadonly}
-            isArtifactVisible={isArtifactVisible}
+            isArtifactVisible={activeArtifactState.isVisible}
             collapsedArtifacts={collapsedArtifacts}
             onArtifactExpand={handleArtifactExpand}
           />

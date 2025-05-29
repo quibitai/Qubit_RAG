@@ -72,6 +72,7 @@ import {
   formatUserDetails,
   formatWorkspaceUsersList,
   formatProjectDetails,
+  formatProjectCreation,
 } from './formatters/responseFormatter';
 
 import { parseDateTime } from './utils/dateTimeParser';
@@ -432,8 +433,8 @@ export class ModernAsanaTool {
     if (resolved.due_date) {
       try {
         const parsedDate = parseDateTime(resolved.due_date);
-        if (parsedDate) {
-          resolved.due_date_parsed = parsedDate;
+        if (parsedDate.success && parsedDate.formattedForAsana.due_on) {
+          resolved.due_date_parsed = parsedDate.formattedForAsana.due_on;
         }
       } catch (error) {
         console.warn(
@@ -559,6 +560,11 @@ export class ModernAsanaTool {
     }
 
     const project = await getProjectDetails(this.client, projectGid, requestId);
+
+    // Store project details in params for context tracking
+    params.project_gid = project.gid;
+    params.project_name = project.name;
+
     return formatProjectDetails(project, { requestId, startTime: Date.now() });
   }
 
@@ -755,8 +761,77 @@ export class ModernAsanaTool {
     params: any,
     requestId: string,
   ): Promise<string> {
-    // Implementation similar to existing addSubtask logic
-    throw new Error('Add subtask not yet implemented in modern tool');
+    const workspaceGid = getWorkspaceGid();
+    if (!workspaceGid) {
+      throw new Error('Workspace GID not configured');
+    }
+
+    let parentTaskGid = params.parent_task_gid;
+
+    // Resolve parent task if needed
+    if (!parentTaskGid && params.parent_task_name) {
+      const findResult = await findTaskGidByName(
+        this.client,
+        params.parent_task_name,
+        workspaceGid,
+        undefined, // projectGid
+        false, // includeCompleted
+        requestId,
+      );
+
+      if (findResult.type === 'found') {
+        parentTaskGid = findResult.gid;
+      } else if (findResult.type === 'ambiguous') {
+        throw new Error(findResult.message);
+      }
+    }
+
+    if (!parentTaskGid) {
+      throw new Error(
+        `Could not find parent task: ${params.parent_task_name || 'unknown'}`,
+      );
+    }
+
+    // Create subtask parameters
+    const createParams: CreateTaskParams = {
+      name: params.subtask_name,
+      workspace: workspaceGid,
+      parent: parentTaskGid,
+    };
+
+    if (params.notes) {
+      createParams.notes = params.notes;
+    }
+
+    if (params.assignee === 'me') {
+      const currentUser = await getUsersMe(this.client, requestId);
+      createParams.assignee = currentUser.gid;
+    } else if (params.assignee_gid) {
+      createParams.assignee = params.assignee_gid;
+    }
+
+    if (params.due_date_parsed) {
+      createParams.due_on = params.due_date_parsed;
+    }
+
+    const subtask = await createTask(this.client, createParams, requestId);
+
+    // Update context
+    const sessionId = taskContextManager.getSessionId(requestId);
+    taskContextManager.addTaskContext(
+      sessionId,
+      subtask.gid,
+      subtask.name,
+      'CREATE',
+      undefined, // projectGid
+      undefined, // projectName
+    );
+
+    return formatTaskCreation(
+      subtask,
+      { projectName: `Subtask of ${params.parent_task_name}` },
+      { requestId, startTime: Date.now() },
+    );
   }
 
   private async handleListSubtasks(
@@ -834,65 +909,325 @@ export class ModernAsanaTool {
     params: any,
     requestId: string,
   ): Promise<string> {
-    // Implementation similar to existing createProject logic
-    throw new Error('Create project not yet implemented in modern tool');
+    const workspaceGid = getWorkspaceGid();
+    if (!workspaceGid) {
+      throw new Error('Workspace GID not configured');
+    }
+
+    const projectParams = {
+      name: params.name,
+      workspace: workspaceGid,
+      notes: params.notes,
+      privacy_setting: params.privacy_setting || 'public_to_workspace',
+    };
+
+    const project = await createProject(this.client, projectParams, requestId);
+
+    // Update context
+    const sessionId = taskContextManager.getSessionId(requestId);
+    taskContextManager.addProjectContext(project.gid, project.name);
+
+    return formatProjectCreation(project, { requestId, startTime: Date.now() });
   }
 
   private async handleGetUserDetails(
     params: any,
     requestId: string,
   ): Promise<string> {
-    // Implementation similar to existing getUserDetails logic
-    throw new Error('Get user details not yet implemented in modern tool');
+    const workspaceGid = getWorkspaceGid();
+    if (!workspaceGid) {
+      throw new Error('Workspace GID not configured');
+    }
+
+    let userGid = params.user_gid;
+
+    // Handle "me" case
+    if (params.user_identifier === 'me' || params.user_name === 'me') {
+      const currentUser = await getUsersMe(this.client, requestId);
+      return formatUserDetails(currentUser, {
+        requestId,
+        startTime: Date.now(),
+      });
+    }
+
+    // Resolve user by name or email if needed
+    if (!userGid && (params.user_name || params.user_email)) {
+      const identifier = params.user_name || params.user_email;
+      userGid = await findUserGidByEmailOrName(
+        this.client,
+        identifier,
+        workspaceGid,
+        requestId,
+      );
+    }
+
+    if (!userGid) {
+      throw new Error(
+        `Could not find user: ${params.user_name || params.user_email || 'unknown'}`,
+      );
+    }
+
+    const user = await getUserDetails(this.client, userGid, requestId);
+    return formatUserDetails(user, { requestId, startTime: Date.now() });
   }
 
   private async handleListWorkspaceUsers(
     params: any,
     requestId: string,
   ): Promise<string> {
-    // Implementation similar to existing listWorkspaceUsers logic
-    throw new Error('List workspace users not yet implemented in modern tool');
+    const workspaceGid = getWorkspaceGid();
+    if (!workspaceGid) {
+      throw new Error('Workspace GID not configured');
+    }
+
+    const users = await listWorkspaceUsers(
+      this.client,
+      workspaceGid,
+      requestId,
+    );
+    return formatWorkspaceUsersList(
+      users,
+      { name: 'Current Workspace', gid: workspaceGid },
+      { requestId, startTime: Date.now() },
+    );
   }
 
   private async handleSearchAsana(
     params: any,
     requestId: string,
   ): Promise<string> {
-    // Implementation similar to existing search logic
-    throw new Error('Search Asana not yet implemented in modern tool');
+    const workspaceGid = getWorkspaceGid();
+    if (!workspaceGid) {
+      throw new Error('Workspace GID not configured');
+    }
+
+    const searchResults = await typeaheadSearch(
+      this.client,
+      {
+        workspaceGid,
+        query: params.query,
+        resourceType: params.resource_type, // 'task', 'project', 'user', or undefined for all
+      },
+      requestId,
+    );
+
+    return formatSearchResults(
+      searchResults,
+      params.query,
+      params.resource_type,
+      { requestId, startTime: Date.now() },
+    );
   }
 
   private async handleAddFollower(
     params: any,
     requestId: string,
   ): Promise<string> {
-    // Implementation similar to existing addFollower logic
-    throw new Error('Add follower not yet implemented in modern tool');
+    const workspaceGid = getWorkspaceGid();
+    if (!workspaceGid) {
+      throw new Error('Workspace GID not configured');
+    }
+
+    let taskGid = params.task_gid;
+    let userGid = params.user_gid;
+
+    // Resolve task if needed
+    if (!taskGid && params.task_name) {
+      const findResult = await findTaskGidByName(
+        this.client,
+        params.task_name,
+        workspaceGid,
+        undefined, // projectGid
+        false, // includeCompleted
+        requestId,
+      );
+
+      if (findResult.type === 'found') {
+        taskGid = findResult.gid;
+      } else if (findResult.type === 'ambiguous') {
+        throw new Error(findResult.message);
+      }
+    }
+
+    // Resolve user if needed
+    if (!userGid && params.user_identifier) {
+      if (params.user_identifier === 'me') {
+        const currentUser = await getUsersMe(this.client, requestId);
+        userGid = currentUser.gid;
+      } else {
+        userGid = await findUserGidByEmailOrName(
+          this.client,
+          params.user_identifier,
+          workspaceGid,
+          requestId,
+        );
+      }
+    }
+
+    if (!taskGid) {
+      throw new Error(`Could not find task: ${params.task_name || 'unknown'}`);
+    }
+
+    if (!userGid) {
+      throw new Error(
+        `Could not find user: ${params.user_identifier || 'unknown'}`,
+      );
+    }
+
+    const updatedTask = await addFollowerToTask(
+      this.client,
+      taskGid,
+      userGid,
+      requestId,
+    );
+    return formatAddFollowerResponse(
+      updatedTask,
+      params.user_identifier,
+      params.task_name || taskGid,
+      { requestId, startTime: Date.now() },
+    );
   }
 
   private async handleSetTaskDueDate(
     params: any,
     requestId: string,
   ): Promise<string> {
-    // Implementation similar to existing setTaskDueDate logic
-    throw new Error('Set task due date not yet implemented in modern tool');
+    const workspaceGid = getWorkspaceGid();
+    if (!workspaceGid) {
+      throw new Error('Workspace GID not configured');
+    }
+
+    let taskGid = params.task_gid;
+
+    // Resolve task if needed
+    if (!taskGid && params.task_name) {
+      const findResult = await findTaskGidByName(
+        this.client,
+        params.task_name,
+        workspaceGid,
+        undefined, // projectGid
+        false, // includeCompleted
+        requestId,
+      );
+
+      if (findResult.type === 'found') {
+        taskGid = findResult.gid;
+      } else if (findResult.type === 'ambiguous') {
+        throw new Error(findResult.message);
+      }
+    }
+
+    if (!taskGid) {
+      throw new Error(`Could not find task: ${params.task_name || 'unknown'}`);
+    }
+
+    const updateParams: UpdateTaskParams = {};
+
+    if (params.due_date_parsed) {
+      updateParams.due_on = params.due_date_parsed;
+    } else if (params.due_date) {
+      // Try to parse the date if not already parsed
+      const parsedDate = parseDateTime(params.due_date);
+      if (parsedDate.success && parsedDate.formattedForAsana.due_on) {
+        updateParams.due_on = parsedDate.formattedForAsana.due_on;
+      } else {
+        throw new Error(`Could not parse due date: ${params.due_date}`);
+      }
+    }
+
+    const updatedTask = await updateTask(
+      this.client,
+      taskGid,
+      updateParams,
+      requestId,
+    );
+    return formatTaskUpdate(updatedTask, updateParams, {
+      requestId,
+      startTime: Date.now(),
+    });
   }
 
   private async handleListProjectSections(
     params: any,
     requestId: string,
   ): Promise<string> {
-    // Implementation similar to existing listProjectSections logic
-    throw new Error('List project sections not yet implemented in modern tool');
+    const workspaceGid = getWorkspaceGid();
+    if (!workspaceGid) {
+      throw new Error('Workspace GID not configured');
+    }
+
+    let projectGid = params.project_gid;
+
+    // Resolve project if needed
+    if (!projectGid && params.project_name) {
+      projectGid = await findProjectGidByName(
+        this.client,
+        params.project_name,
+        workspaceGid,
+        requestId,
+      );
+    }
+
+    if (!projectGid) {
+      throw new Error(
+        `Could not find project: ${params.project_name || 'unknown'}`,
+      );
+    }
+
+    const sections = await getProjectSections(
+      this.client,
+      projectGid,
+      undefined,
+      requestId,
+    );
+    return formatSectionList(
+      sections,
+      { projectName: params.project_name, projectGid },
+      { requestId, startTime: Date.now() },
+    );
   }
 
   private async handleCreateProjectSection(
     params: any,
     requestId: string,
   ): Promise<string> {
-    // Implementation similar to existing createProjectSection logic
-    throw new Error(
-      'Create project section not yet implemented in modern tool',
+    const workspaceGid = getWorkspaceGid();
+    if (!workspaceGid) {
+      throw new Error('Workspace GID not configured');
+    }
+
+    let projectGid = params.project_gid;
+
+    // Resolve project if needed
+    if (!projectGid && params.project_name) {
+      projectGid = await findProjectGidByName(
+        this.client,
+        params.project_name,
+        workspaceGid,
+        requestId,
+      );
+    }
+
+    if (!projectGid) {
+      throw new Error(
+        `Could not find project: ${params.project_name || 'unknown'}`,
+      );
+    }
+
+    const sectionParams = {
+      name: params.section_name,
+      projectGid,
+    };
+
+    const section = await createSectionInProject(
+      this.client,
+      sectionParams,
+      requestId,
+    );
+    return formatSectionCreation(
+      section,
+      { projectName: params.project_name, projectGid },
+      { requestId, startTime: Date.now() },
     );
   }
 
@@ -900,8 +1235,86 @@ export class ModernAsanaTool {
     params: any,
     requestId: string,
   ): Promise<string> {
-    // Implementation similar to existing moveTaskToSection logic
-    throw new Error('Move task to section not yet implemented in modern tool');
+    const workspaceGid = getWorkspaceGid();
+    if (!workspaceGid) {
+      throw new Error('Workspace GID not configured');
+    }
+
+    let taskGid = params.task_gid;
+    let sectionGid = params.section_gid;
+    let projectGid = params.project_gid;
+
+    // Resolve task if needed
+    if (!taskGid && params.task_name) {
+      const findResult = await findTaskGidByName(
+        this.client,
+        params.task_name,
+        workspaceGid,
+        projectGid, // Use project context if available
+        false, // includeCompleted
+        requestId,
+      );
+
+      if (findResult.type === 'found') {
+        taskGid = findResult.gid;
+      } else if (findResult.type === 'ambiguous') {
+        throw new Error(findResult.message);
+      }
+    }
+
+    // Resolve project if needed (for section lookup)
+    if (!projectGid && params.project_name) {
+      projectGid = await findProjectGidByName(
+        this.client,
+        params.project_name,
+        workspaceGid,
+        requestId,
+      );
+    }
+
+    // Resolve section if needed
+    if (!sectionGid && params.section_name && projectGid) {
+      sectionGid = await findSectionGidByName(
+        this.client,
+        params.section_name,
+        projectGid,
+        requestId,
+      );
+
+      if (sectionGid === 'ambiguous') {
+        throw new Error(
+          `Multiple sections found with name "${params.section_name}"`,
+        );
+      }
+    }
+
+    if (!taskGid) {
+      throw new Error(`Could not find task: ${params.task_name || 'unknown'}`);
+    }
+
+    if (!sectionGid) {
+      throw new Error(
+        `Could not find section: ${params.section_name || 'unknown'}`,
+      );
+    }
+
+    const updatedTask = await addTaskToSection(
+      this.client,
+      sectionGid,
+      taskGid,
+      requestId,
+    );
+    return formatTaskMoveToSection(
+      updatedTask,
+      {
+        taskName: params.task_name,
+        taskGid,
+        sectionName: params.section_name,
+        sectionGid,
+        projectName: params.project_name,
+      },
+      { requestId, startTime: Date.now() },
+    );
   }
 
   /**

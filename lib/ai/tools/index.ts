@@ -14,11 +14,10 @@ import { updateDocumentTool } from './update-document';
 import { tavilySearchTool } from './tavily-search';
 import { getMessagesFromOtherChatTool } from './getMessagesFromOtherChatTool';
 import { googleCalendarTool } from './googleCalendarTool';
-import { AsanaTool, createModernAsanaTool } from './asana'; // Asana tools (legacy and modern)
+import { createAsanaFunctionCallingTools } from './asana/function-calling-tools'; // Modern LLM function calling tools
 
-// Create tool instances
-const asanaTool = new AsanaTool();
-const modernAsanaTool = createModernAsanaTool();
+// Create Asana tool instances with proper function calling
+const asanaTools = createAsanaFunctionCallingTools();
 
 // Export all available tools
 export const availableTools = [
@@ -32,8 +31,7 @@ export const availableTools = [
   tavilySearchTool,
   getMessagesFromOtherChatTool,
   googleCalendarTool,
-  asanaTool, // Legacy Asana tool
-  // modernAsanaTool, // Modern Asana tool (enable when ready)
+  ...asanaTools, // Modern Asana tools with LLM function calling, semantic resolution, error recovery
 ];
 
 export {
@@ -47,6 +45,5 @@ export {
   tavilySearchTool,
   getMessagesFromOtherChatTool,
   googleCalendarTool,
-  asanaTool, // Legacy Asana tool
-  modernAsanaTool, // Modern Asana tool
+  asanaTools, // Modern Asana function calling tools
 };

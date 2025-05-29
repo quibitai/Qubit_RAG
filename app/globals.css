@@ -125,6 +125,49 @@
 
 .ProseMirror {
     outline: none;
+    color: inherit !important;
+    background: transparent !important;
+    min-height: 100px !important;
+    padding: 16px !important;
+}
+
+.ProseMirror p {
+    margin: 0.75em 0 !important;
+    color: inherit !important;
+}
+
+.ProseMirror h1, .ProseMirror h2, .ProseMirror h3, .ProseMirror h4, .ProseMirror h5, .ProseMirror h6 {
+    color: inherit !important;
+    margin: 1em 0 0.5em 0 !important;
+}
+
+.ProseMirror strong {
+    font-weight: bold !important;
+    color: inherit !important;
+}
+
+.ProseMirror em {
+    font-style: italic !important;
+    color: inherit !important;
+}
+
+.ProseMirror a {
+    color: #3b82f6 !important;
+    text-decoration: underline !important;
+    cursor: pointer !important;
+}
+
+.ProseMirror a:hover {
+    color: #1d4ed8 !important;
+    text-decoration: underline !important;
+}
+
+.dark .ProseMirror a {
+    color: #60a5fa !important;
+}
+
+.dark .ProseMirror a:hover {
+    color: #93c5fd !important;
 }
 
 .cm-editor,

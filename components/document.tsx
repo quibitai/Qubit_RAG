@@ -27,15 +27,15 @@ interface DocumentToolResultProps {
   type: 'create' | 'update' | 'request-suggestions';
   result: { id: string; title: string; kind: ArtifactKind };
   isReadonly: boolean;
+  onArtifactExpand?: (artifactId: string) => void;
 }
 
 function PureDocumentToolResult({
   type,
   result,
   isReadonly,
+  onArtifactExpand,
 }: DocumentToolResultProps) {
-  const { setArtifact } = useArtifact();
-
   return (
     <button
       type="button"
@@ -48,24 +48,17 @@ function PureDocumentToolResult({
           return;
         }
 
-        const rect = event.currentTarget.getBoundingClientRect();
-
-        const boundingBox = {
-          top: rect.top,
-          left: rect.left,
-          width: rect.width,
-          height: rect.height,
-        };
-
-        setArtifact({
-          documentId: result.id,
-          kind: result.kind,
-          content: '',
-          title: result.title,
-          isVisible: true,
-          status: 'idle',
-          boundingBox,
-        });
+        if (onArtifactExpand && result.id) {
+          console.log(
+            '[DocumentToolResult] Using onArtifactExpand callback with ID:',
+            result.id,
+          );
+          onArtifactExpand(result.id);
+        } else {
+          console.log(
+            '[DocumentToolResult] No onArtifactExpand callback or result ID available',
+          );
+        }
       }}
     >
       <div className="text-muted-foreground mt-1">
@@ -90,15 +83,15 @@ interface DocumentToolCallProps {
   type: 'create' | 'update' | 'request-suggestions';
   args: { title: string };
   isReadonly: boolean;
+  onArtifactExpand?: (artifactId: string) => void;
 }
 
 function PureDocumentToolCall({
   type,
   args,
   isReadonly,
+  onArtifactExpand,
 }: DocumentToolCallProps) {
-  const { setArtifact } = useArtifact();
-
   return (
     <button
       type="button"
@@ -111,20 +104,17 @@ function PureDocumentToolCall({
           return;
         }
 
-        const rect = event.currentTarget.getBoundingClientRect();
-
-        const boundingBox = {
-          top: rect.top,
-          left: rect.left,
-          width: rect.width,
-          height: rect.height,
-        };
-
-        setArtifact((currentArtifact) => ({
-          ...currentArtifact,
-          isVisible: true,
-          boundingBox,
-        }));
+        if (onArtifactExpand && args.title) {
+          console.log(
+            '[DocumentToolCall] Attempting to expand using onArtifactExpand with title as proxy ID:',
+            args.title,
+          );
+          onArtifactExpand(args.title);
+        } else {
+          console.log(
+            '[DocumentToolCall] Clicked, but no onArtifactExpand or suitable ID. Original logic was to set global isVisible=true.',
+          );
+        }
       }}
     >
       <div className="flex flex-row gap-3 items-start">

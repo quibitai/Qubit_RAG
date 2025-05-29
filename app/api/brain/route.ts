@@ -175,6 +175,18 @@ function createLangChainStreamHandler(
         await onStart();
       }
     }
+
+    // Override handleChainError to prevent the .map() error
+    async handleChainError(err: Error, runId: string) {
+      logger.error('Chain error in streaming handler:', err);
+      // Don't re-throw the error to prevent breaking the stream
+    }
+
+    // Override handleLLMError to prevent streaming errors
+    async handleLLMError(err: Error, runId: string) {
+      logger.error('LLM error in streaming handler:', err);
+      // Don't re-throw the error to prevent breaking the stream
+    }
   }
 
   return {
@@ -881,145 +893,52 @@ function sanitizeMessages(messages: any[]) {
  * @returns Processed message with string content for tool messages
  */
 function ensureToolMessageContentIsString(message: UIMessage | any): any {
-  // Skip if not a message
+  // Skip if not a message or if message is null/undefined
   if (!message || typeof message !== 'object') {
     return message;
   }
 
-  // Log input message structure for debugging
-  try {
-    console.log(
-      '[Brain API DEBUG] ensureToolMessageContentIsString input:',
-      typeof message,
-      message?.role || 'no role',
-      typeof message?.content === 'object'
-        ? 'content is object'
-        : typeof message?.content,
-    );
+  // Minimal logging for input type
+  // console.log(
+  //   '[Brain API DEBUG] ensureToolMessageContentIsString input type:',
+  //   typeof message,
+  //   'role:', message?.role,
+  //   'content type:', typeof message?.content
+  // );
 
-    // Attempt to log the full structure - but handle circular references gracefully
-    try {
-      console.log(
-        '[Brain API DEBUG] Message structure:',
-        JSON.stringify(message, null, 2),
-      );
-    } catch (jsonError) {
-      console.log(
-        '[Brain API DEBUG] Cannot stringify full message (may have circular refs)',
-      );
-    }
-  } catch (logError) {
-    console.log('[Brain API DEBUG] Error logging message details:', logError);
-  }
-
-  // More thorough detection of LangChain ToolMessage instances
-  const isToolMessage =
-    // Check constructor name
+  const isToolMsg =
     (message?.constructor && message.constructor.name === 'ToolMessage') ||
-    // Check if it's an actual instance of imported ToolMessage
     message instanceof ToolMessage ||
-    // Check LangChain serialization properties
     (message?.lc_namespace &&
       Array.isArray(message.lc_namespace) &&
-      message.lc_namespace.includes('langchain_core') &&
-      message.lc_namespace.includes('messages') &&
       message.lc_namespace.includes('ToolMessage')) ||
-    // Check for tool_call_id which is specific to ToolMessage
-    message?.tool_call_id !== undefined ||
-    // Check role property
-    message?.role === 'tool' ||
-    // Check additional_kwargs name property - use optional chaining
-    message?.additional_kwargs?.name;
+    message?.tool_call_id !== undefined || // Characteristic of ToolMessage
+    message?.role === 'tool';
 
-  if (isToolMessage) {
-    console.log(
-      '[Brain API DEBUG] Detected tool message, processing content...',
-    );
+  if (isToolMsg) {
+    // console.log('[Brain API DEBUG] Detected tool message, ensuring content is string.');
+    const newMessage = { ...message }; // Shallow clone
 
-    try {
-      // Deep clone the message to avoid modifying the original
-      let newMessage: Record<string, any> = {};
+    if (typeof newMessage.content === 'object' && newMessage.content !== null) {
+      // console.log('[Brain API DEBUG] Tool message content is object, stringifying.');
       try {
-        newMessage = JSON.parse(JSON.stringify(message));
+        newMessage.content = JSON.stringify(newMessage.content);
       } catch (e) {
-        // Fallback for circular references
-        console.log('[Brain API DEBUG] Clone failed, using shallow copy');
-        newMessage = { ...message };
-        if (message.content) {
-          newMessage.content = message.content;
-        }
+        // console.error('[Brain API DEBUG] Failed to stringify tool message object content:', e);
+        newMessage.content = '[Error: Could not stringify tool content object]';
       }
-
-      // Handle nested content structure (when content is an object with a content property)
-      if (typeof message.content === 'object' && message.content !== null) {
-        // Check for nested content structure where content itself has a content property
-        if (message.content.content !== undefined) {
-          console.log(
-            '[Brain API DEBUG] Detected nested content structure in ToolMessage',
-          );
-
-          if (typeof message.content.content === 'string') {
-            // If the nested content is already a string, use that directly
-            console.log(
-              '[Brain API DEBUG] Using nested string content:',
-              `${message.content.content.substring(0, 50)}...`,
-            );
-            newMessage.content = message.content.content;
-          } else if (
-            typeof message.content.content === 'object' &&
-            message.content.content !== null
-          ) {
-            // If the nested content is an object, stringify it
-            console.log(
-              '[Brain API DEBUG] Converting nested object content to string',
-            );
-            newMessage.content = JSON.stringify(message.content.content);
-          } else {
-            // Otherwise stringify the entire content object
-            console.log('[Brain API DEBUG] Stringifying entire content object');
-            newMessage.content = JSON.stringify(message.content);
-          }
-        } else {
-          // Regular object content
-          console.log('[Brain API DEBUG] Stringifying regular object content');
-          newMessage.content = JSON.stringify(message.content);
-        }
-      } else if (typeof message.content !== 'string') {
-        // Convert other non-string content to string
-        console.log(
-          '[Brain API DEBUG] Converting non-string content to string',
-        );
-        newMessage.content = String(message.content || '');
-      }
-
-      console.log(
-        '[Brain API DEBUG] Final tool message content type:',
-        typeof newMessage.content,
-      );
-      console.log(
-        '[Brain API DEBUG] Final content preview:',
-        typeof newMessage.content === 'string'
-          ? `${newMessage.content.substring(0, 50)}...`
-          : `NON-STRING: ${typeof newMessage.content}`,
-      );
-
-      return newMessage;
-    } catch (error) {
-      console.error('[Brain API DEBUG] Error processing ToolMessage:', error);
-      // Emergency fallback - return a cleaned object with string content
-      const fallbackMessage = {
-        ...message,
-        content:
-          typeof message.content === 'string'
-            ? message.content
-            : 'Error processing tool message content',
-      };
-      console.log(
-        '[Brain API DEBUG] Using emergency fallback with content type:',
-        typeof fallbackMessage.content,
-      );
-      return fallbackMessage;
+    } else if (typeof newMessage.content !== 'string') {
+      // If content is not an object and not already a string (e.g., number, boolean, undefined, null)
+      // console.log('[Brain API DEBUG] Tool message content is non-object, non-string; converting to string.');
+      newMessage.content = String(newMessage.content ?? ''); // Ensure it's a string, handle null/undefined
     }
+    // If newMessage.content is already a string (e.g. JSON string from tool observation), do nothing.
+
+    // console.log(
+    //   '[Brain API DEBUG] Final tool message content preview for role 'tool':',
+    //   typeof newMessage.content === 'string' ? `${newMessage.content.substring(0,70)}...` : typeof newMessage.content
+    // );
+    return newMessage;
   }
 
   return message;
@@ -1266,7 +1185,7 @@ async function getAvailableTools(clientConfig?: ClientConfig | null) {
 }
 
 // Add import at the top of the file after the existing imports
-import { createEnhancedDataStream } from '@/lib/streaming';
+// import { createEnhancedDataStream } from '@/lib/streaming';
 
 // Context Management Integration
 import { contextManager } from '@/lib/context/ContextManager';
@@ -2256,17 +2175,17 @@ ${artifactsInfo}
         // Task A1: Add logging before StreamData creation
         console.log('[BRAIN API] Creating StreamData for artifact streaming.');
 
-        // Enhance the dataStream with our appendData method
-        const enhancedDataStream = createEnhancedDataStream(dataStream);
+        // Use dataStream directly instead of enhanced wrapper
+        // const enhancedDataStream = createEnhancedDataStream(dataStream);
 
         // Task A1: Add logging after StreamData creation
         console.log(
           '[BRAIN API] StreamData instance created:',
-          !!enhancedDataStream,
-          'append available:',
-          typeof enhancedDataStream?.append === 'function',
-          'close available:',
-          typeof enhancedDataStream?.close === 'function',
+          !!dataStream,
+          'writeData available:',
+          typeof dataStream?.writeData === 'function',
+          'write available:',
+          typeof dataStream?.write === 'function',
         );
 
         try {
@@ -2274,14 +2193,14 @@ ${artifactsInfo}
           logger.info('[Brain API] SINGLE AGENT EXECUTION STARTING');
 
           // Send initial status as custom data
-          enhancedDataStream.writeData({
+          dataStream.writeData({
             status: 'started',
             timestamp: new Date().toISOString(),
           });
 
           // Set up LangChainStream with onCompletion handler for message saving
           const streamHandler = createLangChainStreamHandler({
-            dataStream: enhancedDataStream, // Use enhanced version
+            dataStream: dataStream, // Use direct dataStream
             onStart: async () => {
               logger.info(
                 `[Brain API] Stream started for chat ID: ${normalizedChatId}`,
@@ -2642,7 +2561,7 @@ ${artifactsInfo}
                     console.error(
                       `[BRAIN CHUNK_TOOL_CALL CRITICAL] No handler or onCreateDocument method found for kind: ${kind}`,
                     );
-                    enhancedDataStream.writeData({
+                    dataStream.writeData({
                       type: 'error',
                       error: `No handler available to create document of kind: ${kind}`,
                     });
@@ -2650,11 +2569,17 @@ ${artifactsInfo}
                   }
 
                   // Prepare arguments for handler
-                  const docId = randomUUID();
+                  // Use ID from tool args if available, otherwise generate new one
+                  const docId = toolArgs.id || randomUUID();
+
+                  console.log(
+                    `[BRAIN CHUNK_TOOL_CALL] Using document ID: ${docId} (from tool args: ${!!toolArgs.id})`,
+                  );
+
                   const handlerArgs = {
                     id: docId,
                     title,
-                    dataStream: enhancedDataStream,
+                    dataStream: dataStream,
                     initialContentPrompt,
                     session: authSession || {
                       user: {
@@ -2687,7 +2612,7 @@ ${artifactsInfo}
                       `[BRAIN CHUNK_TOOL_CALL ERROR] Error calling ${kind} handler.onCreateDocument:`,
                       error,
                     );
-                    enhancedDataStream.writeData({
+                    dataStream.writeData({
                       type: 'error',
                       error: `Failed to start document creation for ${title}: ${errorMessage}`,
                     });
@@ -2695,7 +2620,7 @@ ${artifactsInfo}
                   }
 
                   // Send the generic tool call info
-                  enhancedDataStream.writeData({
+                  dataStream.writeData({
                     type: 'status-update',
                     status: `Creating ${kind} document titled "${title}"...`,
                   });
@@ -2704,13 +2629,13 @@ ${artifactsInfo}
                   const newDocId = creationResult?.documentId || docId;
 
                   // Send completion status
-                  enhancedDataStream.writeData({
+                  dataStream.writeData({
                     type: 'status-update',
                     status: `Document "${title}" (ID: ${newDocId}) created successfully.`,
                   });
 
                   // Add a message annotation for the tool use
-                  enhancedDataStream.writeMessageAnnotation({
+                  dataStream.writeMessageAnnotation({
                     documentCreated: {
                       id: newDocId,
                       title,
@@ -2726,7 +2651,7 @@ ${artifactsInfo}
                   const documentUrl = `/documents/${newDocId}`;
 
                   // Write a message that will be displayed to the user
-                  enhancedDataStream.writeData({
+                  dataStream.writeData({
                     type: 'tool-result',
                     content: {
                       toolName: toolCall.name,
@@ -2779,7 +2704,7 @@ ${artifactsInfo}
                     }
 
                     // Send a structured data event with the tool message for agent consumption
-                    enhancedDataStream.writeData({
+                    dataStream.writeData({
                       type: 'agent-tool-feedback',
                       toolCallId: toolCall?.id,
                       toolName: toolCall?.name,
@@ -2868,11 +2793,42 @@ ${artifactsInfo}
                       continue;
                     }
 
-                    const docId = randomUUID();
+                    // Prepare arguments for handler
+                    // Extract ID from tool response if available, otherwise generate new one
+                    let docId = randomUUID();
+
+                    // Try to extract ID from step.observation if available
+                    if (
+                      step.observation &&
+                      typeof step.observation === 'object' &&
+                      step.observation.id
+                    ) {
+                      docId = step.observation.id;
+                      console.log(
+                        `[BRAIN CHUNK_TOOL_CALL] Extracted document ID from step.observation: ${docId}`,
+                      );
+                    } else if (
+                      typeof step.observation === 'string' &&
+                      step.observation.includes('ID ')
+                    ) {
+                      const idMatch =
+                        step.observation.match(/ID ([a-f0-9-]{36})/);
+                      if (idMatch?.[1]) {
+                        docId = idMatch[1];
+                        console.log(
+                          `[BRAIN CHUNK_TOOL_CALL] Extracted document ID from tool response: ${docId}`,
+                        );
+                      }
+                    }
+
+                    console.log(
+                      `[BRAIN CHUNK_TOOL_CALL] Using document ID: ${docId} (from step.observation: ${!!step.observation?.id})`,
+                    );
+
                     const handlerArgs = {
                       id: docId,
                       title,
-                      dataStream: enhancedDataStream,
+                      dataStream: dataStream,
                       initialContentPrompt,
                       session: authSession || {
                         user: {
@@ -2921,7 +2877,7 @@ ${artifactsInfo}
           logger.info('[Brain API] AGENT EXECUTION COMPLETED SUCCESSFULLY');
 
           // Close the stream with end-of-stream indicators
-          enhancedDataStream.writeData({
+          dataStream.writeData({
             type: 'completion',
             status: 'complete',
             timestamp: new Date().toISOString(),
@@ -2929,14 +2885,14 @@ ${artifactsInfo}
 
           // Write message annotation with a final ID
           const messageId = randomUUID();
-          enhancedDataStream.writeMessageAnnotation({
+          dataStream.writeMessageAnnotation({
             id: messageId,
             createdAt: new Date().toISOString(),
           });
         } catch (error) {
           // Error handling
           logger.error(`[Brain API] ERROR IN AGENT EXECUTION:`, error);
-          enhancedDataStream.writeData({
+          dataStream.writeData({
             type: 'error',
             error: error instanceof Error ? error.message : String(error),
           });

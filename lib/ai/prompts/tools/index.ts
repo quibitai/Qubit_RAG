@@ -28,7 +28,17 @@ const toolInstructionMap: Record<string, string> = {
 
   // Integration Tools
   googleCalendar: `Use this tool ONLY for Google Calendar related tasks and operations. This tool is now dedicated to calendar management. For any calendar-related requests, provide a clear natural language description of what you need.`,
-  asana: `IMPORTANT: Use this tool for ALL Asana-related tasks and operations, such as creating, listing, or updating tasks and projects. This tool provides a direct connection to the Asana API. Provide a clear, natural language description of what you need (e.g., "List all my incomplete tasks in Asana").`,
+
+  // Asana Function Calling Tools
+  asana_get_project_details: `Use this tool to get detailed information about a specific Asana project including description, status, milestones, and tasks. Use when users ask for project details, project overview, or project information. Provide the project name or GID as project_id.`,
+  asana_list_projects: `Use this tool to list and discover projects in the Asana workspace. Use when users want to see available projects or find a project by name. Can filter by team or include archived projects.`,
+  asana_create_task: `Use this tool to create new tasks in Asana. Provide task name, optional description, project, assignee, and due date. The tool handles semantic resolution of project and user names.`,
+  asana_list_tasks: `Use this tool to list tasks from Asana with optional filtering by project, assignee, or completion status. Use when users want to see their tasks or tasks in a specific project.`,
+  asana_update_task: `Use this tool to update existing tasks in Asana, such as marking them complete, changing due dates, or updating descriptions. Provide the task name or GID.`,
+  asana_get_task_details: `Use this tool to get detailed information about a specific task including description, status, assignee, and project. Provide the task name or GID.`,
+  asana_create_project: `Use this tool to create new projects in Asana. Provide project name, optional description, team, and other project settings.`,
+  asana_list_users: `Use this tool to list users/members in the Asana workspace. Use when you need to find user information or see who's available for task assignment.`,
+  asana_search_entity: `Use this tool to search for tasks, projects, or users using semantic matching. Use when you need to find entities by partial names or descriptions.`,
 
   // Other tools
   getMessagesFromOtherChat: `When retrieving messages from other chats, summarize the key points relevant to the user's current query. Note the source chat (e.g., "In the Echo Tango chat...").`,

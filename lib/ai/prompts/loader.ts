@@ -46,7 +46,12 @@ export function loadPrompt({
       console.warn(
         `[PromptLoader] Specialist persona for '${contextId}' is empty or not found (checked default and client config). Falling back to default assistant prompt.`,
       );
-      return defaultAssistantPrompt;
+      return composeSpecialistPrompt(
+        `# Role: General Assistant
+You are a helpful general assistant within the Quibit system. Address user queries directly or use available tools as needed.`,
+        `Standard tools for search and document interaction may be available.`,
+        currentDateTime,
+      );
     }
 
     // Inject client-specific context into the specialist persona
@@ -93,7 +98,11 @@ export function loadPrompt({
     console.log(
       `[PromptLoader] Successfully composed prompt for specialist: ${contextId}`,
     );
-    return composeSpecialistPrompt(finalPersonaContent, toolInstructions);
+    return composeSpecialistPrompt(
+      finalPersonaContent,
+      toolInstructions,
+      currentDateTime,
+    );
   }
 
   // 2. Check if this is the global orchestrator context
@@ -128,7 +137,12 @@ export function loadPrompt({
       console.warn(
         `[PromptLoader] Chat Model specialist prompt not found. Falling back to default assistant prompt.`,
       );
-      return defaultAssistantPrompt;
+      return composeSpecialistPrompt(
+        `# Role: General Assistant
+You are a helpful general assistant within the Quibit system. Address user queries directly or use available tools as needed.`,
+        `Standard tools for search and document interaction may be available.`,
+        currentDateTime,
+      );
     }
 
     // Inject client-specific context into the chat model persona
@@ -177,12 +191,21 @@ export function loadPrompt({
     console.log(
       `[PromptLoader] Successfully composed prompt for Chat Model specialist`,
     );
-    return composeSpecialistPrompt(finalPersonaContent, toolInstructions);
+    return composeSpecialistPrompt(
+      finalPersonaContent,
+      toolInstructions,
+      currentDateTime,
+    );
   }
 
   // 4. Fallback if not a known specialist and not the orchestrator modelId
   console.log(
     `[PromptLoader] No specific specialist context and modelId ('${modelId}') is not orchestrator. Loading default assistant prompt.`,
   );
-  return defaultAssistantPrompt;
+  return composeSpecialistPrompt(
+    `# Role: General Assistant
+You are a helpful general assistant within the Quibit system. Address user queries directly or use available tools as needed.`,
+    `Standard tools for search and document interaction may be available.`,
+    currentDateTime,
+  );
 }

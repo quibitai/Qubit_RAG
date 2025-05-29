@@ -2,6 +2,7 @@ import { textblockTypeInputRule } from 'prosemirror-inputrules';
 import { Schema } from 'prosemirror-model';
 import { schema } from 'prosemirror-schema-basic';
 import { addListNodes } from 'prosemirror-schema-list';
+import { Plugin } from 'prosemirror-state';
 import type { Transaction } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import type { MutableRefObject } from 'react';
@@ -45,3 +46,48 @@ export const handleTransaction = ({
     }
   }
 };
+
+// Plugin to handle link clicks
+export const linkClickPlugin = new Plugin({
+  props: {
+    handleClick(view, pos, event) {
+      const { schema } = view.state;
+      const { doc } = view.state;
+      const clickPos = view.posAtCoords({
+        left: event.clientX,
+        top: event.clientY,
+      });
+
+      if (!clickPos) return false;
+
+      const $pos = doc.resolve(clickPos.pos);
+      const link = $pos.marks().find((mark) => mark.type === schema.marks.link);
+
+      if (link?.attrs.href) {
+        // Open link in new tab
+        window.open(link.attrs.href, '_blank', 'noopener,noreferrer');
+        return true;
+      }
+
+      return false;
+    },
+
+    handleDOMEvents: {
+      click: (view, event) => {
+        const target = event.target as HTMLElement;
+
+        // Check if the clicked element is a link
+        if (target.tagName === 'A' && target.getAttribute('href')) {
+          const href = target.getAttribute('href');
+          if (href) {
+            event.preventDefault();
+            window.open(href, '_blank', 'noopener,noreferrer');
+            return true;
+          }
+        }
+
+        return false;
+      },
+    },
+  },
+});

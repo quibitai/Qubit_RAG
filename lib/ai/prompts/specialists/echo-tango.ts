@@ -55,7 +55,15 @@ export const echoTangoConfig: SpecialistConfig = {
     'createDocument',
     'updateDocument',
     'getMessagesFromOtherChat', // Important for context awareness
-    'asana', // Use the new modular Asana tool
+    'asana_get_project_details', // Get project information and overview
+    'asana_list_projects', // List and discover projects
+    'asana_create_task', // Create new tasks
+    'asana_list_tasks', // List tasks with filtering
+    'asana_update_task', // Update existing tasks
+    'asana_get_task_details', // Get task information
+    'asana_create_project', // Create new projects
+    'asana_list_users', // List workspace users
+    'asana_search_entity', // Search for entities
     'googleCalendar', // Updated tool name to enable calendar capabilities
     'requestSuggestions',
     // Add or remove tools like 'getWeather', 'queryDocumentRows' as needed for this specialist

@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useState,
+  useRef,
 } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { useDebounceCallback, useWindowSize } from 'usehooks-ts';
@@ -105,6 +106,73 @@ function PureArtifact({
   error: string | null;
   onClose: () => void;
 }) {
+  // Create a unique ID for this component instance to track duplicates
+  const componentId = useRef(
+    `artifact-${Math.random().toString(36).substr(2, 9)}`,
+  );
+
+  // Track render count for this component instance
+  const renderCountRef = useRef(0);
+  renderCountRef.current++;
+
+  // Track previous props to see what changed (only for significant changes)
+  const prevPropsRef = useRef<any>(null);
+
+  // Only log essential renders to reduce console noise
+  const shouldLog =
+    renderCountRef.current === 1 ||
+    isVisible !== prevPropsRef.current?.isVisible ||
+    documentId !== prevPropsRef.current?.documentId;
+
+  if (shouldLog) {
+    console.log(
+      `[${componentId.current}] 🟡 ARTIFACT RENDER #${renderCountRef.current} - Props:`,
+      {
+        documentId,
+        title,
+        kind,
+        contentLength: content?.length || 0,
+        isStreaming,
+        isVisible,
+        error,
+      },
+    );
+  }
+
+  // Log when component is created (first render)
+  if (renderCountRef.current === 1) {
+    console.log(`[${componentId.current}] 🟢 NEW ARTIFACT COMPONENT CREATED`);
+  }
+
+  if (prevPropsRef.current && shouldLog) {
+    const propsChanged = {
+      documentId: prevPropsRef.current.documentId !== documentId,
+      isVisible: prevPropsRef.current.isVisible !== isVisible,
+      isStreaming: prevPropsRef.current.isStreaming !== isStreaming,
+      contentLength:
+        (prevPropsRef.current.content?.length || 0) !== (content?.length || 0),
+    };
+
+    if (Object.values(propsChanged).some(Boolean)) {
+      console.log(`[${componentId.current}] 🔄 PROPS CHANGED:`, propsChanged);
+    }
+  }
+
+  prevPropsRef.current = {
+    documentId,
+    isVisible,
+    isStreaming,
+    content,
+  };
+
+  // Log component lifecycle
+  useEffect(() => {
+    console.log(`[${componentId.current}] 🟣 ARTIFACT COMPONENT MOUNTED`);
+    return () => {
+      console.log(`[${componentId.current}] 🔴 ARTIFACT COMPONENT UNMOUNTED`);
+    };
+  }, []);
+
   const {
     artifact: globalArtifact,
     setArtifact,
@@ -127,33 +195,49 @@ function PureArtifact({
   const {
     data: documents,
     isLoading: isDocumentsFetching,
-    mutate: mutateDocuments,
+    error: documentsError,
   } = useSWR<Array<Document>>(
+    // Completely disable SWR fetching for artifacts that came from streaming
+    // The streaming process already provides the complete content
+    null, // Always null to disable fetching for streamed artifacts
+    fetcher,
+    {
+      // Prevent excessive revalidation
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 5000, // Prevent duplicate calls within 5 seconds
+      onSuccess: (data) => {
+        console.log('[SWR_DOCUMENT_FETCH] Success:', data);
+      },
+      onError: (error) => {
+        console.log('[SWR_DOCUMENT_FETCH] Error:', error);
+      },
+    },
+  );
+
+  // Add debug logging for SWR state
+  console.log('[SWR_DOCUMENT_DEBUG] documentId:', documentId);
+  console.log(
+    '[SWR_DOCUMENT_DEBUG] isValidUUID(documentId):',
+    isValidUUID(documentId),
+  );
+  console.log('[SWR_DOCUMENT_DEBUG] artifact.status:', artifact.status);
+  console.log(
+    '[SWR_DOCUMENT_DEBUG] SWR key:',
     isValidUUID(documentId) && artifact.status !== 'streaming'
       ? `/api/document?id=${documentId}`
       : null,
-    fetcher,
   );
+  console.log('[SWR_DOCUMENT_DEBUG] documents:', documents);
+  console.log('[SWR_DOCUMENT_DEBUG] isDocumentsFetching:', isDocumentsFetching);
+  console.log('[SWR_DOCUMENT_DEBUG] documentsError:', documentsError);
+
+  // SWR fetching is disabled for streaming artifacts - they already have complete content
 
   const [mode, setMode] = useState<'edit' | 'diff'>('edit');
-  const [document, setDocument] = useState<Document | null>(null);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
   const [isContentDirty, setIsContentDirty] = useState(false);
   const [isToolbarVisible, setIsToolbarVisible] = useState(false);
-
-  useEffect(() => {
-    if (documents && documents.length > 0) {
-      const mostRecentDocument = documents.at(-1);
-      if (mostRecentDocument) {
-        setDocument(mostRecentDocument);
-        setCurrentVersionIndex(documents.length - 1);
-      }
-    }
-  }, [documents]);
-
-  useEffect(() => {
-    mutateDocuments();
-  }, [artifact.status, mutateDocuments]);
 
   const { mutate } = useSWRConfig();
 
@@ -161,44 +245,25 @@ function PureArtifact({
     (updatedContent: string) => {
       if (!documentId || documentId === 'init') return;
 
-      mutate<Array<Document>>(
-        `/api/document?id=${documentId}`,
-        async (currentDocuments) => {
-          if (!currentDocuments) return undefined;
-
-          const currentDocument = currentDocuments.at(-1);
-
-          if (!currentDocument || !currentDocument.content) {
-            setIsContentDirty(false);
-            return currentDocuments;
-          }
-
-          if (currentDocument.content !== updatedContent) {
-            await fetch(`/api/document?id=${documentId}`, {
-              method: 'POST',
-              body: JSON.stringify({
-                title: title,
-                content: updatedContent,
-                kind: kind,
-              }),
-            });
-
-            setIsContentDirty(false);
-
-            const newDocument = {
-              ...currentDocument,
-              content: updatedContent,
-              createdAt: new Date(),
-            };
-
-            return [...currentDocuments, newDocument];
-          }
-          return currentDocuments;
-        },
-        { revalidate: false },
-      );
+      // Simplified content saving without document fetching
+      fetch(`/api/document?id=${documentId}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: title,
+          content: updatedContent,
+          kind: kind,
+        }),
+      })
+        .then(() => {
+          setIsContentDirty(false);
+          console.log('[handleContentChange] Content saved successfully');
+        })
+        .catch((error) => {
+          console.error('[handleContentChange] Failed to save content:', error);
+          setIsContentDirty(false);
+        });
     },
-    [documentId, title, kind, mutate],
+    [documentId, title, kind],
   );
 
   const debouncedHandleContentChange = useDebounceCallback(
@@ -213,7 +278,8 @@ function PureArtifact({
         return;
       }
 
-      if (document && updatedContent === document.content) {
+      // Since we disabled document fetching, compare against the content prop instead
+      if (updatedContent === content) {
         console.log('[saveContent] Content unchanged, skipping save');
         return;
       }
@@ -227,42 +293,22 @@ function PureArtifact({
         handleContentChange(updatedContent);
       }
     },
-    [documentId, document, debouncedHandleContentChange, handleContentChange],
+    [documentId, content, debouncedHandleContentChange, handleContentChange],
   );
 
   function getDocumentContentById(index: number) {
-    if (!documents) return '';
-    if (!documents[index]) return '';
-    return documents[index].content ?? '';
+    // Since we're not fetching documents anymore, just return current content
+    return content || '';
   }
 
   const handleVersionChange = (type: 'next' | 'prev' | 'toggle' | 'latest') => {
-    if (!documents) return;
-
-    if (type === 'latest') {
-      setCurrentVersionIndex(documents.length - 1);
-      setMode('edit');
-    }
-
-    if (type === 'toggle') {
-      setMode((mode) => (mode === 'edit' ? 'diff' : 'edit'));
-    }
-
-    if (type === 'prev') {
-      if (currentVersionIndex > 0) {
-        setCurrentVersionIndex((index) => index - 1);
-      }
-    } else if (type === 'next') {
-      if (currentVersionIndex < documents.length - 1) {
-        setCurrentVersionIndex((index) => index + 1);
-      }
-    }
+    // Version changes not supported for streaming artifacts
+    console.log(
+      '[handleVersionChange] Version changes not supported for streaming artifacts',
+    );
   };
 
-  const isCurrentVersion =
-    documents && documents.length > 0
-      ? currentVersionIndex === documents.length - 1
-      : true;
+  const isCurrentVersion = true; // Always current version since we're not fetching document history
 
   const isLoading = isStreaming && !artifact.content;
 
@@ -276,25 +322,33 @@ function PureArtifact({
   useEffect(() => {
     if (artifact.documentId !== 'init' && artifactDefinition) {
       if (artifactDefinition.initialize) {
-        artifactDefinition.initialize({
-          documentId: artifact.documentId,
-          setMetadata,
-        });
+        // Only initialize once per document ID and avoid initializing during streaming
+        if (artifact.status !== 'streaming') {
+          console.log(
+            '[Artifact] Initializing artifact for documentId:',
+            artifact.documentId,
+          );
+          artifactDefinition.initialize({
+            documentId: artifact.documentId,
+            setMetadata,
+          });
+        }
       }
     }
-  }, [artifact.documentId, artifactDefinition, setMetadata]);
+  }, [artifact.documentId, artifactDefinition, setMetadata, artifact.status]);
 
-  useEffect(() => {
-    setArtifact((prevArtifact) => ({
-      ...prevArtifact,
-      documentId: documentId || 'init',
-      title: title || 'Document',
-      kind: kind || ('text' as ArtifactKind),
-      content: content,
-      isVisible: isVisible,
-      status: (isStreaming ? 'streaming' : 'idle') as 'streaming' | 'idle',
-    }));
-  }, [documentId, title, kind, content, isVisible, isStreaming, setArtifact]);
+  // Commented out to prevent duplicate artifacts - we now use props directly instead of global state
+  // useEffect(() => {
+  //   setArtifact((prevArtifact) => ({
+  //     ...prevArtifact,
+  //     documentId: documentId || 'init',
+  //     title: title || 'Document',
+  //     kind: kind || ('text' as ArtifactKind),
+  //     content: content,
+  //     isVisible: isVisible,
+  //     status: (isStreaming ? 'streaming' : 'idle') as 'streaming' | 'idle',
+  //   }));
+  // }, [documentId, title, kind, content, isVisible, isStreaming, setArtifact]);
 
   const getIconForKind = (artifactKind: ArtifactKind | null) => {
     if (!artifactKind)
@@ -313,9 +367,19 @@ function PureArtifact({
     }
   };
 
+  // Add debug logging for global artifact state
+  console.log('[ARTIFACT_GLOBAL_STATE_DEBUG] Global artifact state:', {
+    documentId: artifact.documentId,
+    title: artifact.title,
+    kind: artifact.kind,
+    contentLength: artifact.content?.length || 0,
+    isVisible: artifact.isVisible,
+    status: artifact.status,
+  });
+
   return (
     <AnimatePresence>
-      {(isVisible || artifact.isVisible) && (
+      {isVisible && (
         <motion.div
           data-testid="artifact"
           className="flex flex-row h-dvh w-dvw fixed top-0 left-0 z-50 bg-transparent"
@@ -503,7 +567,17 @@ function PureArtifact({
               </div>
 
               <ArtifactActions
-                artifact={artifact}
+                artifact={{
+                  documentId: documentId || 'init',
+                  title: title || 'Document',
+                  kind: kind || ('text' as ArtifactKind),
+                  content: content,
+                  isVisible: isVisible,
+                  status: (isStreaming ? 'streaming' : 'idle') as
+                    | 'streaming'
+                    | 'idle',
+                  boundingBox: artifact.boundingBox,
+                }}
                 currentVersionIndex={-1}
                 handleVersionChange={handleVersionChange}
                 isCurrentVersion={isCurrentVersion}
@@ -513,34 +587,70 @@ function PureArtifact({
               />
             </div>
 
-            <div className="dark:bg-muted bg-background h-full overflow-y-scroll !max-w-full items-center">
+            <div className="dark:bg-muted bg-background h-full overflow-hidden !max-w-full items-center">
               {error && (
                 <div className="p-4 bg-red-100 border border-red-400 text-red-700 rounded-md">
                   <p className="font-semibold">An error occurred:</p>
                   <p>{error}</p>
                 </div>
               )}
-              {!error && artifactDefinition && (
-                <artifactDefinition.content
-                  title={artifact.title}
-                  content={
-                    artifact.status === 'streaming' || !document
-                      ? content
-                      : (document.content ?? '')
-                  }
-                  mode={mode}
-                  status={artifact.status}
-                  currentVersionIndex={currentVersionIndex}
-                  suggestions={metadata?.suggestions || []}
-                  onSaveContent={saveContent}
-                  isInline={false}
-                  isCurrentVersion={isCurrentVersion}
-                  getDocumentContentById={getDocumentContentById}
-                  isLoading={isLoading}
-                  metadata={metadata}
-                  setMetadata={setMetadata}
-                />
-              )}
+              {!error &&
+                artifactDefinition &&
+                (() => {
+                  const contentToPass = content; // Always use streaming content since we disabled document fetching
+
+                  console.log(
+                    '[ARTIFACT_COMPONENT] About to render artifact content with:',
+                  );
+                  console.log(
+                    '[ARTIFACT_COMPONENT] artifact.status:',
+                    artifact.status,
+                  );
+                  console.log(
+                    '[ARTIFACT_COMPONENT] Using streaming content only',
+                  );
+                  console.log(
+                    '[ARTIFACT_COMPONENT] content prop length:',
+                    content?.length || 0,
+                  );
+                  console.log(
+                    '[ARTIFACT_COMPONENT] contentToPass length:',
+                    contentToPass?.length || 0,
+                  );
+                  console.log(
+                    '[ARTIFACT_COMPONENT] contentToPass preview:',
+                    contentToPass?.substring(0, 100) || 'empty',
+                  );
+
+                  // Add fallback content for debugging
+                  const finalContent =
+                    contentToPass ||
+                    (artifact.status === 'streaming'
+                      ? 'Loading content...'
+                      : '');
+
+                  return (
+                    <artifactDefinition.content
+                      title={title || 'Artifact'}
+                      content={finalContent}
+                      mode={mode}
+                      status={
+                        (isStreaming ? 'streaming' : 'idle') as
+                          | 'streaming'
+                          | 'idle'
+                      }
+                      currentVersionIndex={currentVersionIndex}
+                      suggestions={metadata?.suggestions || []}
+                      onSaveContent={saveContent}
+                      isInline={false}
+                      isCurrentVersion={isCurrentVersion}
+                      getDocumentContentById={getDocumentContentById}
+                      isLoading={isLoading}
+                      metadata={metadata}
+                      setMetadata={setMetadata}
+                    />
+                  );
+                })()}
               {!error && !artifactDefinition && kind && (
                 <div className="p-4 text-muted-foreground">
                   Loading artifact content for type: {kind}...
@@ -548,7 +658,7 @@ function PureArtifact({
               )}
 
               <AnimatePresence>
-                {isCurrentVersion && (
+                {isCurrentVersion && kind && (
                   <Toolbar
                     isToolbarVisible={isToolbarVisible}
                     setIsToolbarVisible={setIsToolbarVisible}
@@ -556,12 +666,8 @@ function PureArtifact({
                     status={status}
                     stop={stop}
                     setMessages={setMessages}
-                    artifactKind={artifact.kind}
-                    content={
-                      artifact.status === 'streaming' || !document
-                        ? content
-                        : (document.content ?? '')
-                    }
+                    artifactKind={kind}
+                    content={content}
                     title={title}
                     kind={kind}
                   />
@@ -586,18 +692,72 @@ function PureArtifact({
 }
 
 export const Artifact = memo(PureArtifact, (prevProps, nextProps) => {
-  if (prevProps.status !== nextProps.status) return false;
-  if (!equal(prevProps.votes, nextProps.votes)) return false;
-  if (prevProps.input !== nextProps.input) return false;
-  if (prevProps.messages.length !== nextProps.messages.length) return false;
-  if (prevProps.content !== nextProps.content) return false;
-  if (prevProps.isStreaming !== nextProps.isStreaming) return false;
-  if (prevProps.isVisible !== nextProps.isVisible) return false;
-  if (prevProps.documentId !== nextProps.documentId) return false;
-  if (prevProps.title !== nextProps.title) return false;
-  if (prevProps.kind !== nextProps.kind) return false;
-  if (prevProps.error !== nextProps.error) return false;
-  if (prevProps.onClose !== nextProps.onClose) return false;
+  // Skip memo logging in production for performance
+  if (process.env.NODE_ENV === 'development') {
+    const contentChanged = prevProps.content !== nextProps.content;
+    const isStreamingChanged = prevProps.isStreaming !== nextProps.isStreaming;
+    const isVisibleChanged = prevProps.isVisible !== nextProps.isVisible;
+    const documentIdChanged = prevProps.documentId !== nextProps.documentId;
 
-  return true;
+    console.log('[ARTIFACT_MEMO_DEBUG] Memo comparison:', {
+      contentChanged,
+      prevContentLength: prevProps.content?.length || 0,
+      nextContentLength: nextProps.content?.length || 0,
+      isStreamingChanged,
+      isVisibleChanged,
+      documentIdChanged,
+      prevDocumentId: prevProps.documentId,
+      nextDocumentId: nextProps.documentId,
+    });
+  }
+
+  // Most critical props that should trigger re-render
+  if (prevProps.isVisible !== nextProps.isVisible) {
+    console.log('[ARTIFACT_MEMO] Re-render due to isVisible change');
+    return false;
+  }
+
+  if (prevProps.documentId !== nextProps.documentId) {
+    console.log('[ARTIFACT_MEMO] Re-render due to documentId change');
+    return false;
+  }
+
+  if (prevProps.content !== nextProps.content) {
+    console.log('[ARTIFACT_MEMO] Re-render due to content change');
+    return false;
+  }
+
+  if (prevProps.isStreaming !== nextProps.isStreaming) {
+    console.log('[ARTIFACT_MEMO] Re-render due to isStreaming change');
+    return false;
+  }
+
+  if (prevProps.title !== nextProps.title) {
+    console.log('[ARTIFACT_MEMO] Re-render due to title change');
+    return false;
+  }
+
+  if (prevProps.kind !== nextProps.kind) {
+    console.log('[ARTIFACT_MEMO] Re-render due to kind change');
+    return false;
+  }
+
+  if (prevProps.error !== nextProps.error) {
+    console.log('[ARTIFACT_MEMO] Re-render due to error change');
+    return false;
+  }
+
+  // Less critical props - only check if critical ones are the same
+  if (prevProps.status !== nextProps.status) {
+    console.log('[ARTIFACT_MEMO] Re-render due to status change');
+    return false;
+  }
+
+  // Skip deep comparisons of complex objects if critical props haven't changed
+  // This prevents unnecessary re-renders from objects that are recreated but functionally identical
+
+  console.log(
+    '[ARTIFACT_MEMO] Preventing re-render - no critical changes detected',
+  );
+  return true; // Prevent re-render
 });

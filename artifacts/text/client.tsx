@@ -15,6 +15,7 @@ import type { Suggestion } from '@/lib/db/schema';
 import { toast } from 'sonner';
 import { getSuggestions } from '../actions';
 import type { Attachment } from 'ai';
+import { useEffect, useRef, useState } from 'react';
 
 interface TextArtifactMetadata {
   suggestions: Array<Suggestion>;
@@ -24,14 +25,81 @@ interface TextArtifactMetadata {
   lastContentLength: number;
 }
 
+// Smart scrolling container for autoscroll during streaming
+function StreamingScrollContainer({
+  children,
+  isStreaming,
+}: {
+  children: React.ReactNode;
+  isStreaming: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  const [userScrolledUp, setUserScrolledUp] = useState(false);
+  const lastScrollTop = useRef(0);
+
+  // Auto-scroll to bottom during streaming
+  useEffect(() => {
+    if (isStreaming && autoScrollEnabled && containerRef.current) {
+      const container = containerRef.current;
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [children, isStreaming, autoScrollEnabled]);
+
+  // Handle scroll events to detect user scrolling
+  const handleScroll = () => {
+    if (!containerRef.current || !isStreaming) return;
+
+    const container = containerRef.current;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const isAtBottom = scrollTop + clientHeight >= scrollHeight - 10; // 10px threshold
+
+    // If user scrolled up during streaming, disable autoscroll
+    if (scrollTop < lastScrollTop.current && !isAtBottom) {
+      setUserScrolledUp(true);
+      setAutoScrollEnabled(false);
+      console.log('[StreamingScroll] User scrolled up - disabling autoscroll');
+    }
+
+    // If user scrolls back to bottom, re-enable autoscroll
+    if (isAtBottom && userScrolledUp) {
+      setUserScrolledUp(false);
+      setAutoScrollEnabled(true);
+      console.log('[StreamingScroll] User at bottom - re-enabling autoscroll');
+    }
+
+    lastScrollTop.current = scrollTop;
+  };
+
+  // Reset autoscroll when streaming starts
+  useEffect(() => {
+    if (isStreaming) {
+      setAutoScrollEnabled(true);
+      setUserScrolledUp(false);
+      console.log('[StreamingScroll] Streaming started - enabling autoscroll');
+    }
+  }, [isStreaming]);
+
+  return (
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="h-full overflow-y-auto"
+    >
+      {children}
+    </div>
+  );
+}
+
 export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
   kind: 'text',
   description: 'Useful for text content, like drafting essays and emails.',
   initialize: async ({ documentId, setMetadata }) => {
-    const suggestions = await getSuggestions({ documentId });
+    // Temporarily disable suggestions fetching to prevent duplicate API calls
+    // const suggestions = await getSuggestions({ documentId });
 
     setMetadata({
-      suggestions,
+      suggestions: [], // Use empty array instead of fetching
       processedContentHashes: new Set<string>(),
       lastContentLength: 0,
     });
@@ -39,13 +107,8 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
   onStreamPart: ({ streamPart, setMetadata, setArtifact }) => {
     // Skip processing if the stream part is not a valid type
     if (!streamPart || !streamPart.type) {
-      console.log('[TextArtifact] Invalid stream part received, skipping');
       return;
     }
-
-    console.log(
-      `[TextArtifact] Processing stream part of type: ${streamPart.type}`,
-    );
 
     if (streamPart.type === 'suggestion') {
       setMetadata((metadata) => {
@@ -62,34 +125,36 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
 
       // Skip empty content deltas
       if (!deltaContent || deltaContent.length === 0) {
-        console.log('[TextArtifact] Empty text-delta received, skipping');
         return;
       }
 
-      // Generate a simple hash of the content for tracking
-      const contentHash = `${deltaContent.length}:${deltaContent.substring(0, 10)}`;
-
-      console.log(
-        `[TextArtifact] Processing text-delta with contentHash: ${contentHash}, length: ${deltaContent.length}`,
-      );
+      // Generate a more robust hash for content tracking
+      const contentHash = `${deltaContent.length}:${deltaContent.substring(0, 20)}:${Date.now()}`;
 
       setMetadata((metadata) => {
-        // Check if we've already processed this exact content
-        if (metadata.processedContentHashes.has(contentHash)) {
-          console.log(
-            '[TextArtifact] Duplicate content detected, skipping',
-            contentHash,
-          );
+        // Check if we've already processed this exact content recently
+        const recentHashes = Array.from(metadata.processedContentHashes);
+        const duplicateFound = recentHashes.some((hash) =>
+          hash.startsWith(
+            `${deltaContent.length}:${deltaContent.substring(0, 20)}`,
+          ),
+        );
+
+        if (duplicateFound) {
+          console.log('[TextArtifact] Skipping duplicate content delta');
           return metadata;
         }
 
-        // Add this content hash to our processed set
+        // Keep only recent hashes to prevent memory growth
         const updatedHashes = new Set(metadata.processedContentHashes);
-        updatedHashes.add(contentHash);
+        if (updatedHashes.size > 100) {
+          // Keep only the last 50 hashes
+          const hashArray = Array.from(updatedHashes);
+          updatedHashes.clear();
+          hashArray.slice(-50).forEach((hash) => updatedHashes.add(hash));
+        }
 
-        console.log(
-          `[TextArtifact] New content hash added. Total unique deltas: ${updatedHashes.size}`,
-        );
+        updatedHashes.add(contentHash);
 
         return {
           ...metadata,
@@ -98,18 +163,8 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
         };
       });
 
-      // Now handle the artifact update with the new content
+      // Update artifact content
       setArtifact((draftArtifact) => {
-        // Use a functional update to ensure we're working with the latest state
-        console.log(
-          '[TextArtifact] Updating content with text-delta, delta length:',
-          deltaContent.length,
-          'Current artifact content length:',
-          draftArtifact.content.length,
-          'Will result in new length:',
-          draftArtifact.content.length + deltaContent.length,
-        );
-
         return {
           ...draftArtifact,
           content: draftArtifact.content + deltaContent,
@@ -123,8 +178,6 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
         if (draftArtifact.documentId === streamPart.content) {
           return draftArtifact;
         }
-
-        console.log('[TextArtifact] Setting document ID:', streamPart.content);
 
         // Reset metadata when we get a new document ID
         setMetadata((metadata) => ({
@@ -146,7 +199,6 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
           return draftArtifact;
         }
 
-        console.log('[TextArtifact] Setting title:', streamPart.content);
         return {
           ...draftArtifact,
           title: streamPart.content as string,
@@ -154,6 +206,8 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
         };
       });
     } else if (streamPart.type === 'finish') {
+      console.log('[TextArtifact] Finish event received, finalizing content');
+
       // Clear our tracking state on finish
       setMetadata((metadata) => ({
         ...metadata,
@@ -161,12 +215,15 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
       }));
 
       setArtifact((draftArtifact) => {
-        console.log('[TextArtifact] Finishing stream, maintaining visibility');
-        return {
-          ...draftArtifact,
-          status: 'idle',
-          isVisible: true,
-        };
+        // Only update status if currently streaming to avoid unnecessary renders
+        if (draftArtifact.status === 'streaming') {
+          return {
+            ...draftArtifact,
+            status: 'idle',
+            isVisible: true,
+          };
+        }
+        return draftArtifact;
       });
     }
   },
@@ -196,8 +253,8 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
     if (isCurrentVersion) {
       // Current version, show Editor. Editor can use 'status' to manage editability during streaming.
       return (
-        <>
-          <div className="flex flex-row py-8 md:p-20 px-4">
+        <StreamingScrollContainer isStreaming={status === 'streaming'}>
+          <div className="flex flex-row py-2 md:py-4 px-3 md:px-6">
             <Editor
               content={content}
               suggestions={metadata?.suggestions || []}
@@ -210,20 +267,20 @@ export const textArtifact = new Artifact<'text', TextArtifactMetadata>({
               <div className="md:hidden h-dvh w-12 shrink-0" />
             ) : null}
           </div>
-        </>
+        </StreamingScrollContainer>
       );
     }
+
     // Not current version, but mode is 'edit'. Show read-only Markdown of the specific version.
     const versionContent = getDocumentContentById(currentVersionIndex);
     return (
-      <>
-        <div className="flex flex-row py-8 md:p-20 px-4">
-          <div className="prose prose-gray dark:prose-invert max-w-none">
+      <StreamingScrollContainer isStreaming={status === 'streaming'}>
+        <div className="flex flex-row py-2 md:py-4 px-3 md:px-6">
+          <div className="prose prose-gray dark:prose-invert prose-headings:mt-4 prose-headings:mb-2 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 max-w-none">
             <Markdown>{versionContent}</Markdown>
           </div>
-          {/* You could consider adding suggestions panel here too if applicable for old versions */}
         </div>
-      </>
+      </StreamingScrollContainer>
     );
   },
   actions: [

@@ -1,63 +1,59 @@
 /**
- * Integration tests for Asana Tool
+ * Tests for Modern Asana Tool Wrapper
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AsanaTool } from '../asanaTool';
-import * as userOperations from '../api-client/operations/users';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createModernAsanaToolWrapper } from '../modern-asana-tool-wrapper';
+import { setupAsanaTestEnv, clearAsanaTestEnv } from './mocks/mockSetup';
 
-// Mock the getUsersMe operation
-vi.mock('../api-client/operations/users', () => ({
-  getUsersMe: vi.fn(),
-}));
-
-describe('Asana Tool', () => {
-  let tool: AsanaTool;
+describe('Modern Asana Tool Wrapper', () => {
+  let tool: any;
 
   beforeEach(() => {
-    // Reset mocks
     vi.resetAllMocks();
+    setupAsanaTestEnv();
 
-    // Create a new instance for each test
-    tool = new AsanaTool('mock-api-key');
+    // Create tool instance
+    tool = createModernAsanaToolWrapper('mock-api-key');
   });
 
-  describe('GET_USER_ME operation', () => {
-    it('should handle "who am i" query and return formatted user info', async () => {
-      // Mock the getUsersMe function to return test data
-      const mockUserData = {
-        gid: 'user123',
-        name: 'Test User',
-        email: 'test@example.com',
-        workspaces: [{ gid: 'ws1', name: 'Work Workspace' }],
-      };
+  afterEach(() => {
+    clearAsanaTestEnv();
+    vi.clearAllMocks();
+  });
 
-      (userOperations.getUsersMe as any).mockResolvedValue(mockUserData);
-
-      // Call the tool with a natural language query
-      const result = await tool.call('who am i in asana?');
-
-      // Verify the result contains the expected user info
-      expect(result).toContain('Test User');
-      expect(result).toContain('test@example.com');
-      expect(result).toContain('Work Workspace');
-
-      // Verify getUsersMe was called
-      expect(userOperations.getUsersMe).toHaveBeenCalled();
+  describe('Tool Configuration', () => {
+    it('should have correct name and description', () => {
+      expect(tool.name).toBe('asana');
+      expect(tool.description).toContain(
+        'Advanced Asana tool with AI-powered capabilities',
+      );
     });
 
-    it('should handle API errors gracefully', async () => {
-      // Mock getUsersMe to throw an error
-      (userOperations.getUsersMe as any).mockRejectedValue(
-        new Error('API connection failed'),
-      );
+    it('should have proper schema', () => {
+      expect(tool.schema).toBeDefined();
+      expect(tool.schema._def.shape.action_description).toBeDefined();
+    });
+  });
 
-      // Call the tool with a natural language query
-      const result = await tool.call('show my user info');
+  describe('Basic Functionality', () => {
+    it('should handle string input', async () => {
+      const result = await tool.func({ action_description: 'list users' });
+      expect(typeof result).toBe('string');
+    });
 
-      // Verify the result contains an error message
-      expect(result).toContain('Error');
-      expect(result).toContain('API connection failed');
+    it('should handle task creation intent', async () => {
+      const result = await tool.func({
+        action_description: 'create task "Test Task" in Marketing project',
+      });
+      expect(typeof result).toBe('string');
+    });
+
+    it('should handle project listing intent', async () => {
+      const result = await tool.func({
+        action_description: 'list projects',
+      });
+      expect(typeof result).toBe('string');
     });
   });
 });

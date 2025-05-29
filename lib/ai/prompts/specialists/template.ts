@@ -27,6 +27,12 @@ export interface SpecialistConfig {
    *
    * These placeholders will be automatically replaced with client-specific values
    * by the PromptLoader when assembling the final prompt.
+   *
+   * NOTE: Current date/time context is automatically injected into ALL specialist prompts
+   * by the composeSpecialistPrompt() function. You do NOT need to include date/time
+   * placeholders in your persona text - the system will automatically append:
+   * "Current date and time: [formatted datetime]" to every specialist prompt.
+   * This ensures all specialists have accurate temporal context for time-sensitive queries.
    */
   persona: string;
 

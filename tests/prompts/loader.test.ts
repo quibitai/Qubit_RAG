@@ -153,4 +153,116 @@ test.describe('Prompt Loader Tests', () => {
     // Should fall back to default assistant prompt
     expect(prompt).toContain('General Assistant');
   });
+
+  // NEW TESTS: Date/Time Context Verification
+  test('orchestrator prompt should include current date/time', async () => {
+    const currentDateTime = 'Monday, May 1, 2023 12:00 PM (America/New_York)';
+
+    const prompt = loadPrompt({
+      modelId: 'global-orchestrator',
+      contextId: null,
+      clientConfig: mockEchoTangoConfig,
+      currentDateTime,
+    });
+
+    // Verify the exact date/time string is included
+    expect(prompt).toContain(
+      'Current date and time: Monday, May 1, 2023 12:00 PM (America/New_York)',
+    );
+  });
+
+  test('specialist prompts should include current date/time', async () => {
+    const currentDateTime = 'Tuesday, May 2, 2023 3:45 PM (UTC)';
+
+    const prompt = loadPrompt({
+      modelId: 'gpt-4-o',
+      contextId: 'echo-tango-specialist',
+      clientConfig: mockEchoTangoConfig,
+      currentDateTime,
+    });
+
+    // Verify the date/time is appended to specialist prompts
+    expect(prompt).toContain(
+      'Current date and time: Tuesday, May 2, 2023 3:45 PM (UTC)',
+    );
+  });
+
+  test('chat model prompt should include current date/time', async () => {
+    const currentDateTime = 'Wednesday, May 3, 2023 9:30 AM (Europe/London)';
+
+    const prompt = loadPrompt({
+      modelId: 'gpt-4-o',
+      contextId: 'chat-bit',
+      clientConfig: mockEchoTangoConfig,
+      currentDateTime,
+    });
+
+    // Verify the date/time is included in chat model prompts
+    expect(prompt).toContain(
+      'Current date and time: Wednesday, May 3, 2023 9:30 AM (Europe/London)',
+    );
+  });
+
+  test('default assistant prompt should include current date/time', async () => {
+    const currentDateTime = 'Thursday, May 4, 2023 6:15 PM (Asia/Tokyo)';
+
+    const prompt = loadPrompt({
+      modelId: 'gpt-4-o',
+      contextId: 'unknown-context-id',
+      clientConfig: mockEchoTangoConfig,
+      currentDateTime,
+    });
+
+    // Verify the date/time is included even in fallback prompts
+    expect(prompt).toContain(
+      'Current date and time: Thursday, May 4, 2023 6:15 PM (Asia/Tokyo)',
+    );
+  });
+
+  test('all prompt types should handle missing currentDateTime parameter', async () => {
+    // Test orchestrator without currentDateTime
+    const orchestratorPrompt = loadPrompt({
+      modelId: 'global-orchestrator',
+      contextId: null,
+      clientConfig: mockEchoTangoConfig,
+      // currentDateTime not provided - should use default
+    });
+    expect(orchestratorPrompt).toContain('Current date and time:');
+
+    // Test specialist without currentDateTime
+    const specialistPrompt = loadPrompt({
+      modelId: 'gpt-4-o',
+      contextId: 'echo-tango-specialist',
+      clientConfig: mockEchoTangoConfig,
+      // currentDateTime not provided - should use default
+    });
+    expect(specialistPrompt).toContain('Current date and time:');
+  });
+
+  test('date/time should be properly formatted and positioned in prompts', async () => {
+    const currentDateTime = 'Friday, May 5, 2023 11:59 PM (Pacific/Auckland)';
+
+    const specialistPrompt = loadPrompt({
+      modelId: 'gpt-4-o',
+      contextId: 'echo-tango-specialist',
+      clientConfig: mockEchoTangoConfig,
+      currentDateTime,
+    });
+
+    // Verify the date/time appears at the end of the prompt (after tool instructions)
+    const lines = specialistPrompt.split('\n');
+    const dateTimeLine = lines.find((line) =>
+      line.includes('Current date and time:'),
+    );
+    expect(dateTimeLine).toBeTruthy();
+    expect(dateTimeLine).toBe(
+      'Current date and time: Friday, May 5, 2023 11:59 PM (Pacific/Auckland)',
+    );
+
+    // Verify it's near the end of the prompt (after core content)
+    const dateTimeIndex = lines.findIndex((line) =>
+      line.includes('Current date and time:'),
+    );
+    expect(dateTimeIndex).toBeGreaterThan(lines.length - 10); // Should be in last 10 lines
+  });
 });

@@ -85,6 +85,7 @@ function PureMessages(props: MessagesProps) {
               setMessages={setMessages}
               reload={reload}
               isReadonly={isReadonly}
+              onArtifactExpand={onArtifactExpand}
             />
 
             {/* Display collapsed artifacts inline after their associated message */}

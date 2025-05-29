@@ -99,7 +99,20 @@ try {
     // This is just a placeholder - actual document creation happens in app/api/brain/route.ts
     // through integration with appropriate artifact handlers
 
-    // Return a string confirming the action instead of an object
-    return `Document artifact of kind '${kind}' titled '${title}' requested with ID ${id}. Content generation process initiated.`;
+    // Return a structured object with the ID instead of just a string
+    const result = {
+      id,
+      title,
+      kind,
+      contentPrompt,
+      message: `Document artifact of kind '${kind}' titled '${title}' requested with ID ${id}. Content generation process initiated.`,
+    };
+    return JSON.stringify(result);
   },
 });
+
+// Example of how the tool's output might be used by the agent:
+// const toolResultString = await createDocumentTool.call({ title: "My Doc", kind: "text" });
+// const toolResultObject = JSON.parse(toolResultString);
+// console.log(toolResultObject.id);
+// const toolMessage = new ToolMessage({ content: toolResultString, tool_call_id: "some_id" });

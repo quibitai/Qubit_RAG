@@ -74,9 +74,10 @@ describe('Asana Tool - CREATE_TASK operation', () => {
     // Call the tool with a natural language query
     const result = await tool.call('create a task called "Newly Created Task"');
 
-    // Verify the result contains the expected task info
-    expect(result).toContain('Successfully created');
+    // Verify the result contains the confirmation dialog (new behavior)
+    expect(result).toContain("I'm ready to create this Asana task");
     expect(result).toContain('Newly Created Task');
+    expect(result).toContain('Confirm to create this task');
   });
 
   it('should create a task with notes', async () => {
@@ -90,8 +91,9 @@ describe('Asana Tool - CREATE_TASK operation', () => {
       'create a task called "Task with Notes" with notes "These are task notes"',
     );
 
-    // Verify the result
-    expect(result).toContain('Successfully created');
+    // Verify the result contains the confirmation dialog
+    expect(result).toContain("I'm ready to create this Asana task");
+    expect(result).toContain('Task with Notes');
   });
 
   it('should create a task with project assignment', async () => {
@@ -110,8 +112,9 @@ describe('Asana Tool - CREATE_TASK operation', () => {
       'create a task called "Task in Project" in project "Development"',
     );
 
-    // Verify the result
-    expect(result).toContain('Successfully created');
+    // Verify the result contains the confirmation dialog
+    expect(result).toContain("I'm ready to create this Asana task");
+    expect(result).toContain('Task in Project');
   });
 
   it('should handle ambiguous project name', async () => {
@@ -120,19 +123,15 @@ describe('Asana Tool - CREATE_TASK operation', () => {
       'ambiguous',
     );
 
-    // Setup the formatter to return an ambiguous error
-    vi.mocked(responseFormatter.formatError).mockReturnValueOnce(
-      "Error: Multiple projects found matching 'Marketing'. Please be more specific. (Request ID: any-id)",
-    );
-
     // Call the tool
     const result = await tool.call(
       'create a task called "Task in Ambiguous Project" in project "Marketing"',
     );
 
-    // Verify the result contains an ambiguity message
-    expect(result).toContain('Multiple projects found');
-    expect(result).toContain('Please be more specific');
+    // Verify the result contains ambiguity warning in confirmation dialog
+    expect(result).toContain("I'm ready to create this Asana task");
+    expect(result).toContain('Ambiguous');
+    expect(result).toContain('Task in Ambiguous Project');
   });
 
   it('should create task without project when project not found', async () => {
@@ -151,8 +150,10 @@ describe('Asana Tool - CREATE_TASK operation', () => {
       'create a task called "Task with Missing Project" in project "Nonexistent"',
     );
 
-    // Verify the result
-    expect(result).toContain('Successfully created');
+    // Verify the result contains confirmation dialog with project not found warning
+    expect(result).toContain("I'm ready to create this Asana task");
+    expect(result).toContain('Task with Missing Project');
+    expect(result).toContain('Not found');
   });
 
   it('should handle error when task creation fails', async () => {
@@ -171,9 +172,9 @@ describe('Asana Tool - CREATE_TASK operation', () => {
       'create a task called "Task That Will Fail"',
     );
 
-    // Verify the result contains an error message
-    expect(result).toContain('Error');
-    expect(result).toContain('API connection failed');
+    // For errors during creation, it should still show confirmation first
+    expect(result).toContain("I'm ready to create this Asana task");
+    expect(result).toContain('Task That Will Fail');
   });
 
   it('should reject when task name is missing', async () => {
@@ -195,7 +196,8 @@ describe('Asana Tool - CREATE_TASK operation', () => {
       'create a task called "Task Assigned to Me" and assign it to me',
     );
 
-    // Verify the result
-    expect(result).toContain('Successfully created');
+    // Verify the result contains confirmation dialog
+    expect(result).toContain("I'm ready to create this Asana task");
+    expect(result).toContain('Task Assigned to Me');
   });
 });

@@ -128,6 +128,12 @@ export class AsanaApiClient {
             errorData = { error: errorText };
           }
 
+          // Debug logging for API errors
+          console.error(
+            `[AsanaApiClient] [${requestId || 'no-id'}] API Error ${response.status}:`,
+            JSON.stringify(errorData, null, 2),
+          );
+
           const apiError = new AsanaIntegrationError(
             `API responded with status ${response.status}`,
             `${method} ${endpoint}`,

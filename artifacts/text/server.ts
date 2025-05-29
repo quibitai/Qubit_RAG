@@ -14,8 +14,12 @@ async function sendArtifactDataToClient(
   const streamChunk = `2:${JSON.stringify([dataObject])}\n` as const;
   try {
     await dataStream.write(streamChunk);
-    // Only log non-text-delta events to reduce noise
-    if (dataObject.type !== 'text-delta') {
+    // Only log important events to reduce noise
+    if (
+      dataObject.type === 'artifact-start' ||
+      dataObject.type === 'finish' ||
+      dataObject.type === 'error'
+    ) {
       console.log(
         `[ArtifactHandler:${dataObject?.kind || dataObject?.type || 'UNKNOWN_KIND_TYPE'}] Streamed: type "${dataObject.type}"`,
       );
@@ -27,6 +31,7 @@ async function sendArtifactDataToClient(
       'Attempted object:',
       dataObject,
     );
+    // Don't throw the error to prevent breaking the entire stream
   }
 }
 
@@ -82,10 +87,14 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
 
     // 3. Stream Content
     const promptToUse = initialContentPrompt || title;
+    console.log(
+      `[SERVER TEXT_HANDLER] About to call streamText with prompt: "${promptToUse.substring(0, 100)}..."`,
+    );
 
-    const { fullStream } = streamText({
-      model: myProvider.languageModel('artifact-model'),
-      system: `Write a comprehensive, well-researched document about the given topic. 
+    try {
+      const { fullStream } = streamText({
+        model: myProvider.languageModel('artifact-model'),
+        system: `Write a comprehensive, well-researched document about the given topic. 
 
 REQUIREMENTS:
 - Use Markdown formatting with proper headings, lists, and emphasis
@@ -105,30 +114,57 @@ EXAMPLE REFERENCE FORMAT:
 ## Further Reading
 - [Related Topic Resource](https://example.com/resource)
 - [Additional Information](https://example.com/info)`,
-      experimental_transform: smoothStream({ chunking: 'word' }),
-      prompt: promptToUse,
-    });
+        experimental_transform: smoothStream({ chunking: 'word' }),
+        prompt: promptToUse,
+      });
 
-    for await (const delta of fullStream) {
-      const { type } = delta;
+      console.log(
+        `[SERVER TEXT_HANDLER] streamText call successful, starting to iterate over fullStream...`,
+      );
 
-      if (type === 'text-delta') {
-        // Check if finish has already been sent - this should never happen
-        if (streamFinishSent) {
-          console.warn(
-            `[SERVER TEXT_HANDLER WARN] Attempting to send text-delta AFTER finish event was sent!`,
-          );
-          continue; // Skip this delta if finish already sent
+      let deltaCount = 0;
+      for await (const delta of fullStream) {
+        deltaCount++;
+        const { type } = delta;
+
+        if (type === 'text-delta') {
+          // Check if finish has already been sent - this should never happen
+          if (streamFinishSent) {
+            console.warn(
+              `[SERVER TEXT_HANDLER WARN] Attempting to send text-delta AFTER finish event was sent!`,
+            );
+            continue; // Skip this delta if finish already sent
+          }
+
+          const { textDelta } = delta;
+          draftContent += textDelta;
+          serverSideAccumulatedContentLength += textDelta.length;
+
+          const textDeltaPayload = { type: 'text-delta', content: textDelta };
+          await sendArtifactDataToClient(dataStream, textDeltaPayload);
+        } else if (type === 'finish' || type === 'step-finish') {
+          console.log(`[SERVER TEXT_HANDLER] Received ${type} event`);
         }
-
-        const { textDelta } = delta;
-
-        draftContent += textDelta;
-        serverSideAccumulatedContentLength += textDelta.length;
-
-        const textDeltaPayload = { type: 'text-delta', content: textDelta };
-        await sendArtifactDataToClient(dataStream, textDeltaPayload);
       }
+
+      console.log(
+        `[SERVER TEXT_HANDLER] Finished iterating over fullStream. Total deltas processed: ${deltaCount}, Final content length: ${serverSideAccumulatedContentLength}`,
+      );
+    } catch (error) {
+      console.error(
+        `[SERVER TEXT_HANDLER ERROR] Error during streamText call:`,
+        error,
+      );
+
+      // Send error to client
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error occurred';
+      await sendArtifactDataToClient(dataStream, {
+        type: 'error',
+        error: `Content generation failed: ${errorMessage}`,
+      });
+
+      throw error;
     }
 
     // Update DB with final content

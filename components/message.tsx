@@ -29,6 +29,7 @@ const PurePreviewMessage = ({
   setMessages,
   reload,
   isReadonly,
+  onArtifactExpand,
 }: {
   chatId: string;
   message: UIMessage;
@@ -37,6 +38,7 @@ const PurePreviewMessage = ({
   setMessages: UseChatHelpers['setMessages'];
   reload: UseChatHelpers['reload'];
   isReadonly: boolean;
+  onArtifactExpand?: (artifactId: string) => void;
 }) => {
   const [mode, setMode] = useState<'view' | 'edit'>('view');
 
@@ -175,18 +177,24 @@ const PurePreviewMessage = ({
                       {toolName === 'getWeather' ? (
                         <Weather />
                       ) : toolName === 'createDocument' ? (
-                        <DocumentPreview isReadonly={isReadonly} args={args} />
+                        <DocumentPreview
+                          isReadonly={isReadonly}
+                          args={args}
+                          onArtifactExpand={onArtifactExpand}
+                        />
                       ) : toolName === 'updateDocument' ? (
                         <DocumentToolCall
                           type="update"
                           args={args}
                           isReadonly={isReadonly}
+                          onArtifactExpand={onArtifactExpand}
                         />
                       ) : toolName === 'requestSuggestions' ? (
                         <DocumentToolCall
                           type="request-suggestions"
                           args={args}
                           isReadonly={isReadonly}
+                          onArtifactExpand={onArtifactExpand}
                         />
                       ) : null}
                     </div>
@@ -201,21 +209,25 @@ const PurePreviewMessage = ({
                       {toolName === 'getWeather' ? (
                         <Weather weatherAtLocation={result} />
                       ) : toolName === 'createDocument' ? (
-                        <DocumentPreview
-                          isReadonly={isReadonly}
+                        <DocumentToolResult
+                          type="create"
                           result={result}
+                          isReadonly={isReadonly}
+                          onArtifactExpand={onArtifactExpand}
                         />
                       ) : toolName === 'updateDocument' ? (
                         <DocumentToolResult
                           type="update"
                           result={result}
                           isReadonly={isReadonly}
+                          onArtifactExpand={onArtifactExpand}
                         />
                       ) : toolName === 'requestSuggestions' ? (
                         <DocumentToolResult
                           type="request-suggestions"
                           result={result}
                           isReadonly={isReadonly}
+                          onArtifactExpand={onArtifactExpand}
                         />
                       ) : (
                         <MessageThinking
