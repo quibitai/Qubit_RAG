@@ -30,7 +30,7 @@ import {
   listProjects,
   getProjectDetails,
 } from './api-client/operations/projects';
-import { listWorkspaceUsers } from './api-client/operations/users';
+import { listWorkspaceUsers, getUsersMe } from './api-client/operations/users';
 import { getWorkspaceGid } from './config';
 
 export interface ModernAsanaToolOptions {
@@ -632,8 +632,30 @@ export class ModernAsanaTool {
     }
 
     const resolved = { ...parameters };
+    let assigneeResolvedByMeLogic = false;
+
+    // Handle special case: assignee "me" or "@me" needs to be resolved to current user GID
+    if (resolved.assignee === 'me' || resolved.assignee === '@me') {
+      try {
+        const currentUser = await getUsersMe(this.client, context.requestId);
+        resolved.assignee = currentUser.gid;
+        assigneeResolvedByMeLogic = true; // Mark that assignee was handled
+      } catch (error) {
+        console.error(
+          '[ModernAsanaTool] Failed to resolve "me" assignee:',
+          error,
+        );
+        // Keep original "me" or "@me" as fallback if resolution fails,
+        // allowing the generic resolver to potentially handle it or fail gracefully.
+      }
+    }
 
     for (const [key, value] of Object.entries(parameters)) {
+      // If this is the assignee key and we've already resolved it via "me" logic, skip generic @ resolution for it.
+      if (key === 'assignee' && assigneeResolvedByMeLogic) {
+        continue;
+      }
+
       if (typeof value === 'string' && value.includes('@')) {
         try {
           const entityResult = await this.entityResolver.resolveAnyEntity(
@@ -650,7 +672,31 @@ export class ModernAsanaTool {
       } else if (Array.isArray(value)) {
         const resolvedArray = [];
         for (const item of value) {
-          if (typeof item === 'string' && item.includes('@')) {
+          let itemProcessed = false;
+          if (
+            typeof item === 'string' &&
+            (item === 'me' || item === '@me') &&
+            key === 'assignee'
+          ) {
+            // Handle "me" or "@me" in assignee arrays
+            try {
+              const currentUser = await getUsersMe(
+                this.client,
+                context.requestId,
+              );
+              resolvedArray.push(currentUser.gid);
+              itemProcessed = true;
+            } catch {
+              resolvedArray.push(item); // Fallback to original item
+              itemProcessed = true; // Still mark as processed to avoid generic @ resolution
+            }
+          }
+
+          if (
+            !itemProcessed &&
+            typeof item === 'string' &&
+            item.includes('@')
+          ) {
             try {
               const entityResult = await this.entityResolver.resolveAnyEntity(
                 item,
@@ -665,14 +711,14 @@ export class ModernAsanaTool {
             } catch {
               resolvedArray.push(item);
             }
-          } else {
+          } else if (!itemProcessed) {
+            // Only push if not processed by "me" or "@" logic
             resolvedArray.push(item);
           }
         }
         resolved[key] = resolvedArray;
       }
     }
-
     return resolved;
   }
 

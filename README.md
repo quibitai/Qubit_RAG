@@ -3,10 +3,10 @@
 > A modular, enterprise-grade Retrieval-Augmented Generation (RAG) system with native file handling, Google Drive integration, and modern chatbot interface
 
 **Status**: Stable  
-**Last Updated**: 2025-01-26  
-**Version**: 2.6.0
+**Last Updated**: 2025-01-28  
+**Version**: 2.8.0
 
-![Version](https://img.shields.io/badge/version-2.6.0-blue)
+![Version](https://img.shields.io/badge/version-2.8.0-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-15.3.0-black)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-green)
 ![LangChain](https://img.shields.io/badge/LangChain-0.3.24-yellow)
@@ -44,7 +44,21 @@ Quibit RAG is a modular, multi-tenant AI assistant platform that combines modern
 
 ## Key Features
 
-### Version 2.6.0 Features (Latest)
+### Version 2.8.0 Features (Latest)
+- **Critical Asana GID Handling**: Comprehensive fix for all GID-related API errors across task updates, subtask creation, and project filtering
+- **Enhanced Error Recovery**: Advanced user-friendly error handling with 15 comprehensive test cases and intelligent retry logic
+- **API Constraint Compliance**: Fixed Asana API filtering constraints with proper parameter prioritization
+- **LLM Tool Selection Roadmap**: Strategic 4-phase implementation plan for next-generation intelligent tool routing
+- **Improved User Experience**: Seamless Asana operations with clear, actionable error guidance when issues occur
+- **Robust Testing Infrastructure**: Expanded test coverage for all error scenarios and edge cases
+
+### Version 2.7.0 Features
+- **Modern Asana Tool Architecture**: Next-generation Asana integration using LLM function calling instead of regex-based intent parsing
+- **Structured Function Schemas**: Comprehensive Zod-based schemas for 17+ Asana operations with type safety
+- **LLM-Based Intent Extraction**: OpenAI-powered natural language understanding for flexible intent classification
+- **Enhanced Context Awareness**: Improved conversation context handling for better task and project references
+
+### Version 2.6.0 Features
 - **Collapsed Artifacts Context Awareness**: AI now maintains full awareness of collapsed artifacts when they are closed from the artifact pane
 - **Enhanced Scrolling System**: Complete rebuild of scrolling functionality for both main chat and artifact pane with smart auto-scroll
 - **Critical AI Context Fix**: Resolved AI losing awareness of document content after closing artifacts (hitting X button)
@@ -333,5 +347,5 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 ---
 
 **Built with ❤️ by the Quibit Team**  
-**Last Updated**: 2024-12-23  
-**Version**: 2.5.0
+**Last Updated**: 2025-01-28  
+**Version**: 2.8.0

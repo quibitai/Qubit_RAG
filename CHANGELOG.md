@@ -45,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Improved error messages assume users work with names, not GIDs
   - **Tests**: 15 comprehensive test cases covering all error scenarios
 
+- **Smart "Me" Assignee Resolution**: Enhanced Asana tool to automatically resolve "me" or "@me" references
+  - **Feature**: Users can now use "me" or "@me" when assigning tasks to themselves
+  - Automatically resolves to current user's GID using `getUsersMe` API
+  - Works in both single assignee and array assignee contexts
+  - Graceful fallback if resolution fails, maintaining original user input
+  - **File**: `lib/ai/tools/asana/modern-asana-tool.ts` - Enhanced parameter resolution logic
+
 - **Robust Testing Infrastructure**: Expanded test coverage for all Asana operations
   - **File**: `lib/ai/tools/asana/__tests__/userFriendlyErrorHandler.test.ts`
   - Added tests for GID handling edge cases
