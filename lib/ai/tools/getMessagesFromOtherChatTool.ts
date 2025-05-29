@@ -57,10 +57,10 @@ export const getMessagesFromOtherChatTool = new DynamicStructuredTool({
       );
 
       // Access the request context if available (to get referencedChatId from global pane requests)
-      let referencedChatId: string | null = null;
-      let referencedGlobalPaneChatId: string | null = null;
-      let currentActiveSpecialistId: string | null = null;
-      let isFromGlobalPane: boolean = false;
+      let referencedChatId = null;
+      let referencedGlobalPaneChatId = null;
+      let currentActiveSpecialistId = null;
+      let isFromGlobalPane = false;
 
       // Try to extract reference information from the request body if available
       if (
@@ -129,16 +129,95 @@ export const getMessagesFromOtherChatTool = new DynamicStructuredTool({
           `[getMessagesFromOtherChatTool] Detected Echo Tango specialist reference`,
         );
 
-        // If we're requesting Echo Tango content but we're already in Echo Tango context,
-        // we should focus on fetching messages from the UI rather than the global pane
-        if (
-          currentActiveSpecialistId === 'echo-tango-specialist' &&
-          referencedChatId
-        ) {
-          targetChatId = referencedChatId;
+        // Determine if we should look in a specific chat or search globally
+        let specialistTargetChatId = null;
+
+        if (isFromGlobalPane && referencedChatId) {
+          // If we're in global pane, first try the referenced main chat
+          specialistTargetChatId = referencedChatId;
           console.log(
-            `[getMessagesFromOtherChatTool] Using UI chat ID for Echo Tango: ${targetChatId}`,
+            `[getMessagesFromOtherChatTool] Identified specialist query for: echo-tango-specialist`,
           );
+          console.log(
+            `[getMessagesFromOtherChatTool] Using referenced chat ID with specialist: ${specialistTargetChatId}`,
+          );
+        } else if (!isFromGlobalPane && referencedGlobalPaneChatId) {
+          // If we're in main UI but asking about orchestrator, try global pane chat
+          specialistTargetChatId = referencedGlobalPaneChatId;
+          console.log(
+            `[getMessagesFromOtherChatTool] Using global pane chat ID: ${specialistTargetChatId}`,
+          );
+        } else {
+          // Default fallback logic
+          if (
+            currentActiveSpecialistId === 'echo-tango-specialist' &&
+            referencedChatId
+          ) {
+            specialistTargetChatId = referencedChatId;
+            console.log(
+              `[getMessagesFromOtherChatTool] Using UI chat ID for Echo Tango: ${specialistTargetChatId}`,
+            );
+          }
+        }
+
+        // Try to find messages in the specific chat first, then fall back to global search
+        if (specialistTargetChatId) {
+          // First attempt: search in the specific referenced chat
+          const specificChatResult = await sql`
+            SELECT id, role, parts, "createdAt"
+            FROM "Message_v2"
+            WHERE "chatId" = ${specialistTargetChatId}
+              AND role = 'assistant'
+            ORDER BY "createdAt" DESC
+            LIMIT ${messageCount}
+          `;
+
+          if (specificChatResult && specificChatResult.length > 0) {
+            // Found messages in the specific chat, use them
+            targetChatId = specialistTargetChatId;
+            console.log(
+              `[getMessagesFromOtherChatTool] Found ${specificChatResult.length} messages in specific chat ${specialistTargetChatId}`,
+            );
+          } else {
+            // No messages in specific chat, fall back to global search
+            console.log(
+              `[getMessagesFromOtherChatTool] No messages in specific chat ${specialistTargetChatId}, falling back to global search`,
+            );
+
+            // Search globally for the most recent Echo Tango interactions
+            const globalResult = await sql`
+              SELECT DISTINCT ON ("chatId") id, role, parts, "createdAt", "chatId"
+              FROM "Message_v2"
+              WHERE role = 'assistant'
+                AND (
+                  parts::text ILIKE '%echo tango%' 
+                  OR parts::text ILIKE '%echo-tango%'
+                  OR "activeBitContextId" = 'echo-tango-specialist'
+                )
+              ORDER BY "chatId", "createdAt" DESC
+            `;
+
+            if (globalResult && globalResult.length > 0) {
+              // Found Echo Tango messages globally, use the most recent chat
+              const mostRecentChat = globalResult.reduce(
+                (latest: any, current: any) => {
+                  return new Date(current.createdAt) >
+                    new Date(latest.createdAt)
+                    ? current
+                    : latest;
+                },
+              );
+
+              targetChatId = mostRecentChat.chatId;
+              console.log(
+                `[getMessagesFromOtherChatTool] Found global Echo Tango messages, using most recent chat: ${targetChatId}`,
+              );
+            } else {
+              console.log(
+                `[getMessagesFromOtherChatTool] No Echo Tango messages found globally`,
+              );
+            }
+          }
         }
       }
 
