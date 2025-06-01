@@ -82,6 +82,7 @@ function PureArtifact({
   isVisible,
   error,
   onClose,
+  onContentSaved,
 }: {
   chatId: string;
   input: string;
@@ -105,6 +106,7 @@ function PureArtifact({
   isVisible: boolean;
   error: string | null;
   onClose: () => void;
+  onContentSaved?: (docId: string, newContent: string) => void;
 }) {
   // Create a unique ID for this component instance to track duplicates
   const componentId = useRef(
@@ -254,16 +256,35 @@ function PureArtifact({
           kind: kind,
         }),
       })
-        .then(() => {
-          setIsContentDirty(false);
-          console.log('[handleContentChange] Content saved successfully');
+        .then(async (res) => {
+          if (res.ok) {
+            setIsContentDirty(false);
+            console.log(
+              '[handleContentChange] Content saved successfully via API',
+            );
+            if (onContentSaved && documentId) {
+              onContentSaved(documentId, updatedContent);
+            }
+          } else {
+            const errorData = await res
+              .json()
+              .catch(() => ({ message: 'Unknown error' }));
+            console.error(
+              '[handleContentChange] API error saving content:',
+              res.status,
+              errorData,
+            );
+          }
         })
         .catch((error) => {
-          console.error('[handleContentChange] Failed to save content:', error);
+          console.error(
+            '[handleContentChange] Fetch error saving content:',
+            error,
+          );
           setIsContentDirty(false);
         });
     },
-    [documentId, title, kind],
+    [documentId, title, kind, onContentSaved],
   );
 
   const debouncedHandleContentChange = useDebounceCallback(

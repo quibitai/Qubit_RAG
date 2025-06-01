@@ -36,6 +36,13 @@ function PureDocumentToolResult({
   isReadonly,
   onArtifactExpand,
 }: DocumentToolResultProps) {
+  // const { artifact } = useArtifact(); // Reverted: Remove global artifact state check
+
+  // Reverted: Remove conditional rendering based on global artifact state
+  // if (artifact.isVisible && artifact.documentId === result.id) {
+  //   return null;
+  // }
+
   return (
     <button
       type="button"

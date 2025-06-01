@@ -20,6 +20,7 @@ import { DocumentPreview } from './document-preview';
 import { MessageReasoning } from './message-reasoning';
 import { MessageThinking } from './message-thinking';
 import type { UseChatHelpers } from '@ai-sdk/react';
+import { UserIcon } from './icons';
 
 const PurePreviewMessage = ({
   chatId,
@@ -183,20 +184,12 @@ const PurePreviewMessage = ({
                           onArtifactExpand={onArtifactExpand}
                         />
                       ) : toolName === 'updateDocument' ? (
-                        <DocumentToolCall
-                          type="update"
-                          args={args}
+                        <DocumentPreview
                           isReadonly={isReadonly}
+                          args={args}
                           onArtifactExpand={onArtifactExpand}
                         />
-                      ) : toolName === 'requestSuggestions' ? (
-                        <DocumentToolCall
-                          type="request-suggestions"
-                          args={args}
-                          isReadonly={isReadonly}
-                          onArtifactExpand={onArtifactExpand}
-                        />
-                      ) : null}
+                      ) : toolName === 'requestSuggestions' ? null : null}
                     </div>
                   );
                 }

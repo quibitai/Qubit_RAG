@@ -245,3 +245,75 @@ export async function summarizeAndStoreConversation(
   );
   return false;
 }
+
+/**
+ * DEBUG: Temporary function to check what's actually in the conversational memory table
+ * for a specific chat ID without vector similarity search
+ */
+export async function debugConversationalMemoryForChat(
+  chatId: string,
+): Promise<void> {
+  try {
+    console.log(
+      `[ConversationalMemory DEBUG] Checking all memory entries for chatId=${chatId}`,
+    );
+
+    // Get all entries for this chat ID
+    const { data, error } = await supabase
+      .from('conversational_memory')
+      .select('*')
+      .eq('chat_id', chatId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error(
+        '[ConversationalMemory DEBUG] Error querying memory:',
+        error,
+      );
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      console.log(
+        `[ConversationalMemory DEBUG] No entries found for chatId=${chatId}`,
+      );
+      return;
+    }
+
+    console.log(
+      `[ConversationalMemory DEBUG] Found ${data.length} entries for chatId=${chatId}:`,
+    );
+    data.forEach((item, index) => {
+      console.log(`  Entry ${index + 1}:`);
+      console.log(`    - ID: ${item.id}`);
+      console.log(`    - Chat ID: ${item.chat_id}`);
+      console.log(`    - Content: "${item.content.substring(0, 200)}..."`);
+      console.log(`    - Source Type: ${item.source_type}`);
+      console.log(`    - Created: ${item.created_at}`);
+    });
+
+    // Also check if there are entries from other chats that might be mixed up
+    const { data: allData, error: allError } = await supabase
+      .from('conversational_memory')
+      .select('chat_id, content, created_at')
+      .neq('chat_id', chatId)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (!allError && allData && allData.length > 0) {
+      console.log(
+        `[ConversationalMemory DEBUG] Sample of other chats in memory:`,
+      );
+      allData.forEach((item, index) => {
+        console.log(
+          `  Other chat ${index + 1}: ${item.chat_id} - "${item.content.substring(0, 100)}..."`,
+        );
+      });
+    }
+  } catch (error) {
+    console.error(
+      '[ConversationalMemory DEBUG] Error in debug function:',
+      error,
+    );
+  }
+}

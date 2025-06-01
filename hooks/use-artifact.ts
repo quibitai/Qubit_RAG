@@ -129,6 +129,12 @@ export function useArtifact() {
     }));
   }, [setArtifact]);
 
+  // Add cleanup method to reset artifact state completely
+  const resetArtifact = useCallback(() => {
+    setArtifact(initialArtifactData);
+    setLocalArtifactMetadata(null);
+  }, [setArtifact, setLocalArtifactMetadata]);
+
   return useMemo(
     () => ({
       artifact,
@@ -140,6 +146,7 @@ export function useArtifact() {
       updateStreamingContent,
       finishStreamingArtifact,
       closeArtifact,
+      resetArtifact,
     }),
     [
       artifact,
@@ -150,6 +157,7 @@ export function useArtifact() {
       updateStreamingContent,
       finishStreamingArtifact,
       closeArtifact,
+      resetArtifact,
     ],
   );
 }

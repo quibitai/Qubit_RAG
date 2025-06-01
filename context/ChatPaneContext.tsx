@@ -69,6 +69,7 @@ export interface ChatPaneContextType {
   isNewChat: boolean;
   setIsNewChat: (isNew: boolean) => void;
   isCurrentChatCommitted: boolean;
+  sidebarDataRevision: number;
 }
 
 export const ChatPaneContext = createContext<ChatPaneContextType | undefined>(
@@ -173,6 +174,9 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [_isLoadingSidebarChats, setIsLoadingSidebarChats] = useState(false);
   const isLoadingSidebarChats = _isLoadingSidebarChats;
 
+  // Add a revision counter to force React to detect data changes
+  const [sidebarDataRevision, setSidebarDataRevision] = useState(0);
+
   // Add state for specialist grouped chats
   const [specialistGroupedChats, setSpecialistGroupedChats] = useState<
     Array<{
@@ -254,13 +258,15 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
       // Implement debouncing unless forceRefresh is true
       const now = Date.now();
-      const minInterval = 3000; // 3 seconds minimum between fetches
+      const minInterval = forceRefresh ? 0 : 3000; // No debouncing when force refreshing
 
       if (
         !forceRefresh &&
         now - lastSidebarFetchTimeRef.current < minInterval
       ) {
-        // Reduced logging
+        console.log(
+          '[ChatPaneContext] 📦 Debouncing specialist chats fetch, skipping',
+        );
         return;
       }
 
@@ -268,17 +274,27 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
       try {
         setIsLoadingSidebarChats(true);
-        // Create the correct URL for fetching all specialist chats
-        const finalUrl = `/api/history?type=all-specialists&limit=20`;
-        // Reduced logging
+
+        // Add timestamp to URL to bust cache when force refreshing
+        const timestamp = forceRefresh ? `&_t=${now}` : '';
+        const finalUrl = `/api/history?type=all-specialists&limit=20${timestamp}`;
+
+        console.log(
+          '[ChatPaneContext] 📡 Fetching specialist chats from:',
+          finalUrl,
+        );
 
         const response = await fetch(finalUrl, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
+            // Add cache-busting header when force refreshing
+            ...(forceRefresh && {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+            }),
           },
           credentials: 'include',
-          cache: forceRefresh ? 'no-cache' : 'default', // Skip cache if forceRefresh is true
+          cache: forceRefresh ? 'no-store' : 'default', // Use no-store for force refresh
         });
 
         if (!response.ok) {
@@ -288,14 +304,21 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
         }
 
         const data = await response.json();
-        // Reduced logging
+        console.log('[ChatPaneContext] 📥 Received specialist data:', {
+          specialistsCount: data.specialists?.length || 0,
+          totalChats:
+            data.specialists?.reduce(
+              (acc: number, s: any) => acc + (s.chats?.length || 0),
+              0,
+            ) || 0,
+        });
 
         // Set sidebar chats - combine all specialist chats for now to maintain compatibility
-        // Later we'll modify the sidebar component to handle the grouped structure
         const allChats = data.specialists?.flatMap((s: any) => s.chats) || [];
         setSidebarChats(allChats);
+        setSidebarDataRevision((prev) => prev + 1); // Force React to detect changes
         console.log(
-          '[ChatPaneContext] ✅ Specialist chats loaded:',
+          '[ChatPaneContext] ✅ Specialist chats loaded and set:',
           allChats.length,
         );
 
@@ -311,7 +334,13 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
         setIsLoadingSidebarChats(false);
       }
     },
-    [sessionStatus], // Removed setIsLoadingSidebarChats - state setters are stable
+    [
+      sessionStatus,
+      setIsLoadingSidebarChats,
+      setSidebarChats,
+      setSpecialistGroupedChats,
+      setSidebarDataRevision,
+    ],
   );
 
   // Add loadGlobalChats function with forceRefresh parameter
@@ -331,28 +360,37 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       }
 
       // Add debounce to prevent rapid successive calls
-      if (_isLoadingGlobalChats) {
-        // Reduced logging
+      if (_isLoadingGlobalChats && !forceRefresh) {
+        console.log(
+          '[ChatPaneContext] 📦 Already loading global chats, skipping',
+        );
         return;
       }
 
       try {
         setIsLoadingGlobalChats(true);
 
-        // Create the correct URL for fetching global chats
-        const finalUrl = `/api/history?type=global&limit=20&bitContextId=${GLOBAL_ORCHESTRATOR_CONTEXT_ID}`;
-        // Reduced logging
+        // Add timestamp to URL to bust cache when force refreshing
+        const now = Date.now();
+        const timestamp = forceRefresh ? `&_t=${now}` : '';
+        const finalUrl = `/api/history?type=global&limit=20&bitContextId=${GLOBAL_ORCHESTRATOR_CONTEXT_ID}${timestamp}`;
+
+        console.log(
+          '[ChatPaneContext] 📡 Fetching global chats from:',
+          finalUrl,
+        );
 
         const response = await fetch(finalUrl, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
+            // Add cache-busting header when force refreshing
+            ...(forceRefresh && {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+            }),
           },
           credentials: 'include',
-          cache: forceRefresh ? 'no-cache' : 'force-cache', // Use force-cache by default
-          next: {
-            revalidate: forceRefresh ? 0 : 30, // Revalidate every 30 seconds unless force refresh
-          },
+          cache: forceRefresh ? 'no-store' : 'default', // Use no-store for force refresh
         });
 
         if (!response.ok) {
@@ -362,12 +400,14 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
         }
 
         const data = await response.json();
-        // Reduced logging
+        console.log('[ChatPaneContext] 📥 Received global chat data:', {
+          chatsCount: data.chats?.length || 0,
+        });
 
         // Set global chats
         setGlobalChats(data.chats || []);
         console.log(
-          '[ChatPaneContext] ✅ Global chats loaded:',
+          '[ChatPaneContext] ✅ Global chats loaded and set:',
           (data.chats || []).length,
         );
         setIsLoadingGlobalChats(false);
@@ -376,7 +416,12 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
         setIsLoadingGlobalChats(false);
       }
     },
-    [sessionStatus], // Removed setIsLoadingGlobalChats and GLOBAL_ORCHESTRATOR_CONTEXT_ID - state setters are stable and constants don't need dependencies
+    [
+      sessionStatus,
+      _isLoadingGlobalChats,
+      setIsLoadingGlobalChats,
+      setGlobalChats,
+    ],
   );
 
   // Update the refreshHistory function to use the forceRefresh parameter
@@ -388,7 +433,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
     // Load global chats with forceRefresh=true
     loadGlobalChats(true);
-  }, []); // Removed function dependencies - they are now stable
+  }, [loadAllSpecialistChats, loadGlobalChats]);
 
   // Initialize from localStorage after component mounts (client-side)
   useEffect(() => {
@@ -535,7 +580,82 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     // onFinish: handleChatFinish, // disabled—no longer reliable
   });
 
-  const { messages } = baseState;
+  // ADD: Debug baseState to check if data is available
+  useEffect(() => {
+    console.log('[CHATPANE_CONTEXT_DEBUG] baseState changed:', {
+      hasData: !!baseState.data,
+      dataLength: baseState.data?.length || 0,
+      isLoading: baseState.isLoading,
+      error: baseState.error,
+      messagesCount: baseState.messages.length,
+      timestamp: new Date().toISOString(),
+    });
+  }, [
+    baseState.data,
+    baseState.isLoading,
+    baseState.error,
+    baseState.messages,
+  ]);
+
+  const { messages, setMessages } = baseState;
+
+  // Function to load initial messages for existing chats
+  const loadInitialMessages = useCallback(
+    async (chatId: string) => {
+      if (!chatId) return;
+
+      try {
+        console.log(
+          '[ChatPaneContext] Loading initial messages for chat:',
+          chatId,
+        );
+
+        const response = await fetch(`/api/messages?chatId=${chatId}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          console.log(
+            '[ChatPaneContext] No initial messages found for chat:',
+            chatId,
+          );
+          return;
+        }
+
+        const data = await response.json();
+        if (data.messages && data.messages.length > 0) {
+          console.log(
+            '[ChatPaneContext] Setting initial messages:',
+            data.messages.length,
+          );
+          setMessages(data.messages);
+        }
+      } catch (error) {
+        console.error(
+          '[ChatPaneContext] Error loading initial messages:',
+          error,
+        );
+      }
+    },
+    [setMessages],
+  );
+
+  // Load initial messages when mainUiChatId changes
+  useEffect(() => {
+    if (mainUiChatId && mainUiChatId !== 'new') {
+      // Only load if we don't already have messages
+      if (messages.length === 0) {
+        loadInitialMessages(mainUiChatId);
+      }
+    } else {
+      // Clear messages for new chats
+      if (messages.length > 0) {
+        setMessages([]);
+      }
+    }
+  }, [mainUiChatId, loadInitialMessages, messages.length, setMessages]);
 
   // Cleaned-up message watcher: lock dropdown and refresh sidebar on assistant reply
   useEffect(() => {
@@ -543,27 +663,66 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     if (currCount > prevMessageCount.current) {
       const last = messages[currCount - 1];
       if (last && last.role === 'assistant') {
+        // Always refresh history when assistant responds (not just the first time)
+        console.log(
+          '[ChatPaneContext] Assistant message received, refreshing history',
+        );
+        refreshHistory();
+
+        // Set committed state if not already set
         if (!isCurrentChatCommitted) {
+          console.log(
+            '[ChatPaneContext] Setting chat as committed after first assistant message',
+          );
           setIsCurrentChatCommitted(true);
-          // Only refresh history when a new chat is committed
-          refreshHistory();
         }
       }
       prevMessageCount.current = currCount;
     }
-  }, [messages, isCurrentChatCommitted]); // Removed refreshHistory - it's now stable
+  }, [messages, isCurrentChatCommitted, refreshHistory]);
 
   // Reset watcher and commit flag on chat ID change
   useEffect(() => {
     prevMessageCount.current = 0;
-    setIsCurrentChatCommitted(false);
+
+    // Don't immediately reset isCurrentChatCommitted to false
+    // Instead, check if this is a truly new chat vs navigation to existing chat
+    // We'll let the message-based effect handle setting the committed state
+
+    setIsNewChat(true);
+
+    // Re-apply Echo Tango as default specialist for new chats
+    setChatPaneState((prev) => ({
+      ...prev,
+      currentActiveSpecialistId: ECHO_TANGO_SPECIALIST_ID,
+    }));
+
+    console.log(
+      '[ChatPaneContext] Reset chat state for new chat ID:',
+      mainUiChatId,
+    );
   }, [mainUiChatId]);
 
-  // Add setIsNewChat function before submitMessage
-  const setIsNewChat = useCallback((isNew: boolean) => {
-    // Reduced logging
-    setChatPaneState((prev) => ({ ...prev, isNewChat: isNew }));
-  }, []);
+  // Set chat as committed based on messages (handles both new and existing chats)
+  useEffect(() => {
+    // For new chats, check if there are any messages
+    // For existing chats, this will run after initialMessages are loaded
+    const shouldBeCommitted = messages.length > 0;
+
+    if (shouldBeCommitted && !isCurrentChatCommitted) {
+      console.log(
+        '[ChatPaneContext] Setting chat as committed due to messages present:',
+        messages.length,
+      );
+      setIsCurrentChatCommitted(true);
+    } else if (!shouldBeCommitted && isCurrentChatCommitted) {
+      // Reset to uncommitted if no messages (new empty chat)
+      console.log(
+        '[ChatPaneContext] Resetting chat committed state - no messages',
+      );
+      setIsCurrentChatCommitted(false);
+    }
+  }, [messages.length, isCurrentChatCommitted]);
 
   // Reset the chatPersistedRef when starting a new chat
   useEffect(() => {
@@ -667,22 +826,11 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [activeDocId, streamedContentMap]);
 
-  // When mainUiChatId changes, reset isNewChat to true and isCurrentChatCommitted to false
-  useEffect(() => {
+  // Add setIsNewChat function
+  const setIsNewChat = useCallback((isNew: boolean) => {
     // Reduced logging
-    setIsNewChat(true);
-    setIsCurrentChatCommitted(false);
-  }, [mainUiChatId]); // Removed setIsNewChat - it's stable
-
-  // When a new chat is started, reset committed state and re-apply Echo Tango as default
-  useEffect(() => {
-    setIsCurrentChatCommitted(false);
-    setChatPaneState((prev) => ({
-      ...prev,
-      currentActiveSpecialistId: ECHO_TANGO_SPECIALIST_ID, // Re-assert default on new chat
-    }));
-    // Reduced logging
-  }, [mainUiChatId]);
+    setChatPaneState((prev) => ({ ...prev, isNewChat: isNew }));
+  }, []);
 
   // Fix the contextValue to properly structure chatState and include isCurrentChatCommitted
   const contextValue = useMemo(() => {
@@ -715,6 +863,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       isNewChat,
       setIsNewChat,
       isCurrentChatCommitted,
+      sidebarDataRevision,
     };
   }, [
     baseState,
@@ -742,6 +891,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     isNewChat,
     setIsNewChat,
     isCurrentChatCommitted,
+    sidebarDataRevision,
   ]);
 
   return (

@@ -2,12 +2,14 @@ import type { UIMessage } from 'ai';
 import { PreviewMessage, ThinkingMessage } from './message';
 import { useScrollToBottom } from './use-scroll-to-bottom';
 import { Greeting } from './greeting';
-import { memo, useEffect } from 'react';
+import { memo, useEffect, useCallback } from 'react';
 import type { Vote } from '@/lib/db/schema';
 import equal from 'fast-deep-equal';
 import type { UseChatHelpers } from '@ai-sdk/react';
-import type { ArtifactKind } from './artifact';
-import { CollapsedArtifact } from './collapsed-artifact';
+import { useArtifact } from '@/hooks/use-artifact';
+import { fetcher } from '@/lib/utils';
+import useSWR from 'swr';
+import type { Document } from '@/lib/db/schema';
 
 interface MessagesProps {
   chatId: string;
@@ -18,14 +20,6 @@ interface MessagesProps {
   reload: UseChatHelpers['reload'];
   isReadonly: boolean;
   isArtifactVisible: boolean;
-  collapsedArtifacts?: Array<{
-    id: string;
-    title: string;
-    kind: ArtifactKind;
-    content: string;
-    messageId: string; // Track which message created this artifact
-  }>;
-  onArtifactExpand?: (artifactId: string) => void;
 }
 
 function PureMessages(props: MessagesProps) {
@@ -37,9 +31,10 @@ function PureMessages(props: MessagesProps) {
     setMessages,
     reload,
     isReadonly,
-    collapsedArtifacts,
-    onArtifactExpand,
+    isArtifactVisible,
   } = props;
+
+  const { setArtifact } = useArtifact();
 
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
@@ -53,6 +48,44 @@ function PureMessages(props: MessagesProps) {
     }
   }, [messagesContainerRef]);
 
+  const handleArtifactExpand = useCallback(
+    async (artifactId: string) => {
+      console.log(
+        '[Messages] handleArtifactExpand called with ID:',
+        artifactId,
+      );
+
+      try {
+        // Fetch the document from the database
+        const documents = await fetcher(`/api/document?id=${artifactId}`);
+        if (documents && documents.length > 0) {
+          const document = documents[0];
+
+          // Set the artifact to visible with the document data
+          setArtifact({
+            documentId: document.id,
+            title: document.title,
+            kind: document.kind,
+            content: document.content || '',
+            status: 'idle',
+            isVisible: true,
+            boundingBox: {
+              top: 0,
+              left: 0,
+              width: 0,
+              height: 0,
+            },
+          });
+        } else {
+          console.error('[Messages] No document found for ID:', artifactId);
+        }
+      } catch (error) {
+        console.error('[Messages] Error fetching document:', error);
+      }
+    },
+    [setArtifact],
+  );
+
   return (
     <div
       ref={messagesContainerRef}
@@ -65,45 +98,22 @@ function PureMessages(props: MessagesProps) {
         const isLastMessage = messages.length - 1 === index;
         const isLoading = status === 'streaming' && isLastMessage;
 
-        // Find collapsed artifacts associated with this message
-        const messageArtifacts =
-          collapsedArtifacts?.filter(
-            (artifact) => artifact.messageId === message.id,
-          ) || [];
-
         return (
-          <div key={message.id}>
-            <PreviewMessage
-              chatId={chatId}
-              message={message}
-              isLoading={isLoading}
-              vote={
-                votes
-                  ? votes.find((vote) => vote.messageId === message.id)
-                  : undefined
-              }
-              setMessages={setMessages}
-              reload={reload}
-              isReadonly={isReadonly}
-              onArtifactExpand={onArtifactExpand}
-            />
-
-            {/* Display collapsed artifacts inline after their associated message */}
-            {messageArtifacts.length > 0 && (
-              <div className="px-4 md:max-w-3xl mx-auto w-full mt-4">
-                {messageArtifacts.map((artifact) => (
-                  <div key={artifact.id} className="mb-3">
-                    <CollapsedArtifact
-                      title={artifact.title}
-                      kind={artifact.kind}
-                      content={artifact.content}
-                      onExpand={() => onArtifactExpand?.(artifact.id)}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <PreviewMessage
+            key={message.id}
+            chatId={chatId}
+            message={message}
+            isLoading={isLoading}
+            vote={
+              votes
+                ? votes.find((vote) => vote.messageId === message.id)
+                : undefined
+            }
+            setMessages={setMessages}
+            reload={reload}
+            isReadonly={isReadonly}
+            onArtifactExpand={handleArtifactExpand}
+          />
         );
       })}
 
@@ -116,46 +126,14 @@ function PureMessages(props: MessagesProps) {
   );
 }
 
-// TEMPORARILY DISABLE MEMOIZATION FOR DEBUGGING
-// export const Messages = PureMessages;
-
 // Re-enable memoization for Messages with deep comparison
 export const Messages = memo(PureMessages, (prevProps, nextProps) => {
-  let reasonForRerender = '';
+  if (prevProps.isArtifactVisible && nextProps.isArtifactVisible) return true;
 
-  if (prevProps.status !== nextProps.status) reasonForRerender += 'status ';
-  if (prevProps.isReadonly !== nextProps.isReadonly)
-    reasonForRerender += 'isReadonly ';
-  if (prevProps.isArtifactVisible !== nextProps.isArtifactVisible)
-    reasonForRerender += 'isArtifactVisible ';
+  if (prevProps.status !== nextProps.status) return false;
+  if (prevProps.messages.length !== nextProps.messages.length) return false;
+  if (!equal(prevProps.messages, nextProps.messages)) return false;
+  if (!equal(prevProps.votes, nextProps.votes)) return false;
 
-  if (prevProps.messages.length !== nextProps.messages.length) {
-    reasonForRerender += 'messages.length ';
-  } else if (
-    prevProps.messages.length > 0 &&
-    nextProps.messages.length > 0 &&
-    prevProps.messages[prevProps.messages.length - 1] !==
-      nextProps.messages[nextProps.messages.length - 1]
-  ) {
-    if (!equal(prevProps.messages, nextProps.messages)) {
-      reasonForRerender += 'messages_deep_equal ';
-    }
-  } else if (
-    prevProps.messages.length === 0 &&
-    nextProps.messages.length === 0
-  ) {
-    // Both empty, no change
-  } else {
-    if (!equal(prevProps.messages, nextProps.messages)) {
-      reasonForRerender += 'messages_deep_equal ';
-    }
-  }
-
-  if (!equal(prevProps.votes, nextProps.votes)) reasonForRerender += 'votes ';
-
-  if (!equal(prevProps.collapsedArtifacts, nextProps.collapsedArtifacts)) {
-    reasonForRerender += 'collapsedArtifacts ';
-  }
-
-  return !reasonForRerender; // Return true if no reason to re-render (props are equal)
+  return true;
 });

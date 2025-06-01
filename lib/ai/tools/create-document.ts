@@ -4,6 +4,28 @@ import { DynamicStructuredTool } from '@langchain/core/tools';
 import { artifactKinds } from '@/lib/artifacts/server';
 import { documentHandlersByArtifactKind } from '@/lib/artifacts/server';
 
+// Global context interface
+interface CreateDocumentContext {
+  dataStream?: any;
+  session?: any;
+  handlers?: any[];
+  toolInvocationsTracker?: Array<{
+    type: 'tool-invocation';
+    toolInvocation: {
+      toolName: string;
+      toolCallId: string;
+      state: 'call' | 'result';
+      args?: any;
+      result?: any;
+    };
+  }>;
+}
+
+// Global context object that will be set by the brain route
+declare global {
+  var CREATE_DOCUMENT_CONTEXT: CreateDocumentContext | undefined;
+}
+
 const createDocumentSchema = z.object({
   title: z.string().describe('The title for the new document artifact.'),
   kind: z
@@ -34,9 +56,9 @@ export const createDocumentTool = new DynamicStructuredTool({
     'Create a document artifact (e.g., text, code) for writing or content creation activities. The content will be generated based on the title and kind.',
   schema: createDocumentSchema,
   func: async ({ title, kind, contentPrompt }) => {
-    const id = generateUUID(); // Keep ID generation
+    const id = generateUUID();
+    const toolCallId = generateUUID(); // Generate a unique ID for this tool call
 
-    // Task B1: Add detailed logging for arguments received
     console.log(
       `[CREATE_DOCUMENT_TOOL EXECUTE_START] Called with title: "${title}", kind: "${kind}", generated ID: ${id}`,
     );
@@ -47,67 +69,153 @@ export const createDocumentTool = new DynamicStructuredTool({
       );
     }
 
-    // Task B1: Add logging for handler search process
+    // Check if we have global context from the brain route
+    const context = global.CREATE_DOCUMENT_CONTEXT;
+    if (!context || !context.dataStream || !context.session) {
+      console.error(
+        '[CREATE_DOCUMENT_TOOL] No global context available - falling back to placeholder response',
+      );
+      // Return placeholder response if no context
+      const result = {
+        id,
+        title,
+        kind,
+        contentPrompt,
+        message: `Document artifact of kind '${kind}' titled '${title}' requested with ID ${id}. Content generation process initiated.`,
+      };
+      return JSON.stringify(result);
+    }
+
     console.log(
-      `[CREATE_DOCUMENT_TOOL] Attempting to find handler for artifact kind: "${kind}" from ${documentHandlersByArtifactKind.length} available handlers`,
+      `[CREATE_DOCUMENT_TOOL] Global context available - proceeding with actual document creation`,
     );
+
+    // MANUALLY TRACK TOOL CALL START
+    if (context.toolInvocationsTracker) {
+      context.toolInvocationsTracker.push({
+        type: 'tool-invocation',
+        toolInvocation: {
+          toolName: 'createDocument',
+          toolCallId: toolCallId,
+          state: 'call',
+          args: { title, kind, contentPrompt },
+        },
+      });
+      console.log(
+        `[CREATE_DOCUMENT_TOOL] Added tool call to tracker with ID: ${toolCallId}`,
+      );
+    }
 
     // Find the appropriate handler based on kind
     const handler = documentHandlersByArtifactKind.find((h) => h.kind === kind);
 
-    // Task B1: Log the result of the handler search
-    console.log(
-      `[CREATE_DOCUMENT_TOOL] Search complete. RESULT: ${handler ? `Handler for "${kind}" found` : 'No handler found'}`,
-    );
-
-    // Task B1: Log critical failure if no handler is found
-    if (!handler) {
+    if (!handler || typeof handler.onCreateDocument !== 'function') {
       console.error(
-        `[CREATE_DOCUMENT_TOOL CRITICAL_FAILURE] No handler found for artifact kind: "${kind}". Available kinds: ${documentHandlersByArtifactKind.map((h) => h.kind).join(', ')}`,
+        `[CREATE_DOCUMENT_TOOL CRITICAL] No handler found for artifact kind '${kind}' or onCreateDocument is not a function.`,
       );
-    } else {
-      // Task B1: Log handler found and preparation to call onCreateDocument
-      console.log(
-        `[CREATE_DOCUMENT_TOOL] Handler "${handler.kind}" found. About to call its onCreateDocument method.`,
-      );
+      const errorResult = {
+        id,
+        title,
+        kind,
+        error: `No handler found for kind '${kind}'`,
+      };
 
-      // Task B1: Log enhancedDataStream status (this would happen in the route.ts file)
-      console.log(
-        `[CREATE_DOCUMENT_TOOL] Passing enhancedDataStream to handler. Note: The actual stream will be provided by the route handler.`,
-      );
+      // MANUALLY TRACK TOOL CALL ERROR RESULT
+      if (context.toolInvocationsTracker) {
+        context.toolInvocationsTracker.push({
+          type: 'tool-invocation',
+          toolInvocation: {
+            toolName: 'createDocument',
+            toolCallId: toolCallId,
+            state: 'result',
+            result: errorResult,
+          },
+        });
+        console.log(
+          `[CREATE_DOCUMENT_TOOL] Added tool error result to tracker`,
+        );
+      }
 
-      // Task B1: Add try/catch block for the onCreateDocument call (this would happen in the route.ts file)
-      console.log(
-        `[CREATE_DOCUMENT_TOOL] Note: In the actual execution flow, a try/catch block would be used as follows:`,
-      );
-      console.log(`
-try {
-  await handler.onCreateDocument({
-    title,
-    docId: id,
-    dataStream: enhancedDataStream,
-    initialContentPrompt: contentPrompt
-  });
-  console.log(\`[CREATE_DOCUMENT_TOOL] \${handler.kind}.onCreateDocument call completed successfully.\`);
-} catch (error) {
-  console.error(\`[CREATE_DOCUMENT_TOOL ERROR] Error during \${handler.kind}.onCreateDocument call:\`, error);
-  throw error; // Re-throw to propagate the error
-}
-      `);
+      return JSON.stringify(errorResult);
     }
 
-    // This is just a placeholder - actual document creation happens in app/api/brain/route.ts
-    // through integration with appropriate artifact handlers
+    console.log(
+      `[CREATE_DOCUMENT_TOOL] Handler "${handler.kind}" found. Calling onCreateDocument...`,
+    );
 
-    // Return a structured object with the ID instead of just a string
-    const result = {
-      id,
-      title,
-      kind,
-      contentPrompt,
-      message: `Document artifact of kind '${kind}' titled '${title}' requested with ID ${id}. Content generation process initiated.`,
-    };
-    return JSON.stringify(result);
+    try {
+      // Call the handler with the global context
+      const handlerResult = await handler.onCreateDocument({
+        id,
+        title,
+        dataStream: context.dataStream,
+        session: context.session,
+        initialContentPrompt: contentPrompt,
+      });
+
+      console.log(
+        `[CREATE_DOCUMENT_TOOL] ${handler.kind} handler.onCreateDocument completed successfully. Result:`,
+        handlerResult,
+      );
+
+      const successResult = {
+        id,
+        title,
+        kind,
+        message: `Document artifact of kind '${kind}' titled '${title}' created successfully with ID ${id}.`,
+        content: handlerResult,
+      };
+
+      // MANUALLY TRACK TOOL CALL SUCCESS RESULT
+      if (context.toolInvocationsTracker) {
+        context.toolInvocationsTracker.push({
+          type: 'tool-invocation',
+          toolInvocation: {
+            toolName: 'createDocument',
+            toolCallId: toolCallId,
+            state: 'result',
+            result: successResult,
+          },
+        });
+        console.log(
+          `[CREATE_DOCUMENT_TOOL] Added tool success result to tracker`,
+        );
+      }
+
+      return JSON.stringify(successResult);
+    } catch (handlerError) {
+      console.error(
+        `[CREATE_DOCUMENT_TOOL ERROR] Error during ${kind} handler.onCreateDocument call:`,
+        handlerError,
+      );
+      const errorResult = {
+        id,
+        title,
+        kind,
+        error:
+          handlerError instanceof Error
+            ? handlerError.message
+            : 'Unknown error',
+      };
+
+      // MANUALLY TRACK TOOL CALL ERROR RESULT
+      if (context.toolInvocationsTracker) {
+        context.toolInvocationsTracker.push({
+          type: 'tool-invocation',
+          toolInvocation: {
+            toolName: 'createDocument',
+            toolCallId: toolCallId,
+            state: 'result',
+            result: errorResult,
+          },
+        });
+        console.log(
+          `[CREATE_DOCUMENT_TOOL] Added tool error result to tracker`,
+        );
+      }
+
+      return JSON.stringify(errorResult);
+    }
   },
 });
 

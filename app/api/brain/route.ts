@@ -12,7 +12,12 @@ import {
   ChatPromptTemplate,
   MessagesPlaceholder,
 } from '@langchain/core/prompts';
-import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
+import {
+  AIMessage,
+  HumanMessage,
+  ToolMessage,
+  SystemMessage,
+} from '@langchain/core/messages';
 import { TavilySearchResults } from '@langchain/community/tools/tavily_search';
 import type { Message as UIMessage } from 'ai';
 import { createDataStreamResponse, type DataStreamWriter } from 'ai';
@@ -22,7 +27,6 @@ import { documentHandlersByArtifactKind } from '@/lib/artifacts/server';
 // State variables to track between requests/handler invocations
 // These fix "Cannot find name" TypeScript errors
 // Import tools and utilities
-// import { orchestratorPrompt, getSpecialistPromptById } from '@/lib/ai/prompts'; // Unused
 import { loadPrompt } from '@/lib/ai/prompts/loader';
 import {
   processHistory,
@@ -52,7 +56,7 @@ import { availableTools } from '@/lib/ai/tools/index';
 // Import database functions and types
 // import { db } from '@/lib/db'; // Unused
 import { sql } from '@/lib/db/client';
-import { getClientConfig } from '@/lib/db/queries';
+import { getClientConfig, getDocumentById } from '@/lib/db/queries';
 import type { DBMessage } from '@/lib/db/schema';
 import type { ClientConfig } from '@/lib/db/queries'; // Import the correct ClientConfig type
 import { randomUUID } from 'node:crypto';
@@ -127,6 +131,18 @@ function createLangChainStreamHandler(
   // Use let for assistantMessageSaved so it can be reassigned
   let assistantMessageSaved = false;
 
+  // Track tool invocations for message parts (shared across handlers)
+  const toolInvocationsForMessage: Array<{
+    type: 'tool-invocation';
+    toolInvocation: {
+      toolName: string;
+      toolCallId: string;
+      state: 'call' | 'result';
+      args?: any;
+      result?: any;
+    };
+  }> = [];
+
   // Create a custom handler that extends BaseCallbackHandler
   class CompletionCallbackHandler extends BaseCallbackHandler {
     name = 'CompletionCallbackHandler';
@@ -145,6 +161,88 @@ function createLangChainStreamHandler(
             e,
           );
         }
+      }
+    }
+
+    async handleToolStart(
+      tool: any,
+      input: string,
+      runId: string,
+      parentRunId?: string,
+      tags?: string[],
+      metadata?: Record<string, unknown>,
+      runName?: string,
+    ) {
+      const toolName = tool.name || 'unknown-tool';
+      logger.info(`[CompletionCallbackHandler] Tool started: ${toolName}`);
+
+      // Parse tool input if it's a string
+      let toolArgs: any = input;
+      try {
+        if (typeof input === 'string') {
+          toolArgs = JSON.parse(input);
+        }
+      } catch (e) {
+        // If parsing fails, use the input as-is
+        toolArgs = input;
+      }
+
+      // Add tool call invocation
+      toolInvocationsForMessage.push({
+        type: 'tool-invocation',
+        toolInvocation: {
+          toolName,
+          toolCallId: runId,
+          state: 'call',
+          args: toolArgs,
+        },
+      });
+
+      logger.info(
+        `[CompletionCallbackHandler] Added tool call to message parts: ${toolName}`,
+      );
+    }
+
+    async handleToolEnd(output: string, runId: string) {
+      logger.info(`[CompletionCallbackHandler] Tool ended: ${runId}`);
+
+      // Parse tool output if it's a string
+      let toolResult: any = output;
+      try {
+        if (typeof output === 'string') {
+          toolResult = JSON.parse(output);
+        }
+      } catch (e) {
+        // If parsing fails, use the output as-is
+        toolResult = output;
+      }
+
+      // Find the corresponding tool call and add result
+      const toolCall = toolInvocationsForMessage.find(
+        (inv) =>
+          inv.toolInvocation.toolCallId === runId &&
+          inv.toolInvocation.state === 'call',
+      );
+
+      if (toolCall) {
+        // Add tool result invocation
+        toolInvocationsForMessage.push({
+          type: 'tool-invocation',
+          toolInvocation: {
+            toolName: toolCall.toolInvocation.toolName,
+            toolCallId: runId,
+            state: 'result',
+            result: toolResult,
+          },
+        });
+
+        logger.info(
+          `[CompletionCallbackHandler] Added tool result to message parts: ${toolCall.toolInvocation.toolName}`,
+        );
+      } else {
+        logger.warn(
+          `[CompletionCallbackHandler] Could not find matching tool call for result: ${runId}`,
+        );
       }
     }
 
@@ -191,6 +289,7 @@ function createLangChainStreamHandler(
 
   return {
     handlers: [new CompletionCallbackHandler()],
+    toolInvocationsForMessage, // Expose the tool invocations array
   };
 }
 
@@ -988,24 +1087,28 @@ function ensureStringContent(msg: any): any {
  * Ensures extracted content from files is properly integrated into the context
  */
 function processAttachments(message: any): string {
-  if (
-    !message ||
-    !message.attachments ||
-    !Array.isArray(message.attachments) ||
-    message.attachments.length === 0
-  ) {
+  // Check for both 'attachments' and 'experimental_attachments'
+  const attachments = message.experimental_attachments || message.attachments;
+
+  // Early return if no attachments
+  if (!attachments || attachments.length === 0) {
     return '';
   }
 
-  console.log(
-    `[Brain API] Processing ${message.attachments.length} attachments`,
-  );
+  console.log(`[Brain API] Processing ${attachments.length} attachments`);
 
   let attachmentContext = '';
+  let hasUploadedContent = false;
 
-  message.attachments.forEach((attachment: any, index: number) => {
+  attachments.forEach((attachment: any, index: number) => {
     console.log(
       `[Brain API] Processing attachment ${index + 1}: ${attachment.name}`,
+    );
+
+    // DEBUG: Log the full attachment structure to understand the issue
+    console.log(
+      `[Brain API DEBUG] Full attachment structure:`,
+      JSON.stringify(attachment, null, 2),
     );
 
     // Extract file information
@@ -1013,39 +1116,62 @@ function processAttachments(message: any): string {
     const fileUrl = attachment.url || '';
     const fileType = attachment.contentType || 'unknown type';
 
-    // Check if we have extracted content as metadata
-    if (attachment.metadata?.extractedContent) {
-      console.log(`[Brain API] Found extracted content for ${fileName}`);
+    // DEBUG: Check different possible locations for extracted content
+    console.log(`[Brain API DEBUG] Checking for extracted content...`);
+    console.log(`[Brain API DEBUG] attachment.metadata:`, attachment.metadata);
+    console.log(
+      `[Brain API DEBUG] attachment.metadata?.extractedContent:`,
+      attachment.metadata?.extractedContent,
+    );
+    console.log(
+      `[Brain API DEBUG] attachment.extractedContent:`,
+      attachment.extractedContent,
+    );
+    console.log(`[Brain API DEBUG] attachment.content:`, attachment.content);
 
-      let extractedContent = attachment.metadata.extractedContent;
+    // Check if we have extracted content from the uploaded file
+    // Updated path to correctly access nested extractedText
+    const extractedText =
+      attachment.metadata?.extractedContent?.responseBody?.extractedText;
 
-      // Ensure the extracted content is a string
-      if (typeof extractedContent !== 'string') {
-        try {
-          extractedContent = JSON.stringify(extractedContent);
-        } catch (e) {
-          console.error(
-            `[Brain API] Error stringifying extracted content: ${e}`,
-          );
-          extractedContent = 'Error processing file content';
-        }
-      }
-
-      // Limit content length if needed to avoid context length issues
-      if (extractedContent.length > 10000) {
-        console.log(
-          `[Brain API] Truncating long extracted content (${extractedContent.length} chars)`,
-        );
-        extractedContent = `${extractedContent.substring(0, 10000)}... [content truncated due to length]`;
-      }
-
-      // Add to context
-      attachmentContext += `\n\nFile attachment ${index + 1}: ${fileName} (${fileType})\nContent: ${extractedContent}\n`;
-    } else {
-      // Just add reference without content
-      attachmentContext += `\n\nFile attachment ${index + 1}: ${fileName} (${fileType})\nNo extracted content available. Reference URL: ${fileUrl}\n`;
+    if (typeof extractedText === 'string' && extractedText.trim() !== '') {
+      hasUploadedContent = true;
+      attachmentContext += `\n\n### 🔴 UPLOADED DOCUMENT: ${fileName} (${fileType})\n`;
+      attachmentContext += `File URL: ${fileUrl}\n`;
+      attachmentContext += '--- Start of Uploaded Content ---\n';
+      attachmentContext += `${extractedText}\n`;
+      attachmentContext += '--- End of Uploaded Content ---\n';
+      console.log(
+        `[Brain API] Added ${extractedText.length} characters from extracted content of ${fileName}`,
+      );
+    } else if (attachment.metadata?.extractedContent) {
+      // Log if extractedContent is present but not in the expected structure or empty
+      console.log(
+        `[Brain API DEBUG] Extracted content present for ${fileName}, but not a non-empty string at .responseBody.extractedText. Structure:`,
+        JSON.stringify(attachment.metadata.extractedContent, null, 2),
+      );
+      attachmentContext += `\n\nFile attachment ${index + 1}: ${fileName} (${fileType})\n`;
+      attachmentContext += `Content: [Object] - Could not read extracted text. Please verify extraction process. Reference URL: ${fileUrl}\n`;
+    } else if (attachment.content) {
+      // Fallback for a simple .content string (e.g., from copy-paste)
+      console.log(`[Brain API] Found simple .content string for ${fileName}`);
+      attachmentContext += `\n\nFile attachment ${index + 1}: ${fileName} (${fileType})\n`;
+      attachmentContext += `Content: ${attachment.content}\n`;
     }
   });
+
+  // If we have uploaded content, add a strong instruction at the beginning
+  if (hasUploadedContent) {
+    attachmentContext = `
+🚨 **IMPORTANT: UPLOADED DOCUMENT CONTENT AVAILABLE** 🚨
+
+The user has uploaded document(s) with extracted content. When they reference "the attached document", "the uploaded file", "the brief", or similar terms, they are referring to the content below. 
+
+**DO NOT use listDocuments or getFileContents tools when uploaded content is available.**
+**Use the uploaded content directly from the sections marked with 🔴.**
+
+${attachmentContext}`;
+  }
 
   return attachmentContext;
 }
@@ -1189,7 +1315,93 @@ async function getAvailableTools(clientConfig?: ClientConfig | null) {
 
 // Context Management Integration
 import { contextManager } from '@/lib/context/ContextManager';
-import type { ContextWindow } from '@/lib/context/ContextManager';
+import type {
+  ContextWindow,
+  FileReference,
+} from '@/lib/context/ContextManager';
+
+/**
+ * Formats the content of previously uploaded files from the context window
+ * to be included in the system prompt.
+ */
+function formatPreviouslyUploadedFilesContext(files: FileReference[]): string {
+  if (!files || files.length === 0) {
+    return '';
+  }
+
+  let previouslyUploadedContentContext = '';
+  let hasPreviouslyUploadedContent = false;
+
+  files.forEach((file, index) => {
+    // Check if the file was an upload and has extracted text
+    if (file.fileType === 'uploaded' && file.fileMetadata?.extractedText) {
+      const fileName = file.fileMetadata.filename || 'unknown file';
+      const fileType = file.fileMetadata.contentType || 'unknown type';
+      let extractedText = '';
+
+      // Handle extractedText possibly being an object or string
+      if (
+        typeof file.fileMetadata.extractedText === 'object' &&
+        file.fileMetadata.extractedText !== null
+      ) {
+        // Attempt to get text if it's a known structure, e.g., from n8n response
+        const structuredText = file.fileMetadata.extractedText as Record<
+          string,
+          any
+        >;
+        if (structuredText.responseBody?.extractedText) {
+          extractedText = structuredText.responseBody.extractedText;
+        } else if (structuredText.extractedText) {
+          extractedText = structuredText.extractedText;
+        } else if (structuredText.extractedContent) {
+          extractedText = structuredText.extractedContent;
+        } else {
+          try {
+            extractedText = JSON.stringify(file.fileMetadata.extractedText);
+          } catch (e) {
+            logger.warn(
+              `[Brain API] Could not stringify complex extractedText object for ${fileName}`,
+              e,
+            );
+            extractedText = '[Complex content not displayable]';
+          }
+        }
+      } else if (typeof file.fileMetadata.extractedText === 'string') {
+        extractedText = file.fileMetadata.extractedText;
+      } else {
+        extractedText = String(file.fileMetadata.extractedText || '');
+      }
+
+      if (extractedText.trim()) {
+        hasPreviouslyUploadedContent = true;
+        logger.info(
+          `[Brain API] Including previously uploaded file in context: ${fileName}`,
+        );
+        previouslyUploadedContentContext += `
+### 🔵 PREVIOUSLY UPLOADED DOCUMENT (from this chat session): "${fileName}"
+**This document was uploaded earlier in this conversation. If the user refers to "the attached document" or similar, and no new file is attached to the current message, they might be referring to this.**
+
+**File Type:** ${fileType}
+**Original Upload Time:** ${file.fileMetadata.processedAt ? new Date(file.fileMetadata.processedAt).toLocaleString() : 'N/A'}
+
+**DOCUMENT CONTENT:**
+\`\`\`
+${extractedText}
+\`\`\`
+
+---
+
+`;
+      }
+    }
+  });
+
+  if (hasPreviouslyUploadedContent) {
+    return `\n🚨 **IMPORTANT: PREVIOUSLY UPLOADED DOCUMENT CONTENT AVAILABLE** 🚨\n\nThe user may be referring to documents uploaded earlier in this chat session. Their content is provided below, marked with 🔵.\n**If the user references an \"attached document\" and no new file is attached, check these sections.**\n\n${previouslyUploadedContentContext}`;
+  }
+
+  return ''; // Ensure the function always returns a string
+}
 
 /**
  * POST handler for the Brain API
@@ -1329,7 +1541,7 @@ export async function POST(req: NextRequest) {
       ? messages.map(ensureToolMessageContentIsString)
       : messages;
 
-    // Extract the last message from the messages array - this is the user's new message
+    // Validate that safeMessages is an array and not empty
     if (
       !safeMessages ||
       !Array.isArray(safeMessages) ||
@@ -1343,8 +1555,54 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // The 'history' should include all messages *before* the current user's input.
+    // The current user's input is the actual last message in the incoming array.
+    const history = safeMessages.slice(0, -1);
     const lastMessage = safeMessages[safeMessages.length - 1];
+
+    // Ensure lastMessage is correctly identified (it should be the user's current query)
+    if (!lastMessage || lastMessage.role !== 'user') {
+      logger.error(
+        '[Brain API] Critical error: Last message is not a user message or is missing.',
+        lastMessage,
+      );
+      return NextResponse.json(
+        { error: 'Invalid message structure: last message must be from user.' },
+        { status: 400 },
+      );
+    }
     const userMessageContent = lastMessage.content;
+
+    // DEBUG: Inspect lastMessage for attachments
+    logger.debug(
+      '[Brain API DEBUG] Inspecting lastMessage right after extraction from safeMessages:',
+      {
+        id: lastMessage.id,
+        role: lastMessage.role,
+        contentLength: userMessageContent?.length,
+        messageKeys: Object.keys(lastMessage),
+        hasAttachmentsProperty: Object.hasOwn(lastMessage, 'attachments'),
+        attachmentsArray: lastMessage.attachments,
+        attachmentsLength: lastMessage.attachments?.length,
+        hasExperimentalAttachmentsProperty: Object.hasOwn(
+          lastMessage,
+          'experimental_attachments',
+        ),
+        experimentalAttachmentsArray: lastMessage.experimental_attachments,
+        experimentalAttachmentsLength:
+          lastMessage.experimental_attachments?.length,
+      },
+    );
+    // Log the full structure if attachments seem to be missing or have an unexpected format
+    if (
+      !lastMessage.attachments?.length &&
+      !lastMessage.experimental_attachments?.length
+    ) {
+      logger.debug(
+        '[Brain API DEBUG] Full lastMessage structure (since attachments appear missing):',
+        JSON.stringify(lastMessage, null, 2),
+      );
+    }
 
     // --- BEGIN CHAT CHECK/CREATION ---
     // Get current user session
@@ -1552,7 +1810,8 @@ export async function POST(req: NextRequest) {
       role: 'user',
       // Ensure 'parts' structure matches your schema
       parts: lastMessage.parts || [{ type: 'text', text: userMessageContent }],
-      attachments: lastMessage.attachments || [],
+      attachments:
+        lastMessage.experimental_attachments || lastMessage.attachments || [],
       createdAt: lastMessage.createdAt
         ? new Date(lastMessage.createdAt)
         : new Date(),
@@ -1654,7 +1913,7 @@ export async function POST(req: NextRequest) {
     // --- END CONTEXT WINDOW BUILDING ---
 
     // Use all previous messages as history
-    const history = safeMessages.slice(0, -1);
+    // const history = safeMessages.slice(0, -1); // THIS LINE IS NOW MOVED UP and an improved version is used
 
     // Log raw history before formatting
     logger.debug(
@@ -1762,7 +2021,15 @@ export async function POST(req: NextRequest) {
           if (file.fileType === 'artifact') return 'Generated artifact';
           return 'Referenced file';
         });
-        contextInfo += `\nREFERENCED FILES:\n${[...new Set(fileInfo)].join(', ')}\n`;
+        contextInfo += `\nREFERENCED FILES (Summary):\\n${[...new Set(fileInfo)].join(', ')}\n`;
+
+        // Add content of previously uploaded files
+        const previouslyUploadedContext = formatPreviouslyUploadedFilesContext(
+          contextWindow.files,
+        );
+        if (previouslyUploadedContext) {
+          contextInfo += `\n${previouslyUploadedContext}\n`;
+        }
       }
 
       if (
@@ -1878,7 +2145,7 @@ Always reference the current artifact content when making modifications.`;
     }
 
     // Format and sanitize the chat history
-    let formattedHistory: (HumanMessage | AIMessage)[] = [];
+    let formattedHistory: (HumanMessage | AIMessage | SystemMessage)[] = [];
     try {
       // Use your existing formatting function
       formattedHistory = formatChatHistory(history);
@@ -1935,6 +2202,21 @@ Always reference the current artifact content when making modifications.`;
       logger.info(
         `[Brain API] Processed chat history with smart filtering and conversational memory - message count: ${formattedHistory.length}`,
       );
+
+      // Log the types of messages being processed for debugging
+      const messageTypeCounts = formattedHistory.reduce(
+        (acc, msg) => {
+          if (msg instanceof SystemMessage) acc.system += 1;
+          else if (msg instanceof HumanMessage) acc.human += 1;
+          else if (msg instanceof AIMessage) acc.ai += 1;
+          return acc;
+        },
+        { system: 0, human: 0, ai: 0 },
+      );
+
+      logger.info(
+        `[Brain API] Message composition: ${messageTypeCounts.system} SystemMessage (memory), ${messageTypeCounts.human} HumanMessage, ${messageTypeCounts.ai} AIMessage`,
+      );
     } catch (formatError) {
       logger.error(
         '[Brain API] Error formatting/processing chat history:',
@@ -1961,11 +2243,21 @@ Always reference the current artifact content when making modifications.`;
         return new AIMessage({ content: String(msg.content) });
       }
 
+      // CRITICAL FIX: Preserve SystemMessage objects (conversational memory)
+      if (msg instanceof SystemMessage) {
+        return new SystemMessage({ content: String(msg.content) });
+      }
+
       return msg;
     });
 
     // DIRECT CLASS INSTANTIATION: Create fresh instances immediately before invoke
     const directInstances = finalSafeHistory.map((msg) => {
+      // SystemMessage objects (conversational memory) should pass through directly
+      if (msg instanceof SystemMessage) {
+        return msg;
+      }
+
       // Convert to raw message format first with explicit typing
       const rawMessage: RawMessage = {
         type: msg instanceof HumanMessage ? 'human' : 'ai',
@@ -2161,10 +2453,27 @@ ${artifactsInfo}
       );
     }
 
+    // Improved attachment context integration with context awareness
+    let attachmentInstruction = '';
+    if (attachmentContext) {
+      const attachmentCount =
+        (lastMessage.experimental_attachments || lastMessage.attachments)
+          ?.length || 0;
+      const hasReferences = /\b(attached|upload|document|file)\b/i.test(
+        userMessageContent,
+      );
+
+      if (hasReferences) {
+        attachmentInstruction = `\n\nNOTE: You are referencing uploaded document(s). The content of ${attachmentCount === 1 ? 'the uploaded document is' : `all ${attachmentCount} uploaded documents are`} provided below in the ### UPLOADED DOCUMENT sections. When you mention "attached document", "uploaded file", or similar terms, refer to the content in these sections.\n`;
+      } else {
+        attachmentInstruction = `\n\nNOTE: Document(s) have been uploaded with this message. The content is provided below for your reference.\n`;
+      }
+    }
+
     if (fileContextString) {
       combinedMessage = `${fileContextInstruction}\n\n${combinedMessage}${fileContextString}${collapsedArtifactsString}`;
     } else if (attachmentContext) {
-      combinedMessage = `${combinedMessage}\n\n### ATTACHED FILE CONTENT ###${attachmentContext}${collapsedArtifactsString}`;
+      combinedMessage = `${combinedMessage}${attachmentInstruction}${attachmentContext}${collapsedArtifactsString}`;
     } else if (collapsedArtifactsString) {
       combinedMessage = `${combinedMessage}${collapsedArtifactsString}`;
     }
@@ -2175,9 +2484,6 @@ ${artifactsInfo}
         // Task A1: Add logging before StreamData creation
         console.log('[BRAIN API] Creating StreamData for artifact streaming.');
 
-        // Use dataStream directly instead of enhanced wrapper
-        // const enhancedDataStream = createEnhancedDataStream(dataStream);
-
         // Task A1: Add logging after StreamData creation
         console.log(
           '[BRAIN API] StreamData instance created:',
@@ -2187,6 +2493,14 @@ ${artifactsInfo}
           'write available:',
           typeof dataStream?.write === 'function',
         );
+
+        // Set up global context for document creation tools
+        global.CREATE_DOCUMENT_CONTEXT = {
+          dataStream: dataStream,
+          session: authSession,
+          handlers: documentHandlersByArtifactKind,
+          toolInvocationsTracker: [], // Initialize tracker for manual tool invocation tracking
+        };
 
         try {
           // SINGLE AGENT EXECUTION: This is now the only call to agentExecutor.stream
@@ -2211,24 +2525,41 @@ ${artifactsInfo}
               // Skip if response is empty or just whitespace
               logger.info('[Brain API] ON_COMPLETION_HANDLER TRIGGERED');
 
-              if (!fullResponse || !fullResponse.trim()) {
+              // Determine if there were any tool invocations
+              const hasToolInvocations =
+                (streamHandler.toolInvocationsForMessage &&
+                  streamHandler.toolInvocationsForMessage.length > 0) ||
+                (global.CREATE_DOCUMENT_CONTEXT?.toolInvocationsTracker &&
+                  global.CREATE_DOCUMENT_CONTEXT.toolInvocationsTracker.length >
+                    0);
+
+              let effectiveResponse = fullResponse.trim();
+
+              // If the response is empty but tools were called, provide a default message
+              if (!effectiveResponse && hasToolInvocations) {
+                effectiveResponse = "Okay, I've processed your request."; // Generic message for any tool
+                // Check if the createDocument tool was specifically called and tailor the message
+                const createDocCalled =
+                  streamHandler.toolInvocationsForMessage?.some(
+                    (inv) => inv.toolInvocation.toolName === 'createDocument',
+                  ) ||
+                  global.CREATE_DOCUMENT_CONTEXT?.toolInvocationsTracker?.some(
+                    (inv) => inv.toolInvocation.toolName === 'createDocument',
+                  );
+                if (createDocCalled) {
+                  effectiveResponse = "Okay, I've created the document.";
+                }
                 logger.info(
-                  `[Brain API] Skipping empty response in onCompletion`,
+                  `[Brain API] Empty LLM response, but tools were called. Using default message: "${effectiveResponse}"`,
+                );
+              }
+
+              if (!effectiveResponse) {
+                logger.info(
+                  `[Brain API] Skipping empty response in onCompletion (no text and no tools called).`,
                 );
                 return;
               }
-
-              // Add detailed logging to help debug duplicate saves
-              logger.info(`[Brain API] >> onCompletion Handler Triggered <<`);
-              logger.info(
-                `[Brain API]    Flag 'assistantMessageSaved': ${assistantMessageSaved}`,
-              );
-              logger.info(
-                `[Brain API]    Response Length: ${fullResponse?.length || 0}`,
-              );
-              logger.info(
-                `[Brain API]    Response Snippet: ${(fullResponse || '').substring(0, 100)}...`,
-              );
 
               // Check if message is already saved
               if (assistantMessageSaved) {
@@ -2241,248 +2572,87 @@ ${artifactsInfo}
               // Set flag to prevent duplicate saves
               assistantMessageSaved = true;
 
-              // This code runs AFTER the entire response has been streamed
               logger.info(
-                '[Brain API] Stream completed. Saving final assistant message.',
+                '[Brain API] Stream completed. Saving final assistant message with tool invocations.',
               );
 
               try {
-                // Format the assistant message for the database
-                const assistantId = randomUUID(); // Generate a new unique ID for the assistant message
-                logger.info(
-                  `[Brain API] Generated assistant message UUID: ${assistantId}`,
+                const assistantId = randomUUID();
+
+                // Create message parts with tool invocations
+                const messageParts: Array<any> = [
+                  { type: 'text', text: effectiveResponse }, // Use effectiveResponse here
+                ];
+
+                // Add tool invocations from stream handler callbacks
+                streamHandler.toolInvocationsForMessage.forEach(
+                  (invocation) => {
+                    messageParts.push(invocation);
+                  },
                 );
 
+                // Add tool invocations from manual tracker (for tools that don't trigger callbacks)
+                const manualInvocations =
+                  global.CREATE_DOCUMENT_CONTEXT?.toolInvocationsTracker || [];
+                manualInvocations.forEach((invocation) => {
+                  messageParts.push(invocation);
+                });
+
                 logger.info(
-                  `[Brain API] Assistant UUID validation: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assistantId)}`,
+                  `[Brain API] Total tool invocations: ${streamHandler.toolInvocationsForMessage.length} from callbacks + ${manualInvocations.length} from manual tracker = ${messageParts.length - 1} total parts`,
                 );
 
                 const assistantMessageToSave = {
                   id: assistantId,
                   chatId: normalizedChatId,
                   role: 'assistant',
-                  content: fullResponse, // Required by ChatRepository
+                  content: effectiveResponse, // Use effectiveResponse here
                   createdAt: new Date(),
-                  parts: [{ type: 'text', text: fullResponse }], // Required by DBMessage
-                  attachments: [], // Required by DBMessage
-                  clientId: effectiveClientId, // Make sure clientId is included
+                  parts: messageParts,
+                  attachments: [],
+                  clientId: effectiveClientId,
                 };
 
-                // Additional validation to ensure the UUID is valid
-                if (
-                  !assistantId ||
-                  !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-                    assistantId,
-                  )
-                ) {
-                  logger.error(
-                    `[Brain API] Invalid UUID generated for assistant message, attempting to regenerate`,
-                  );
-                  // If by some chance the UUID is invalid, generate a new one
-                  const regeneratedId = randomUUID();
-                  if (
-                    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-                      regeneratedId,
-                    )
-                  ) {
-                    throw new Error(
-                      'Failed to generate a valid UUID for assistant message',
-                    );
-                  }
-                  logger.info(
-                    `[Brain API] Successfully regenerated UUID: ${regeneratedId}`,
-                  );
-                  assistantMessageToSave.id = regeneratedId;
-                }
-
                 logger.info(
-                  `[Brain API] Saving assistant message ${assistantMessageToSave.id} for chat ${normalizedChatId}`,
+                  `[Brain API] Saving assistant message with ${messageParts.length} parts (${streamHandler.toolInvocationsForMessage.length} tool invocations)`,
                 );
 
-                // First, check if there's an existing message with the same ID pattern but empty content
-                try {
-                  // Look for existing messages with this chat ID that are empty and from assistant
-                  const existingEmptyMessages = await sql<
-                    { id: string; parts: any }[]
-                  >`
-              SELECT id, parts FROM "Message_v2" 
-              WHERE "chatId" = ${normalizedChatId} 
-              AND role = 'assistant' 
-              AND (
-                parts::text = '[{"type":"text","text":""}]' 
-                OR parts::text = '[]'
-                OR parts::text IS NULL
-                OR (parts::text)::jsonb->0->>'text' = ''
-              )
-            `;
-
-                  if (
-                    existingEmptyMessages &&
-                    existingEmptyMessages.length > 0
-                  ) {
-                    logger.info(
-                      `[Brain API] Found ${existingEmptyMessages.length} empty assistant messages for this chat, will update one instead of creating new`,
-                    );
-
-                    // Use the first empty message ID instead of creating a new one
-                    const emptyMsgId = existingEmptyMessages[0].id;
-                    logger.info(
-                      `[Brain API] Updating empty message ${emptyMsgId} with content instead of creating new`,
-                    );
-
-                    // Update the existing empty message with our content
-                    await sql`
-                UPDATE "Message_v2"
-                SET parts = ${JSON.stringify(assistantMessageToSave.parts)}
-                WHERE id = ${emptyMsgId} AND "chatId" = ${normalizedChatId}
-              `;
-
-                    logger.info(
-                      `[Brain API] Successfully updated empty message ${emptyMsgId} with content`,
-                    );
-                    return;
-                  } else {
-                    logger.info(
-                      `[Brain API] No empty messages found, creating new message`,
-                    );
-                  }
-                } catch (err) {
-                  logger.error(
-                    `[Brain API] Error checking for empty messages:`,
-                    err,
-                  );
-                  // Continue with normal message creation since checking failed
-                }
-
-                // Only create a new message if we didn't find an empty one to update
                 await sql`
-            INSERT INTO "Message_v2" (
-              id, 
-              "chatId", 
-              role, 
-              parts, 
-              attachments, 
-              "createdAt",
-              client_id
-            ) VALUES (
-              ${assistantMessageToSave.id}, 
-              ${assistantMessageToSave.chatId}, 
-              ${assistantMessageToSave.role}, 
-              ${JSON.stringify(assistantMessageToSave.parts)}, 
-              ${JSON.stringify(assistantMessageToSave.attachments)}, 
-              ${assistantMessageToSave.createdAt.toISOString()},
-              ${effectiveClientId}
-            )
-          `;
+                  INSERT INTO "Message_v2" (
+                    id, 
+                    "chatId", 
+                    role, 
+                    parts, 
+                    attachments, 
+                    "createdAt",
+                    "client_id"
+                  ) VALUES (
+                    ${assistantId},
+                    ${normalizedChatId},
+                    'assistant',
+                    ${JSON.stringify(messageParts)},
+                    ${JSON.stringify([])},
+                    ${new Date().toISOString()},
+                    ${effectiveClientId}
+                  )
+                `;
 
                 logger.info(
-                  `[Brain API] Successfully saved assistant message ${assistantMessageToSave.id}`,
+                  `[Brain API] Successfully saved assistant message with tool invocations`,
                 );
-
-                // NEW: Store conversational memory
-                try {
-                  logger.info('[Brain API] Storing conversational memory...');
-                  const memoryStored = await storeConversationalMemory(
-                    normalizedChatId,
-                    userMessageContent, // The original user message
-                    fullResponse, // The AI's response
-                    'turn', // This is a conversational turn
-                  );
-
-                  if (memoryStored) {
-                    logger.info(
-                      `[Brain API] Successfully stored conversational memory for chat ${normalizedChatId}`,
-                    );
-
-                    // NEW: Check if we should create a conversation summary
-                    try {
-                      const memoryCount = await getConversationalMemoryCount(
-                        normalizedChatId,
-                        'turn',
-                      );
-
-                      // Create summary every 10 exchanges (20 turns - user + AI)
-                      // and when no recent summary exists
-                      if (memoryCount > 0 && memoryCount % 20 === 0) {
-                        logger.info(
-                          `[Brain API] Triggering summary creation for chat ${normalizedChatId} (${memoryCount} turns stored)`,
-                        );
-
-                        // Run summary creation in background (non-blocking)
-                        contextManager
-                          .updateSummary(
-                            normalizedChatId,
-                            effectiveUserId,
-                            effectiveClientId,
-                          )
-                          .then(() => {
-                            logger.info(
-                              `[Brain API] Successfully created summary for chat ${normalizedChatId}`,
-                            );
-                          })
-                          .catch((summaryError) => {
-                            logger.error(
-                              `[Brain API] Background summary creation failed for chat ${normalizedChatId}:`,
-                              summaryError,
-                            );
-                          });
-                      }
-                    } catch (summaryTriggerError) {
-                      logger.error(
-                        '[Brain API] Error checking summary trigger conditions:',
-                        summaryTriggerError,
-                      );
-                      // Don't throw - this shouldn't break the main flow
-                    }
-                  } else {
-                    logger.warn(
-                      `[Brain API] Failed to store conversational memory for chat ${normalizedChatId}`,
-                    );
-                  }
-                } catch (memoryError) {
-                  logger.error(
-                    '[Brain API] Error storing conversational memory:',
-                    memoryError,
-                  );
-                  // Don't throw - memory storage failure shouldn't break the response
-                }
-
-                // Start background entity extraction for the assistant message (non-blocking)
-                contextManager
-                  .extractEntities(
-                    assistantMessageToSave.id,
-                    fullResponse,
-                    normalizedChatId,
-                    effectiveUserId,
-                    effectiveClientId,
-                  )
-                  .catch((error) => {
-                    logger.error(
-                      '[Brain API] Background entity extraction for assistant message failed:',
-                      error,
-                    );
-                    // Don't throw - this is background processing
-                  });
               } catch (dbError: any) {
                 logger.error(
-                  `[Brain API] FAILED to save assistant message:`,
+                  `[Brain API] Failed to save assistant message:`,
                   dbError,
                 );
-                logger.error(
-                  `[Brain API] Assistant message save error details:`,
-                  {
-                    message: dbError?.message,
-                    name: dbError?.name,
-                    stack: dbError?.stack?.split('\n').slice(0, 3),
-                  },
-                );
-                // Log error, but don't block response as stream already finished
-                // Do not reset assistantMessageSaved flag here to prevent duplicate save attempts
               }
             },
           });
 
-          // Check if enhancedExecutor exists, otherwise fall back to the regular agentExecutor
+          let assistantResponseText = '';
+
+          logger.info('[Brain API] About to start agent execution stream...');
+
           const streamResult = enhancedExecutor
             ? await enhancedExecutor.stream(
                 {
@@ -2501,380 +2671,156 @@ ${artifactsInfo}
                 { callbacks: streamHandler.handlers },
               );
 
-          // Process each chunk from the stream - focus on tool calls
-          // Since text is now handled by the LLM token callback
+          logger.info('[Brain API] Agent stream started, processing chunks...');
+
+          // Process each chunk from the stream
           for await (const chunk of streamResult) {
-            // Process tool calls if present
-            if (
-              chunk.toolCalls &&
-              Array.isArray(chunk.toolCalls) &&
-              chunk.toolCalls.length > 0
-            ) {
-              console.log(
-                '[BRAIN API DEBUG] Entered toolCalls processing loop',
-              );
-              for (const toolCall of chunk.toolCalls) {
-                console.log(
-                  `[BRAIN CHUNK_TOOL_CALL] Processing toolCall from LLM request. Name:`,
-                  toolCall.name,
-                  'Args:',
-                  JSON.stringify(toolCall.args),
-                );
-
-                // Check if this is a document creation tool call
-                if (toolCall.name === 'createDocument') {
-                  const toolArgs = toolCall.args || {};
-                  const kind = toolArgs.kind;
-                  const title = toolArgs.title || 'Untitled Document';
-                  const initialContentPrompt = toolArgs.contentPrompt || '';
-
-                  console.log(
-                    `[BRAIN CHUNK_TOOL_CALL] createDocument detected. Kind: ${kind}, Title: ${title}`,
-                  );
-
-                  if (!kind) {
-                    console.error(
-                      '[BRAIN CHUNK_TOOL_CALL CRITICAL] "kind" is missing in createDocument tool arguments.',
-                    );
-                    // Skip this tool call if kind is missing
-                    continue;
-                  }
-
-                  console.log(
-                    '[BRAIN API DEBUG] documentHandlersByArtifactKind:',
-                    documentHandlersByArtifactKind.map((h) => h.kind),
-                  );
-
-                  // Find the handler by kind (not by tool name)
-                  const handler = documentHandlersByArtifactKind.find(
-                    (h) => h.kind === kind,
-                  );
-                  console.log(
-                    `[BRAIN CHUNK_TOOL_CALL] Handler found for kind '${kind}':`,
-                    !!handler,
-                  );
-
-                  if (
-                    !handler ||
-                    typeof handler.onCreateDocument !== 'function'
-                  ) {
-                    console.error(
-                      `[BRAIN CHUNK_TOOL_CALL CRITICAL] No handler or onCreateDocument method found for kind: ${kind}`,
-                    );
-                    dataStream.writeData({
-                      type: 'error',
-                      error: `No handler available to create document of kind: ${kind}`,
-                    });
-                    continue;
-                  }
-
-                  // Prepare arguments for handler
-                  // Use ID from tool args if available, otherwise generate new one
-                  const docId = toolArgs.id || randomUUID();
-
-                  console.log(
-                    `[BRAIN CHUNK_TOOL_CALL] Using document ID: ${docId} (from tool args: ${!!toolArgs.id})`,
-                  );
-
-                  const handlerArgs = {
-                    id: docId,
-                    title,
-                    dataStream: dataStream,
-                    initialContentPrompt,
-                    session: authSession || {
-                      user: {
-                        id: effectiveUserId,
-                        name: 'User',
-                        email: '',
-                        image: '',
-                      },
-                      expires: '',
-                    },
-                  };
-
-                  console.log(
-                    `[BRAIN CHUNK_TOOL_CALL] Calling ${kind} handler.onCreateDocument. ID: ${docId}, Title: ${title}, Prompt: ${initialContentPrompt ? 'Yes' : 'No'}`,
-                  );
-
-                  // Execute the document creation
-                  let creationResult = undefined;
-                  try {
-                    creationResult =
-                      await handler.onCreateDocument(handlerArgs);
-                    console.log(
-                      `[BRAIN CHUNK_TOOL_CALL] ${kind} handler.onCreateDocument completed successfully. Result:`,
-                      creationResult,
-                    );
-                  } catch (error) {
-                    const errorMessage =
-                      error instanceof Error ? error.message : 'Unknown error';
-                    console.error(
-                      `[BRAIN CHUNK_TOOL_CALL ERROR] Error calling ${kind} handler.onCreateDocument:`,
-                      error,
-                    );
-                    dataStream.writeData({
-                      type: 'error',
-                      error: `Failed to start document creation for ${title}: ${errorMessage}`,
-                    });
-                    continue;
-                  }
-
-                  // Send the generic tool call info
-                  dataStream.writeData({
-                    type: 'status-update',
-                    status: `Creating ${kind} document titled "${title}"...`,
-                  });
-
-                  // The rest of the completion logic (message annotation, etc.)
-                  const newDocId = creationResult?.documentId || docId;
-
-                  // Send completion status
-                  dataStream.writeData({
-                    type: 'status-update',
-                    status: `Document "${title}" (ID: ${newDocId}) created successfully.`,
-                  });
-
-                  // Add a message annotation for the tool use
-                  dataStream.writeMessageAnnotation({
-                    documentCreated: {
-                      id: newDocId,
-                      title,
-                      kind: kind, // Use the extracted kind, not the tool name
-                    },
-                  });
-
-                  console.log(
-                    `[Brain API] Document creation complete for ${newDocId}`,
-                  );
-
-                  // Create the document URL for reference
-                  const documentUrl = `/documents/${newDocId}`;
-
-                  // Write a message that will be displayed to the user
-                  dataStream.writeData({
-                    type: 'tool-result',
-                    content: {
-                      toolName: toolCall.name,
-                      toolOutput: `Created a new ${kind} document titled "${title}" (ID: ${newDocId}). Access it at ${documentUrl}`,
-                      url: documentUrl,
-                    },
-                  });
-
-                  // Create a ToolMessage to feed back to the agent
-                  if (toolCall?.id) {
-                    // Prepare the ToolMessage content - this is what the agent will see
-                    let toolMessageContent: string;
-                    if (newDocId) {
-                      toolMessageContent = `Successfully created a ${kind} document titled "${title}" with ID ${newDocId}. The document is available at ${documentUrl}`;
-                      console.log(
-                        `[Brain API] Document creation successful for agent, ID: ${newDocId}`,
-                      );
-                    } else {
-                      toolMessageContent = `Attempted to create document titled "${title}", but failed to confirm its creation or retrieve an ID.`;
-                      console.warn(
-                        `[Brain API] Document creation failed or ID not returned for agent, Title: ${title}`,
-                      );
-                    }
-
-                    // Create the ToolMessage that will inform the agent about the result
-                    const agentToolResult = new ToolMessage({
-                      content: toolMessageContent,
-                      tool_call_id: toolCall.id,
-                    });
-
-                    console.log(
-                      `[Brain API] Created ToolMessage for agent feedback with ID: ${toolCall.id}`,
-                      { toolCallId: toolCall.id, toolMessageContent },
-                    );
-
-                    // Critical: Add this ToolMessage to directInstances so the agent can access it
-                    // directInstances is used as chat_history in subsequent agent calls
-                    if (directInstances && Array.isArray(directInstances)) {
-                      directInstances.push(agentToolResult);
-                      console.log(
-                        `[Brain API] Added ToolMessage to directInstances (chat_history) for agent's next step.`,
-                      );
-                      logger.debug(
-                        `[Brain API] Updated directInstances length: ${directInstances.length}`,
-                      );
-                    } else {
-                      console.warn(
-                        `[Brain API] 'directInstances' (chat_history) is not an array or is undefined. ToolMessage for agent may not be processed correctly.`,
-                      );
-                    }
-
-                    // Send a structured data event with the tool message for agent consumption
-                    dataStream.writeData({
-                      type: 'agent-tool-feedback',
-                      toolCallId: toolCall?.id,
-                      toolName: toolCall?.name,
-                      content: toolMessageContent,
-                    });
-                  } else {
-                    console.warn(
-                      '[Brain API] Unable to create ToolMessage: toolCall.id is missing',
-                    );
-                  }
-                } else {
-                  // For non-createDocument tools, log that they'll be handled by the agent executor
-                  console.log(
-                    `[BRAIN CHUNK_TOOL_CALL] Tool ${toolCall?.name} is not createDocument. Standard tool execution by agent executor is expected.`,
-                  );
-
-                  // The existing code for other tool calls can remain here
-                  // This is where you'd handle other tool types if needed
-                }
-              }
-            } else {
-              console.log(
-                '[BRAIN API DEBUG] No toolCalls found in chunk:',
-                JSON.stringify(chunk),
+            // Capture final response text if available
+            if (chunk.output && typeof chunk.output === 'string') {
+              assistantResponseText = chunk.output;
+              logger.info(
+                `[Brain API] Captured assistant response chunk: ${assistantResponseText.substring(0, 100)}...`,
               );
             }
 
-            // NEW: Also process tool actions from intermediateSteps
-            if (
-              Array.isArray(chunk.intermediateSteps) &&
-              chunk.intermediateSteps.length > 0
-            ) {
-              console.log(
-                '[BRAIN API DEBUG] Entered intermediateSteps processing loop',
-              );
-              for (const step of chunk.intermediateSteps) {
-                if (step?.action?.tool) {
-                  const toolArgs = step.action.toolInput || {};
-                  const toolName = step.action.tool;
-
-                  console.log(
-                    '[BRAIN API DEBUG] Processing tool action from intermediateSteps:',
-                    toolName,
-                    toolArgs,
-                  );
-
-                  // Check if this is a document creation tool
-                  if (toolName === 'createDocument') {
-                    const kind = toolArgs.kind;
-                    const title = toolArgs.title || 'Untitled Document';
-                    const initialContentPrompt = toolArgs.contentPrompt || '';
-
-                    console.log(
-                      `[BRAIN CHUNK_TOOL_CALL] createDocument detected in intermediateSteps. Kind: ${kind}, Title: ${title}`,
-                    );
-
-                    if (!kind) {
-                      console.error(
-                        '[BRAIN CHUNK_TOOL_CALL CRITICAL] "kind" is missing in createDocument tool arguments from intermediateSteps.',
-                      );
-                      continue;
-                    }
-
-                    console.log(
-                      '[BRAIN API DEBUG] documentHandlersByArtifactKind:',
-                      documentHandlersByArtifactKind.map((h) => h.kind),
-                    );
-
-                    // Find the handler by kind
-                    const handler = documentHandlersByArtifactKind.find(
-                      (h) => h.kind === kind,
-                    );
-
-                    console.log(
-                      `[BRAIN CHUNK_TOOL_CALL] Handler found for kind '${kind}' from intermediateSteps:`,
-                      !!handler,
-                    );
-
-                    if (
-                      !handler ||
-                      typeof handler.onCreateDocument !== 'function'
-                    ) {
-                      console.error(
-                        `[BRAIN CHUNK_TOOL_CALL CRITICAL] No handler or onCreateDocument method found for kind: ${kind} from intermediateSteps`,
-                      );
-                      continue;
-                    }
-
-                    // Prepare arguments for handler
-                    // Extract ID from tool response if available, otherwise generate new one
-                    let docId = randomUUID();
-
-                    // Try to extract ID from step.observation if available
-                    if (
-                      step.observation &&
-                      typeof step.observation === 'object' &&
-                      step.observation.id
-                    ) {
-                      docId = step.observation.id;
-                      console.log(
-                        `[BRAIN CHUNK_TOOL_CALL] Extracted document ID from step.observation: ${docId}`,
-                      );
-                    } else if (
-                      typeof step.observation === 'string' &&
-                      step.observation.includes('ID ')
-                    ) {
-                      const idMatch =
-                        step.observation.match(/ID ([a-f0-9-]{36})/);
-                      if (idMatch?.[1]) {
-                        docId = idMatch[1];
-                        console.log(
-                          `[BRAIN CHUNK_TOOL_CALL] Extracted document ID from tool response: ${docId}`,
-                        );
-                      }
-                    }
-
-                    console.log(
-                      `[BRAIN CHUNK_TOOL_CALL] Using document ID: ${docId} (from step.observation: ${!!step.observation?.id})`,
-                    );
-
-                    const handlerArgs = {
-                      id: docId,
-                      title,
-                      dataStream: dataStream,
-                      initialContentPrompt,
-                      session: authSession || {
-                        user: {
-                          id: effectiveUserId,
-                          name: 'User',
-                          email: '',
-                          image: '',
-                        },
-                        expires: '',
-                      },
-                    };
-
-                    console.log(
-                      `[BRAIN CHUNK_TOOL_CALL] Calling ${kind} handler.onCreateDocument from intermediateSteps. ID: ${docId}, Title: ${title}`,
-                    );
-
-                    let creationResult = undefined;
-                    try {
-                      creationResult =
-                        await handler.onCreateDocument(handlerArgs);
-                      console.log(
-                        `[BRAIN CHUNK_TOOL_CALL] ${kind} handler.onCreateDocument from intermediateSteps completed successfully. Result:`,
-                        creationResult,
-                      );
-                    } catch (error) {
-                      const errorMessage =
-                        error instanceof Error
-                          ? error.message
-                          : 'Unknown error';
-                      console.error(
-                        `[BRAIN CHUNK_TOOL_CALL ERROR] Error calling ${kind} handler.onCreateDocument from intermediateSteps:`,
-                        error,
-                      );
-                      continue;
-                    }
-
-                    // Additional handling for document creation from intermediateSteps could go here
-                    // This would typically mirror the logic in the toolCalls section
-                  }
-                }
-              }
-            }
+            // Note: Tool calls are now handled by LangChain automatically via the registered tools
+            // The createDocumentTool will use global.CREATE_DOCUMENT_CONTEXT to access dataStream and session
           }
+
+          logger.info(
+            '[Brain API] Finished processing all chunks from agent stream',
+          );
+          logger.info(
+            `[Brain API] Final assistantResponseText: "${assistantResponseText}"`,
+          );
+          logger.info(
+            `[Brain API] assistantMessageSaved flag: ${assistantMessageSaved}`,
+          );
 
           // Final clean-up and completion
           logger.info('[Brain API] AGENT EXECUTION COMPLETED SUCCESSFULLY');
+
+          // MANUAL MESSAGE SAVING: Since onCompletion callback may not be triggered
+          // Check if we need to save the assistant message manually
+          if (!assistantMessageSaved) {
+            logger.info(
+              '[Brain API] onCompletion callback was not triggered. Saving assistant message manually.',
+            );
+
+            // Determine if there were any tool invocations
+            const hasToolInvocations =
+              (streamHandler.toolInvocationsForMessage &&
+                streamHandler.toolInvocationsForMessage.length > 0) ||
+              (global.CREATE_DOCUMENT_CONTEXT?.toolInvocationsTracker &&
+                global.CREATE_DOCUMENT_CONTEXT.toolInvocationsTracker.length >
+                  0);
+
+            let effectiveResponse = assistantResponseText?.trim() || '';
+
+            // If the response is empty but tools were called, provide a default message
+            if (!effectiveResponse && hasToolInvocations) {
+              effectiveResponse = "Okay, I've processed your request."; // Generic message for any tool
+              // Check if the createDocument tool was specifically called and tailor the message
+              const createDocCalled =
+                streamHandler.toolInvocationsForMessage?.some(
+                  (inv) => inv.toolInvocation.toolName === 'createDocument',
+                ) ||
+                global.CREATE_DOCUMENT_CONTEXT?.toolInvocationsTracker?.some(
+                  (inv) => inv.toolInvocation.toolName === 'createDocument',
+                );
+              if (createDocCalled) {
+                effectiveResponse = "Okay, I've created the document.";
+              }
+              logger.info(
+                `[Brain API] Manual save: Empty LLM response, but tools were called. Using default message: "${effectiveResponse}"`,
+              );
+            }
+
+            if (effectiveResponse || hasToolInvocations) {
+              try {
+                const assistantId = randomUUID();
+
+                // Create message parts with tool invocations
+                const messageParts: Array<any> = [
+                  {
+                    type: 'text',
+                    text: effectiveResponse || "I've processed your request.",
+                  },
+                ];
+
+                // Add tool invocations from stream handler callbacks
+                streamHandler.toolInvocationsForMessage.forEach(
+                  (invocation) => {
+                    messageParts.push(invocation);
+                  },
+                );
+
+                // Add tool invocations from manual tracker (for tools that don't trigger callbacks)
+                const manualInvocations =
+                  global.CREATE_DOCUMENT_CONTEXT?.toolInvocationsTracker || [];
+                manualInvocations.forEach((invocation) => {
+                  messageParts.push(invocation);
+                });
+
+                logger.info(
+                  `[Brain API] Manual save: Total tool invocations: ${streamHandler.toolInvocationsForMessage.length} from callbacks + ${manualInvocations.length} from manual tracker = ${messageParts.length - 1} total parts`,
+                );
+
+                const assistantMessageToSave = {
+                  id: assistantId,
+                  chatId: normalizedChatId,
+                  role: 'assistant',
+                  content: effectiveResponse || "I've processed your request.",
+                  createdAt: new Date(),
+                  parts: messageParts,
+                  attachments: [],
+                  clientId: effectiveClientId,
+                };
+
+                logger.info(
+                  `[Brain API] Manual save: Saving assistant message with ${messageParts.length} parts (${manualInvocations.length} manual tool invocations)`,
+                );
+
+                await sql`
+                  INSERT INTO "Message_v2" (
+                    id, 
+                    "chatId", 
+                    role, 
+                    parts, 
+                    attachments, 
+                    "createdAt",
+                    "client_id"
+                  ) VALUES (
+                    ${assistantId},
+                    ${normalizedChatId},
+                    'assistant',
+                    ${JSON.stringify(messageParts)},
+                    ${JSON.stringify([])},
+                    ${new Date().toISOString()},
+                    ${effectiveClientId}
+                  )
+                `;
+
+                logger.info(
+                  '[Brain API] Manual save: Successfully saved assistant message with tool invocations',
+                );
+                assistantMessageSaved = true;
+              } catch (dbError: any) {
+                logger.error(
+                  '[Brain API] Manual save: Failed to save assistant message:',
+                  dbError,
+                );
+              }
+            } else {
+              logger.info(
+                '[Brain API] Manual save: No effective response or tool invocations to save',
+              );
+            }
+          } else {
+            logger.info(
+              '[Brain API] Assistant message already saved via onCompletion callback',
+            );
+          }
 
           // Close the stream with end-of-stream indicators
           dataStream.writeData({
@@ -2889,6 +2835,17 @@ ${artifactsInfo}
             id: messageId,
             createdAt: new Date().toISOString(),
           });
+
+          // Add tool invocations to the message parts from stream handler
+          dataStream.writeMessageAnnotation({
+            toolInvocations: streamHandler.toolInvocationsForMessage,
+          });
+
+          // Add the final assistant response to the message parts
+          dataStream.writeData({
+            type: 'assistant-response',
+            content: assistantResponseText,
+          });
         } catch (error) {
           // Error handling
           logger.error(`[Brain API] ERROR IN AGENT EXECUTION:`, error);
@@ -2896,9 +2853,12 @@ ${artifactsInfo}
             type: 'error',
             error: error instanceof Error ? error.message : String(error),
           });
+        } finally {
+          // Clean up global context
+          global.CREATE_DOCUMENT_CONTEXT = undefined;
         }
-      },
-    });
+      }, // This closes the async execute() block
+    }); // This closes createDataStreamResponse
   } catch (error: any) {
     logger.error('[Brain API Error]', error);
 
