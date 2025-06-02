@@ -308,9 +308,18 @@ export class BrainOrchestrator {
                   }
 
                   if (chunk.output) {
-                    // Final output
+                    // Final output from agent execution
                     content = chunk.output;
                     finalOutput = content;
+                  } else if (chunk.returnValues) {
+                    // Handle cases where agent returns values without tool calls
+                    if (chunk.returnValues.output) {
+                      content = chunk.returnValues.output;
+                      finalOutput = content;
+                    } else if (typeof chunk.returnValues === 'string') {
+                      content = chunk.returnValues;
+                      finalOutput = content;
+                    }
                   } else if (chunk.messages && chunk.messages.length > 0) {
                     // Message content
                     const lastMessage =
