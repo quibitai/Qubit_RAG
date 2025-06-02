@@ -134,7 +134,10 @@ export class LangChainToolService {
     }
 
     // Limit tools if specified
-    if (this.config.maxTools && selectedTools.length > this.config.maxTools) {
+    if (
+      this.config.maxTools !== undefined &&
+      selectedTools.length > this.config.maxTools
+    ) {
       selectedTools = this.prioritizeAndLimitTools(
         selectedTools,
         this.config.maxTools,
