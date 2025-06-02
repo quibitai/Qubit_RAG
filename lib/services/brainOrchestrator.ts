@@ -28,7 +28,7 @@ import {
   type ToolContext,
 } from './modernToolService';
 
-// Import LangChain bridge and performance services
+// Import LangChain bridge
 import {
   createLangChainAgent,
   streamLangChainAgent,
@@ -36,21 +36,12 @@ import {
   type LangChainBridgeConfig,
   type LangChainAgent,
 } from './langchainBridge';
-import {
-  createPerformanceContext,
-  recordCheckpoint,
-  completePerformanceTracking,
-  comparePerformance,
-  logPerformanceComparison,
-  type PerformanceContext,
-  type BrainAPIMetrics,
-} from './performanceComparison';
 
 /**
  * BrainOrchestrator
  *
  * Main coordination service that orchestrates the complete brain API pipeline
- * with hybrid LangChain integration and performance monitoring
+ * with LangChain integration
  */
 
 export interface BrainOrchestratorConfig {
@@ -59,7 +50,6 @@ export interface BrainOrchestratorConfig {
   enableToolExecution?: boolean;
   maxTools?: number;
   streamingEnabled?: boolean;
-  enablePerformanceTracking?: boolean;
   enableLangChainBridge?: boolean;
   maxIterations?: number;
   verbose?: boolean;
@@ -75,39 +65,37 @@ export interface BrainResponse {
 }
 
 /**
- * Main orchestrator class that coordinates the entire brain API flow
+ * BrainOrchestrator
+ *
+ * Main coordination service that orchestrates the complete brain API pipeline
+ * with hybrid LangChain integration and performance monitoring
  */
 export class BrainOrchestrator {
   private request: NextRequest;
   private config: BrainOrchestratorConfig;
   private logger: RequestLogger;
-  private performanceContext?: PerformanceContext;
   private langchainAgent?: LangChainAgent;
+  private startTime: number;
 
   constructor(request: NextRequest, config: BrainOrchestratorConfig) {
     this.request = request;
     this.config = {
-      // Default configuration
       enableCaching: false,
       enableToolExecution: true,
       maxTools: 26,
       streamingEnabled: true,
-      enablePerformanceTracking: true,
       enableLangChainBridge: true,
       maxIterations: 10,
       verbose: false,
       ...config,
     };
-    this.logger = getRequestLogger(this.request);
+    this.logger = getRequestLogger(request);
+    this.startTime = performance.now();
 
-    // Initialize performance tracking if enabled
-    if (this.config.enablePerformanceTracking) {
-      this.performanceContext = createPerformanceContext(
-        'modern',
-        this.logger.correlationId,
-        this.logger,
-      );
-    }
+    this.logger.info('BrainOrchestrator initialized', {
+      config: this.config,
+      correlationId: this.logger.correlationId,
+    });
   }
 
   /**
@@ -203,7 +191,7 @@ export class BrainOrchestrator {
       currentActiveSpecialistId: request.currentActiveSpecialistId,
       activeBitPersona: request.activeBitPersona,
       selectedChatModel: request.selectedChatModel,
-      userTimezone: request.userTimezone,
+      userTimezone: request.userTimezone ?? undefined,
       isFromGlobalPane: request.isFromGlobalPane,
     };
 
@@ -290,8 +278,7 @@ export class BrainOrchestrator {
         success: true,
         stream: stream, // Return the raw stream
         correlationId: this.logger.correlationId,
-        processingTime:
-          performance.now() - (this.performanceContext?.startTime || 0),
+        processingTime: performance.now() - (this.startTime || 0),
       };
     } catch (error) {
       this.logger.error('LangChain bridge execution failed', {
@@ -341,8 +328,7 @@ export class BrainOrchestrator {
         success: true,
         stream: streamResult.stream,
         correlationId: this.logger.correlationId,
-        processingTime:
-          performance.now() - (this.performanceContext?.startTime || 0),
+        processingTime: performance.now() - (this.startTime || 0),
       };
     } catch (error) {
       this.logger.error('Modern pipeline execution failed', {
@@ -360,9 +346,7 @@ export class BrainOrchestrator {
     name: string,
     additionalData?: Record<string, any>,
   ): void {
-    if (this.performanceContext) {
-      recordCheckpoint(this.performanceContext, name, additionalData);
-    }
+    // Placeholder for performance tracking
   }
 
   /**
@@ -496,16 +480,6 @@ export class BrainOrchestrator {
   ): BrainResponse {
     const processingTime = performance.now() - startTime;
 
-    // Complete performance tracking if enabled
-    if (this.performanceContext) {
-      completePerformanceTracking(this.performanceContext, false, {
-        errorType: 'processing_error',
-        enabledFeatures: this.config.enableLangChainBridge
-          ? ['langchain_bridge']
-          : ['modern_pipeline'],
-      });
-    }
-
     this.logger.error('Brain request failed', {
       processingTime: `${processingTime.toFixed(2)}ms`,
       success: false,
@@ -525,7 +499,7 @@ export class BrainOrchestrator {
  */
 export async function processBrainRequest(
   req: NextRequest,
-  config?: BrainOrchestratorConfig,
+  config: BrainOrchestratorConfig = {},
 ): Promise<BrainResponse> {
   const orchestrator = new BrainOrchestrator(req, config);
   return await orchestrator.processRequest();

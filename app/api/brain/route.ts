@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
       enableToolExecution: true,
       maxTools: 26,
       streamingEnabled: true,
+      enableLangChainBridge: true, // Use LangChain bridge by default
     };
 
     // Process the request through our modern pipeline

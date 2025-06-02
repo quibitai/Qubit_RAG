@@ -2,8 +2,8 @@
 
 > A modular, enterprise-grade Retrieval-Augmented Generation (RAG) system with native file handling, Google Drive integration, and modern chatbot interface
 
-**Status**: Stable  
-**Last Updated**: 2025-01-28  
+**Status**: Active Development  
+**Last Updated**: 2025-06-02  
 **Version**: 2.8.0
 
 ![Version](https://img.shields.io/badge/version-2.8.0-blue)
@@ -24,87 +24,41 @@
 
 ## Overview
 
-Quibit RAG is a modular, multi-tenant AI assistant platform that combines modern language models with retrieval techniques and a robust tool registry. Built on Next.js, LangChain, and Supabase, it's designed for extensibility, maintainability, and real-time streaming.
+Quibit RAG is a modular, multi-tenant AI assistant platform that combines modern language models with retrieval techniques and a robust tool registry. Built on Next.js, LangChain, Vercel AI SDK, and Supabase, it's designed for extensibility, maintainability, and real-time streaming.
 
 ### Core Capabilities
 - **Client-Aware Configuration**: Each client receives unique, context-aware experiences with custom prompts, tool access, and specialist personas
 - **Advanced Context Management**: Automatic entity extraction, conversation summarization, conversational memory, and long-term context retention
 - **Modular Tool Registry**: Easily add, remove, or update tools for document search, file handling, calendar, web search, and more
-- **Real-time Streaming**: Server-Sent Events (SSE) for responsive chat and document updates
+- **Real-time Streaming**: Vercel AI SDK data stream protocol for responsive chat and document updates
 - **Multi-tenancy**: Client-aware context, permissions, and data isolation
 - **Cross-Platform Integration**: Google Drive, Supabase, Tavily, Google Calendar, Asana, and more
 
 ### System Components
-- **Brain Orchestrator**: Central LangChain agent for AI interactions
+- **Brain Orchestrator**: Central coordination layer with LangChain agent integration
 - **Specialist Registry**: Contextual AI personas (General Chat, Echo Tango, custom specialists)
 - **Context Engine**: Advanced conversation memory, entity tracking, and intelligent summarization
-- **Tool Framework**: Modular integrations with external services
+- **Tool Framework**: Modular integrations with external services (26 tools available)
 - **Document Editor**: Real-time collaborative document creation
 - **File Processing**: Intelligent extraction and analysis pipeline
 
 ## Key Features
 
-### Version 2.8.0 Features (Latest)
-- **Critical Asana GID Handling**: Comprehensive fix for all GID-related API errors across task updates, subtask creation, and project filtering
-- **Enhanced Error Recovery**: Advanced user-friendly error handling with 15 comprehensive test cases and intelligent retry logic
-- **API Constraint Compliance**: Fixed Asana API filtering constraints with proper parameter prioritization
-- **LLM Tool Selection Roadmap**: Strategic 4-phase implementation plan for next-generation intelligent tool routing
-- **Improved User Experience**: Seamless Asana operations with clear, actionable error guidance when issues occur
-- **Robust Testing Infrastructure**: Expanded test coverage for all error scenarios and edge cases
+### Version 2.8.0 Features (Latest - June 2025)
+- **Vercel AI SDK Integration**: Modern streaming implementation using Vercel AI SDK data stream protocol
+- **Enhanced Streaming Architecture**: Manual data stream protocol implementation for AgentExecutor compatibility
+- **Improved Tool Selection**: 26 available tools with intelligent selection based on context
+- **Robust Error Handling**: Comprehensive error processing with proper stream formatting
+- **Performance Monitoring**: Detailed observability service with correlation IDs and performance metrics
+- **Modular Service Architecture**: Separated concerns with dedicated services for orchestration, validation, and tool management
+- **Enhanced Testing**: Comprehensive test suites for all major components
 
-### Version 2.7.0 Features
+### Previous Version Highlights
+- **Critical Asana GID Handling**: Comprehensive fix for all GID-related API errors across task updates, subtask creation, and project filtering
+- **Enhanced Error Recovery**: Advanced user-friendly error handling with comprehensive test cases and intelligent retry logic
+- **API Constraint Compliance**: Fixed Asana API filtering constraints with proper parameter prioritization
 - **Modern Asana Tool Architecture**: Next-generation Asana integration using LLM function calling instead of regex-based intent parsing
 - **Structured Function Schemas**: Comprehensive Zod-based schemas for 17+ Asana operations with type safety
-- **LLM-Based Intent Extraction**: OpenAI-powered natural language understanding for flexible intent classification
-- **Enhanced Context Awareness**: Improved conversation context handling for better task and project references
-
-### Version 2.6.0 Features
-- **Collapsed Artifacts Context Awareness**: AI now maintains full awareness of collapsed artifacts when they are closed from the artifact pane
-- **Enhanced Scrolling System**: Complete rebuild of scrolling functionality for both main chat and artifact pane with smart auto-scroll
-- **Critical AI Context Fix**: Resolved AI losing awareness of document content after closing artifacts (hitting X button)
-- **Improved User Experience**: Seamless interaction between collapsed artifacts and AI responses with proper chronological placement
-- **Technical Architecture**: Enhanced Brain API context processing and rebuilt scrolling architecture with conflict prevention
-
-### Version 2.5.0 Features
-- **Vercel AI SDK Migration**: Complete migration from custom LangChain streaming to modern Vercel AI SDK patterns for artifacts
-- **Enhanced Artifact Rendering**: Proper Markdown support with clickable hyperlinks and improved visual integration
-- **Fixed Artifact Functionality**: Resolved critical issues with artifact close/collapse functionality and state management
-- **Collapsed Artifact Display**: New inline collapsed artifacts in chat with smart content preview and expandable functionality
-- **Modern Streaming Architecture**: Industry-standard streaming protocols with better error handling and performance
-- **Improved User Experience**: Seamless artifact interactions, better visual feedback, and enhanced accessibility
-
-### Version 2.4.0 Features
-- **Complete Phase 2 Implementation**: Full native Asana integration with 100% API coverage
-- **Advanced Task Management**: Complete task lifecycle support including dependencies, subtasks, and followers
-- **Sophisticated Project Operations**: Project management, sections, task organization with GID resolution
-- **Enhanced User Operations**: User lookup, assignment management, and workspace integration
-- **Advanced Search & Filtering**: Comprehensive search capabilities across tasks, projects, and users
-- **Intelligent Context Management**: Task context memory and cross-session awareness
-- **Production-Ready Architecture**: Robust error handling, caching, and performance optimization
-
-### Version 2.3.0 Features
-- **Modular Asana Integration**: Complete rebuild of Asana tool with modular architecture, intent parsing, and comprehensive API coverage
-- **Google Calendar Tool**: Dedicated Google Calendar integration (renamed from n8n MCP Gateway) for focused calendar management
-- **Conversation Summaries System**: Automatic LLM-powered conversation summarization with long-term context retention
-- **Enhanced Tool Architecture**: Improved modularity, error handling, and type safety across all tools
-- **Comprehensive Documentation**: Updated documentation for all tools and architectural improvements
-
-### Version 2.2.0 Features
-- **Advanced Asana Operations**: Complete task management, project operations, and natural language processing
-- **Tool Framework Improvements**: Enhanced error handling, timeout management, and response formatting
-- **Performance Optimizations**: Improved caching strategies and API efficiency
-
-### Version 2.1.0 Features
-- **Comprehensive Context Management**: Advanced entity extraction, conversation summarization, and cross-chat context sharing
-- **Enhanced Tool Integration**: Improved reliability and client-specific configurations
-- **Background Processing**: Non-blocking entity extraction and context building
-- **Improved Documentation**: Comprehensive API documentation and style guides
-
-### Version 2.0.0 Foundation
-- **Client-Aware Configuration System**: Dynamic prompts and tool access per client using unified configuration schema
-- **General Chat Specialist**: Dedicated, client-contextualized specialist for standard chat contexts
-- **Unified Specialist Registry**: Centralized management of all specialists with no UI duplicates
-- **Comprehensive Test Suite**: Unit and integration tests for prompts, tools, and client context injection
 
 ## Architecture
 
@@ -547,5 +501,5 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 ---
 
 **Built with ❤️ by the Quibit Team**  
-**Last Updated**: 2025-01-28  
+**Last Updated**: 2025-06-02  
 **Version**: 2.8.0

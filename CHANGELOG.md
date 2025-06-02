@@ -5,7 +5,28 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.8.0] - 2025-01-28
+## [2.8.1] - 2025-06-02
+
+### Changed
+- **Documentation Cleanup**: Comprehensive cleanup and update of all documentation
+- **Codebase Maintenance**: Removed outdated implementation files and unused services
+- **Architecture Updates**: Updated README.md and ARCHITECTURE.md with current implementation details
+- **Service Optimization**: Removed unused performance dashboard, A/B testing, and performance comparison services
+- **Configuration Updates**: Updated brain API to use LangChain bridge by default for improved streaming
+
+### Removed
+- Outdated implementation guides and summaries
+- Unused performance monitoring services
+- Legacy dashboard functionality
+- Redundant documentation files
+- Completed migration trackers and rollout guides
+
+### Fixed
+- Updated all documentation dates to reflect current state
+- Corrected technology stack references to include Vercel AI SDK
+- Aligned documentation with actual implementation
+
+## [2.8.0] - 2025-06-01
 
 ### Added
 - **LLM Tool Selection & Routing Improvements Roadmap**: Comprehensive implementation plan for next-generation tool selection based on latest best practices

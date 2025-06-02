@@ -2,8 +2,8 @@
 
 > Comprehensive overview of the Quibit RAG system architecture, design decisions, and component interactions
 
-**Status**: Stable  
-**Last Updated**: 2024-12-23  
+**Status**: Active  
+**Last Updated**: 2025-06-02  
 **Maintainer**: Quibit Development Team
 
 ## Table of Contents
@@ -19,14 +19,14 @@
 
 ## Overview
 
-Quibit RAG is a modular Retrieval-Augmented Generation (RAG) platform built on Next.js, LangChain, and a robust tool registry. The system is designed for scalability, maintainability, and extensibility, supporting multi-tenant deployments and real-time streaming.
+Quibit RAG is a modular Retrieval-Augmented Generation (RAG) platform built on Next.js, LangChain, Vercel AI SDK, and a robust tool registry. The system is designed for scalability, maintainability, and extensibility, supporting multi-tenant deployments and real-time streaming.
 
 ### Key Architectural Principles
 - **Modularity**: Self-contained components with clear interfaces
 - **Scalability**: Horizontal scaling support with stateless design
 - **Extensibility**: Plugin-based tool system and configurable prompts
 - **Multi-tenancy**: Client-aware context and data isolation
-- **Real-time**: Streaming responses and live updates
+- **Real-time**: Vercel AI SDK streaming responses and live updates
 - **Type Safety**: Comprehensive TypeScript coverage
 
 ## High-Level Architecture
@@ -37,50 +37,57 @@ graph TB
         A[React Frontend]
         B[Document Editor]
         C[File Upload UI]
+        D[Global Chat Pane]
     end
     
     subgraph "API Layer"
-        D[Brain API]
-        E[File Upload API]
-        F[Authentication]
+        E[Brain API - /api/brain]
+        F[File Upload API]
+        G[Authentication]
+        H[Admin API]
     end
     
     subgraph "Processing Layer"
-        G[LangChain Agent]
-        H[Tool Registry]
-        I[Context Manager]
-        J[Prompt System]
+        I[Brain Orchestrator]
+        J[LangChain Bridge]
+        K[Modern Tool Service]
+        L[Validation Service]
+        M[Observability Service]
     end
     
     subgraph "Data Layer"
-        K[PostgreSQL/Supabase]
-        L[Vector Store]
-        M[Vercel Blob]
-        N[Redis Cache]
+        N[PostgreSQL/Supabase]
+        O[Vector Store]
+        P[Vercel Blob]
+        Q[Redis Cache]
     end
     
     subgraph "External Services"
-        O[OpenAI API]
-        P[Google Drive]
-        Q[n8n Workflows]
-        R[Tavily Search]
+        R[OpenAI API]
+        S[Google Drive]
+        T[Asana API]
+        U[Google Calendar]
+        V[Tavily Search]
     end
     
-    A --> D
-    B --> D
-    C --> E
-    D --> G
-    G --> H
-    G --> I
-    G --> J
-    H --> O
-    H --> P
-    H --> Q
-    H --> R
-    D --> K
-    E --> M
+    A --> E
+    B --> E
+    C --> F
+    D --> E
+    E --> I
+    I --> J
     I --> K
     I --> L
+    I --> M
+    K --> R
+    K --> S
+    K --> T
+    K --> U
+    K --> V
+    E --> N
+    F --> P
+    I --> N
+    I --> O
 ```
 
 ## Core Components
@@ -312,5 +319,5 @@ sequenceDiagram
 - [Message Handling](./docs/MESSAGE_HANDLING.md)
 - [API Documentation](./docs/api/)
 
-**Last Updated**: 2024-12-23  
+**Last Updated**: 2025-06-02  
 **Maintained by**: Quibit Development Team 
