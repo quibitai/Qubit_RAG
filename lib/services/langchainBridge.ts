@@ -17,6 +17,16 @@ import { specialistRegistry } from '@/lib/ai/prompts/specialists';
 import { modelMapping } from '@/lib/ai/models';
 import type { RequestLogger } from './observabilityService';
 import type { ClientConfig } from '@/lib/db/queries';
+import {
+  LangChainToolService,
+  createLangChainToolService,
+  type LangChainToolConfig,
+} from './langchainToolService';
+import {
+  LangChainStreamingService,
+  createLangChainStreamingService,
+  type LangChainStreamingConfig,
+} from './langchainStreamingService';
 
 /**
  * Configuration for LangChain bridge
@@ -106,45 +116,24 @@ function initializeLLM(
 
 /**
  * Select and filter tools based on context and configuration
+ * Now uses LangChainToolService for better organization
  */
 function selectTools(
   config: LangChainBridgeConfig,
   logger: RequestLogger,
 ): any[] {
-  const startTime = performance.now();
-
-  // Get client-specific tool configurations
-  if (config.clientConfig?.configJson?.tool_configs) {
-    logger.info('Setting up client-specific tool configurations');
-    global.CURRENT_TOOL_CONFIGS = config.clientConfig.configJson.tool_configs;
-  }
-
-  let selectedTools = [...availableTools];
-
-  logger.info('All tools available to all specialists', {
+  const toolConfig: LangChainToolConfig = {
     contextId: config.contextId,
-    toolCount: selectedTools.length,
-    selectedTools: selectedTools.map((t) => t.name),
-  });
+    clientConfig: config.clientConfig,
+    enableToolExecution: config.enableToolExecution,
+    maxTools: config.maxTools,
+    verbose: config.verbose,
+  };
 
-  // Limit tools if specified
-  if (config.maxTools && selectedTools.length > config.maxTools) {
-    selectedTools = selectedTools.slice(0, config.maxTools);
-    logger.info('Limited tool count', {
-      maxTools: config.maxTools,
-      finalCount: selectedTools.length,
-    });
-  }
+  const toolService = createLangChainToolService(logger, toolConfig);
+  const result = toolService.selectTools();
 
-  const duration = performance.now() - startTime;
-  logger.info('Tool selection completed', {
-    totalAvailable: availableTools.length,
-    selected: selectedTools.length,
-    selectionTime: `${duration.toFixed(2)}ms`,
-    tools: selectedTools.map((t) => t.name),
-  });
-
-  return selectedTools;
+  return result.tools;
 }
 
 /**
@@ -168,11 +157,26 @@ export async function createLangChainAgent(
   const llm = initializeLLM(config, logger);
   const llmDuration = performance.now() - llmStartTime;
 
-  // Select tools
+  // Select tools using the new LangChainToolService
   const toolStartTime = performance.now();
   const tools =
     config.enableToolExecution !== false ? selectTools(config, logger) : [];
   const toolDuration = performance.now() - toolStartTime;
+
+  // Create streaming callbacks using the new LangChainStreamingService
+  const streamingConfig = {
+    enableTokenStreaming: true,
+    enableToolTracking: config.enableToolExecution !== false,
+    verbose: config.verbose || false,
+  };
+  const streamingService = createLangChainStreamingService(
+    logger,
+    streamingConfig,
+  );
+  const callbacks = streamingService.createStreamingCallbacks();
+
+  // Add callbacks to LLM
+  llm.callbacks = callbacks;
 
   // Create prompt template
   const prompt = ChatPromptTemplate.fromMessages([
@@ -198,6 +202,7 @@ export async function createLangChainAgent(
     maxIterations: config.maxIterations || 10,
     returnIntermediateSteps: false,
     verbose: config.verbose || false,
+    callbacks, // Add streaming callbacks to executor
   });
 
   // Create enhanced executor for smarter tool call enforcement
@@ -215,6 +220,7 @@ export async function createLangChainAgent(
     agentCreationTime: `${agentDuration.toFixed(2)}ms`,
     toolCount: tools.length,
     contextId: config.contextId,
+    callbacksEnabled: callbacks.length > 0,
   });
 
   return {
