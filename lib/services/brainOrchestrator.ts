@@ -3,8 +3,14 @@
  *
  * Unified orchestration service that intelligently routes queries between
  * LangChain (complex tool orchestration) and Vercel AI SDK (simple responses).
+ * Powers both Quibit (global chat pane) and Chat Bit specialists.
  * Provides fallback mechanisms, response standardization, and comprehensive
  * error handling for the hybrid RAG system.
+ *
+ * Terminology:
+ * - Quibit/Quibit Chat: Global chat pane orchestrator
+ * - Chat Bit: Sidebar specialist chat interface
+ * - Specialists: Individual AI assistants (Echo Tango, General Chat, etc.)
  * Target: ~180 lines as per roadmap specifications.
  */
 
@@ -26,6 +32,16 @@ import {
 } from './langchainBridge';
 import type { ClientConfig } from '@/lib/db/queries';
 import type { BrainRequest } from '@/lib/validation/brainValidation';
+
+// Import database utilities for chat storage
+import { saveChat, saveMessages } from '@/lib/db/queries';
+import { auth } from '@/app/(auth)/auth';
+import { randomUUID } from 'node:crypto';
+import type { DBMessage } from '@/lib/db/schema';
+
+// Import date/time and prompt loading utilities
+import { DateTime } from 'luxon';
+import { loadPrompt } from '@/lib/ai/prompts/loader';
 
 /**
  * Configuration for brain orchestration
@@ -114,124 +130,296 @@ export class BrainOrchestrator {
   }
 
   /**
-   * Process a brain request with intelligent routing
+   * Process a brain request with automatic orchestration
    */
   public async processRequest(brainRequest: BrainRequest): Promise<Response> {
     const startTime = performance.now();
-    let classificationTime = 0;
-    let executionTime = 0;
-    let classification: QueryClassificationResult | undefined;
-    let executionPath: 'langchain' | 'vercel-ai' | 'fallback' = 'langchain';
 
     try {
-      this.logger.info('Processing brain request', {
-        hybridRouting: this.config.enableHybridRouting,
-        classification: this.config.enableClassification,
-      });
-
-      // 1. Process context and extract message data
-      const context = this.contextService.processContext(brainRequest);
+      // Process context and format messages
+      const context = await this.contextService.processContext(brainRequest);
       const userInput = this.messageService.extractUserInput(brainRequest);
       const conversationHistory = this.messageService.convertToLangChainFormat(
         brainRequest.messages,
       );
 
-      // 2. Classify query if hybrid routing is enabled
-      if (this.config.enableHybridRouting && this.config.enableClassification) {
+      this.logger.info('Processing brain request', {
+        userInput: userInput.substring(0, 100),
+        historyCount: conversationHistory.length,
+        selectedModel: context.selectedChatModel,
+        contextId: context.activeBitContextId,
+      });
+
+      // Store chat and user message in database
+      await this.storeChatAndUserMessage(brainRequest, userInput);
+
+      // Determine execution path via classification
+      let classification: QueryClassificationResult | undefined;
+      let classificationTime = 0;
+
+      if (this.config.enableClassification) {
         const classificationStart = performance.now();
-
-        classification = await this.queryClassifier.classifyQuery(
-          userInput,
-          conversationHistory,
-          'You are a helpful AI assistant.',
-        );
-
+        classification = await this.queryClassifier.classifyQuery(userInput);
         classificationTime = performance.now() - classificationStart;
 
-        this.logger.info('Query classified', {
-          shouldUseLangChain: classification.shouldUseLangChain,
-          confidence: classification.confidence,
-          reasoning: classification.reasoning,
-          complexityScore: classification.complexityScore,
+        this.logger.info('Query classification completed', {
+          shouldUseLangChain: classification?.shouldUseLangChain,
+          confidence: classification?.confidence,
+          reasoning: classification?.reasoning,
+          patterns: classification?.detectedPatterns,
+          classificationTime: `${classificationTime.toFixed(2)}ms`,
         });
       }
 
-      // 3. Route to appropriate execution path
       const executionStart = performance.now();
+      let response: Response;
 
-      if (classification?.shouldUseLangChain !== false) {
-        // Use LangChain for complex queries or when classification disabled
-        executionPath = 'langchain';
-        const response = await this.executeLangChainPath(
+      // Execute based on classification or config
+      const shouldUseLangChain =
+        classification?.shouldUseLangChain ||
+        (!this.config.enableClassification && this.config.enableHybridRouting);
+
+      if (shouldUseLangChain) {
+        this.logger.info('Routing to LangChain path');
+        response = await this.executeLangChainPath(
           brainRequest,
           context,
           userInput,
           conversationHistory,
         );
-        executionTime = performance.now() - executionStart;
-        return response;
       } else {
-        // Use Vercel AI SDK for simple queries
-        executionPath = 'vercel-ai';
-        const response = await this.executeVercelAIPath(
+        this.logger.info('Routing to Vercel AI path');
+        const result = await this.executeVercelAIPath(
           userInput,
           conversationHistory,
+          brainRequest,
+          context,
         );
-        executionTime = performance.now() - executionStart;
-        return this.formatVercelAIResponse(response, {
+        response = this.formatVercelAIResponse(result, {
           totalTime: performance.now() - startTime,
           classificationTime,
-          executionTime,
+          executionTime: performance.now() - executionStart,
           classification,
-          executionPath,
+          executionPath: 'vercel-ai',
         });
       }
-    } catch (error) {
-      executionTime = performance.now() - startTime;
 
-      this.logger.error('Brain request failed', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        executionPath,
-        totalTime: executionTime,
-        classificationTime,
+      const totalTime = performance.now() - startTime;
+
+      this.logger.info('Brain request processing completed', {
+        totalTime: `${totalTime.toFixed(2)}ms`,
+        executionPath: shouldUseLangChain ? 'langchain' : 'vercel-ai',
+        classification: classification?.reasoning,
       });
 
-      // Implement fallback mechanism
-      if (this.config.enableFallbackOnError && executionPath === 'vercel-ai') {
-        this.logger.info('Attempting fallback to LangChain');
+      return response;
+    } catch (error) {
+      const totalTime = performance.now() - startTime;
+      this.logger.error('Brain request processing failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        totalTime: `${totalTime.toFixed(2)}ms`,
+      });
 
+      return this.formatErrorResponse(error, {
+        totalTime,
+        classificationTime: 0,
+        executionTime: 0,
+        executionPath: 'error',
+      });
+    }
+  }
+
+  /**
+   * Store chat and user message in database
+   */
+  private async storeChatAndUserMessage(
+    brainRequest: BrainRequest,
+    userInput: string,
+  ): Promise<void> {
+    try {
+      // Get authentication details
+      const session = await auth();
+      if (!session?.user?.id) {
+        this.logger.warn('No authenticated user for chat storage');
+        return;
+      }
+
+      const userId = session.user.id;
+      const chatId = brainRequest.chatId || randomUUID();
+
+      // Check if chat already exists by trying to get the last message from it
+      const messages = brainRequest.messages || [];
+      const isNewChat = messages.length <= 1; // Only user message means new chat
+
+      if (isNewChat) {
+        // Generate chat title from user input
+        const title =
+          userInput.substring(0, 100) + (userInput.length > 100 ? '...' : '');
+
+        // Get context information from the request
+        const bitContextId =
+          brainRequest.activeBitContextId ||
+          brainRequest.currentActiveSpecialistId ||
+          null;
+        const clientId = this.config.clientConfig?.id || 'default';
+
+        this.logger.info('Creating new chat in database', {
+          chatId,
+          userId,
+          title: title.substring(0, 50),
+          bitContextId,
+          clientId,
+        });
+
+        // Save chat metadata with proper context
         try {
-          const context = this.contextService.processContext(brainRequest);
-          const userInput = this.messageService.extractUserInput(brainRequest);
-          const conversationHistory =
-            this.messageService.convertToLangChainFormat(brainRequest.messages);
-
-          executionPath = 'fallback';
-          return await this.executeLangChainPath(
-            brainRequest,
-            context,
-            userInput,
-            conversationHistory,
-          );
-        } catch (fallbackError) {
-          this.logger.error('Fallback to LangChain also failed', {
-            error:
-              fallbackError instanceof Error
-                ? fallbackError.message
-                : 'Unknown error',
+          await saveChat({
+            id: chatId,
+            userId,
+            title,
+            bitContextId,
+            clientId,
           });
+          this.logger.info('Chat created successfully', {
+            chatId,
+            bitContextId,
+            clientId,
+          });
+        } catch (chatError) {
+          this.logger.error('Failed to create chat', {
+            chatId,
+            error:
+              chatError instanceof Error ? chatError.message : 'Unknown error',
+          });
+          // Continue even if chat creation fails
         }
       }
 
-      // Return error response
-      return this.formatErrorResponse(error, {
-        totalTime: performance.now() - startTime,
-        classificationTime,
-        executionTime,
-        classification,
-        executionPath,
+      // Save user message
+      const userMessage = messages[messages.length - 1]; // Last message is user input
+      if (userMessage) {
+        const dbMessage: DBMessage = {
+          id: userMessage.id || randomUUID(),
+          chatId: chatId,
+          role: 'user',
+          parts: [{ type: 'text', text: userInput }],
+          attachments: [],
+          createdAt: new Date(),
+          clientId: 'default',
+        };
+
+        try {
+          await saveMessages({ messages: [dbMessage] });
+          this.logger.info('User message saved successfully', {
+            messageId: dbMessage.id,
+            chatId: dbMessage.chatId,
+          });
+        } catch (messageError) {
+          this.logger.error('Failed to save user message', {
+            messageId: dbMessage.id,
+            chatId: dbMessage.chatId,
+            error:
+              messageError instanceof Error
+                ? messageError.message
+                : 'Unknown error',
+          });
+          // Continue even if message save fails
+        }
+      }
+    } catch (error) {
+      this.logger.error('Chat storage operation failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        chatId: brainRequest.chatId || 'unknown',
       });
+      // Don't throw - storage failure shouldn't break the request
     }
+  }
+
+  /**
+   * Save assistant message to database
+   */
+  private async saveAssistantMessage(
+    brainRequest: BrainRequest,
+    assistantResponse: string,
+    toolsUsed: string[] = [],
+  ): Promise<void> {
+    try {
+      // Get authentication details
+      const session = await auth();
+      if (!session?.user?.id) {
+        this.logger.warn('No authenticated user for assistant message storage');
+        return;
+      }
+
+      const chatId = brainRequest.chatId || randomUUID();
+
+      const assistantMessage: DBMessage = {
+        id: randomUUID(),
+        chatId: chatId,
+        role: 'assistant',
+        parts: [{ type: 'text', text: assistantResponse }],
+        attachments: [],
+        createdAt: new Date(),
+        clientId: 'default',
+      };
+
+      try {
+        await saveMessages({ messages: [assistantMessage] });
+        this.logger.info('Assistant message saved successfully', {
+          messageId: assistantMessage.id,
+          chatId: assistantMessage.chatId,
+          toolsUsed: toolsUsed.length > 0 ? toolsUsed : undefined,
+          responseLength: assistantResponse.length,
+        });
+      } catch (messageError) {
+        this.logger.error('Failed to save assistant message', {
+          messageId: assistantMessage.id,
+          chatId: assistantMessage.chatId,
+          error:
+            messageError instanceof Error
+              ? messageError.message
+              : 'Unknown error',
+        });
+      }
+    } catch (error) {
+      this.logger.error('Assistant message storage operation failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        chatId: brainRequest.chatId || 'unknown',
+      });
+      // Don't throw - storage failure shouldn't break the request
+    }
+  }
+
+  /**
+   * Trigger chat history refresh by invalidating cache
+   */
+  private triggerChatHistoryRefresh(): void {
+    // Use setTimeout to avoid blocking the main response
+    setTimeout(async () => {
+      try {
+        // Make a cache-busting request to refresh chat history
+        const timestamp = Date.now();
+        const refreshUrl = `/api/history?type=all-specialists&limit=1&_refresh=${timestamp}`;
+
+        this.logger.info('Triggering chat history refresh', { refreshUrl });
+
+        // Don't await this - it's a fire-and-forget cache refresh
+        fetch(refreshUrl, {
+          method: 'GET',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+          },
+        }).catch((error) => {
+          this.logger.warn('Chat history refresh failed', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        });
+      } catch (error) {
+        this.logger.warn('Error triggering chat history refresh', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }, 100);
   }
 
   /**
@@ -250,6 +438,40 @@ export class BrainOrchestrator {
     let langchainAgent: LangChainAgent | undefined;
 
     try {
+      // Generate current date/time with timezone support
+      const userTimezone = brainRequest.userTimezone || 'UTC';
+      let now = DateTime.now().setZone(userTimezone);
+      if (!now.isValid) {
+        now = DateTime.now().setZone('UTC');
+      }
+      const userFriendlyDate = now.toLocaleString(DateTime.DATE_FULL); // e.g., May 10, 2025
+      const userFriendlyTime = now.toLocaleString(DateTime.TIME_SIMPLE); // e.g., 6:04 PM
+      const currentDateTime = `${userFriendlyDate} ${userFriendlyTime} (${userTimezone})`;
+
+      this.logger.info('Generated current date/time context', {
+        currentDateTime,
+        userTimezone,
+        iso: now.toISO(),
+      });
+
+      // Load proper system prompt with date/time context
+      const systemPrompt = loadPrompt({
+        modelId: context.selectedChatModel || 'global-orchestrator',
+        contextId: context.activeBitContextId || null,
+        clientConfig: this.config.clientConfig,
+        currentDateTime,
+      });
+
+      this.logger.info('Loaded system prompt with date/time context', {
+        promptLength: systemPrompt.length,
+        contextId: context.activeBitContextId,
+        selectedModel: context.selectedChatModel,
+        hasDateTime: systemPrompt.includes('Current date and time:'),
+        chatInterface: context.activeBitContextId
+          ? 'Chat Bit Specialist'
+          : 'Quibit',
+      });
+
       // Create LangChain agent
       const langchainConfig: LangChainBridgeConfig = {
         selectedChatModel: context.selectedChatModel,
@@ -262,7 +484,7 @@ export class BrainOrchestrator {
       };
 
       langchainAgent = await createLangChainAgent(
-        'You are a helpful AI assistant.',
+        systemPrompt, // Use proper prompt with date/time instead of hardcoded
         langchainConfig,
         this.logger,
       );
@@ -280,6 +502,7 @@ export class BrainOrchestrator {
         // Convert the stream to a Response with error handling
         const encoder = new TextEncoder();
         const logger = this.logger; // Capture logger reference for use in stream handler
+        const orchestratorRef = this; // Capture 'this' reference for saveAssistantMessage
 
         const readableStream = new ReadableStream({
           async start(controller) {
@@ -340,6 +563,15 @@ export class BrainOrchestrator {
                     controller.enqueue(encoded);
                   }
                 }
+              }
+
+              // Save assistant message after streaming completes
+              if (finalOutput?.trim()) {
+                await orchestratorRef.saveAssistantMessage(
+                  brainRequest,
+                  finalOutput,
+                  toolsUsed,
+                );
               }
 
               // Send completion metadata in Vercel AI format
@@ -475,14 +707,49 @@ export class BrainOrchestrator {
   private async executeVercelAIPath(
     userInput: string,
     conversationHistory: any[],
+    brainRequest?: BrainRequest,
+    context?: ProcessedContext,
   ): Promise<VercelAIResult> {
     this.logger.info('Executing Vercel AI SDK path', {
       message: userInput.substring(0, 100),
       historyLength: conversationHistory.length,
     });
 
+    // Generate current date/time with timezone support (same as LangChain path)
+    const userTimezone = brainRequest?.userTimezone || 'UTC';
+    let now = DateTime.now().setZone(userTimezone);
+    if (!now.isValid) {
+      now = DateTime.now().setZone('UTC');
+    }
+    const userFriendlyDate = now.toLocaleString(DateTime.DATE_FULL);
+    const userFriendlyTime = now.toLocaleString(DateTime.TIME_SIMPLE);
+    const currentDateTime = `${userFriendlyDate} ${userFriendlyTime} (${userTimezone})`;
+
+    this.logger.info('Generated current date/time context for VercelAI', {
+      currentDateTime,
+      userTimezone,
+      iso: now.toISO(),
+    });
+
+    // Load proper system prompt with date/time context
+    const systemPrompt = loadPrompt({
+      modelId: context?.selectedChatModel || 'gpt-4.1-mini',
+      contextId: context?.activeBitContextId || null,
+      clientConfig: this.config.clientConfig,
+      currentDateTime,
+    });
+
+    this.logger.info(
+      'Loaded system prompt with date/time context for VercelAI',
+      {
+        promptLength: systemPrompt.length,
+        contextId: context?.activeBitContextId,
+        hasDateTime: systemPrompt.includes('Current date and time:'),
+      },
+    );
+
     const result = await this.vercelAIService.processQuery(
-      'You are a helpful AI assistant.',
+      systemPrompt, // Use proper prompt with date/time instead of hardcoded
       userInput,
       conversationHistory,
     );
@@ -581,7 +848,6 @@ export class BrainOrchestrator {
       totalTime: number;
       classificationTime?: number;
       executionTime: number;
-      classification?: QueryClassificationResult;
       executionPath: string;
     },
   ): Response {
@@ -593,17 +859,17 @@ export class BrainOrchestrator {
         type: 'execution_error',
       },
       executionPath: performance.executionPath as any,
-      classification: performance.classification,
+      classification: undefined,
       performance: {
         totalTime: performance.totalTime,
         classificationTime: performance.classificationTime,
         executionTime: performance.executionTime,
       },
       metadata: {
-        model: performance.classification?.recommendedModel || 'unknown',
+        model: 'unknown',
         toolsUsed: [],
-        confidence: performance.classification?.confidence,
-        reasoning: performance.classification?.reasoning,
+        confidence: undefined,
+        reasoning: undefined,
       },
     };
 

@@ -13,6 +13,10 @@ import { z } from 'zod';
 import type { RequestLogger } from './observabilityService';
 import type { ClientConfig } from '@/lib/db/queries';
 
+// Import date/time and prompt loading utilities
+import { DateTime } from 'luxon';
+import { loadPrompt } from '@/lib/ai/prompts/loader';
+
 /**
  * Configuration for VercelAI service
  */

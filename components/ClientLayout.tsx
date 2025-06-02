@@ -34,10 +34,14 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-dvh">
-        <ResizablePanelGroup direction="horizontal" className="flex-1">
-          <ResizablePanel defaultSize={isPaneOpen ? 75 : 100} minSize={50}>
-            {children}
+      <div className="flex flex-col h-dvh overflow-hidden">
+        <ResizablePanelGroup direction="horizontal" className="flex-1 min-h-0">
+          <ResizablePanel
+            defaultSize={isPaneOpen ? 75 : 100}
+            minSize={50}
+            className="flex flex-col min-w-0"
+          >
+            <div className="flex-1 overflow-hidden">{children}</div>
           </ResizablePanel>
 
           {!isAuthPage && isPaneOpen && (
@@ -51,6 +55,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
                 collapsible={true}
                 collapsedSize={4}
                 id="chat-pane"
+                className="flex flex-col min-w-0"
               >
                 <GlobalChatPane title={chatTitle} />
               </ResizablePanel>

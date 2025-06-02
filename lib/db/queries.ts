@@ -179,19 +179,30 @@ export async function saveChat({
   id,
   userId,
   title,
+  bitContextId,
+  clientId = 'default',
 }: {
   id: string;
   userId: string;
   title: string;
+  bitContextId?: string | null;
+  clientId?: string;
 }) {
   try {
-    console.log('[DB] Attempting to save chat:', { id, userId, title });
+    console.log('[DB] Attempting to save chat:', {
+      id,
+      userId,
+      title,
+      bitContextId,
+      clientId,
+    });
     const result = await db.insert(chat).values({
       id,
       createdAt: new Date(),
       userId,
       title,
-      clientId: 'default',
+      clientId,
+      bitContextId,
     });
     console.log('[DB] Successfully saved chat:', { id, result });
     return result;

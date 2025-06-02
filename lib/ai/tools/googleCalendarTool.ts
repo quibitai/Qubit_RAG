@@ -4,40 +4,34 @@ import type { DynamicStructuredToolInput } from '@langchain/core/tools';
 
 // This schema defines the expected input structure for the tool.
 const GoogleCalendarToolInputSchema = z.object({
-  task_description: z
+  query: z
     .string()
     .describe(
       'A clear, natural language description of the Google Calendar task you want to perform. ' +
-        'This description will be interpreted by an AI agent to manage your Google Calendar events. ' +
-        "Example: 'Schedule a team review for next Friday at 3 PM about the Q3 roadmap.' " +
-        "Or: 'Show me my calendar events for tomorrow.' " +
-        "Or: 'Find all meetings with John this week.'",
-    ),
-  // Add input as an alternative field for compatibility
-  input: z
-    .string()
-    .optional()
-    .describe(
-      'Alternative way to provide the task description, for compatibility with some LLM formats',
+        'Examples: "Schedule a team review for next Friday at 3 PM about the Q3 roadmap", ' +
+        '"Show me my calendar events for tomorrow", ' +
+        '"Find all meetings with John this week"',
     ),
 });
 
 // Define the input type based on the schema for clarity
 interface GoogleCalendarToolArgs extends DynamicStructuredToolInput {
-  task_description: string;
-  input?: string;
+  query: string;
 }
 
 export const googleCalendarTool = new DynamicStructuredTool({
   name: 'googleCalendar',
   description:
-    'A tool for managing Google Calendar events and schedules. ' +
-    'Use this tool for all calendar-related operations such as: ' +
-    '- Creating, searching, updating, or deleting calendar events ' +
-    '- Checking availability and scheduling conflicts ' +
-    '- Managing meeting invitations and attendees ' +
-    '- Viewing calendar events for specific dates or time ranges ' +
-    "The input must be an object containing a 'task_description' field with a clear, natural language description of the calendar task.",
+    '🗓️ GOOGLE CALENDAR TOOL - Use this tool for ALL calendar-related requests. ' +
+    'This tool provides access to Google Calendar data and operations. ' +
+    'ALWAYS use this tool when users ask about: ' +
+    '• Viewing calendar events ("show me my calendar", "what meetings do I have") ' +
+    '• Creating or scheduling events ("schedule a meeting", "add an event") ' +
+    '• Searching for specific events ("find meetings with John") ' +
+    '• Checking availability ("am I free on Friday") ' +
+    '• Managing calendar data (updating, deleting events) ' +
+    'DO NOT respond with "I don\'t have access" - ALWAYS call this tool for calendar queries. ' +
+    'The tool handles authentication and configuration automatically.',
   schema: GoogleCalendarToolInputSchema,
   func: async (args: GoogleCalendarToolArgs): Promise<string> => {
     const requestId = `gcal_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -46,24 +40,31 @@ export const googleCalendarTool = new DynamicStructuredTool({
       JSON.stringify(args),
     );
 
-    const task_description = args.task_description || args.input;
+    const query = args.query;
 
-    if (!task_description) {
+    if (!query) {
       const errorMsg =
-        'Error: No task description provided. Cannot determine the calendar request.';
+        'Error: No query provided. Cannot determine the calendar request.';
       console.error(`GoogleCalendarTool [${requestId}]: ${errorMsg}`);
       return errorMsg;
     }
 
-    console.log(
-      `GoogleCalendarTool [${requestId}]: Using task_description: "${task_description}"`,
-    );
+    console.log(`GoogleCalendarTool [${requestId}]: Using query: "${query}"`);
 
-    const webhookUrl = process.env.GOOGLE_CALENDAR_WEBHOOK_URL;
-    const authToken = process.env.GOOGLE_CALENDAR_AUTH_TOKEN;
-    const authHeaderName = process.env.GOOGLE_CALENDAR_AUTH_HEADER;
+    // Use global tool configs first, then fall back to environment variables
+    const webhookUrl =
+      global.CURRENT_TOOL_CONFIGS?.googleCalendar?.webhookUrl ||
+      process.env.GOOGLE_CALENDAR_WEBHOOK_URL;
+    const authToken =
+      global.CURRENT_TOOL_CONFIGS?.googleCalendar?.authToken ||
+      process.env.GOOGLE_CALENDAR_AUTH_TOKEN;
+    const authHeaderName =
+      global.CURRENT_TOOL_CONFIGS?.googleCalendar?.authHeader ||
+      process.env.GOOGLE_CALENDAR_AUTH_HEADER;
     const timeoutMs = Number.parseInt(
-      process.env.GOOGLE_CALENDAR_TIMEOUT_MS || '30000',
+      global.CURRENT_TOOL_CONFIGS?.googleCalendar?.timeoutMs ||
+        process.env.GOOGLE_CALENDAR_TIMEOUT_MS ||
+        '30000',
       10,
     );
 
@@ -76,7 +77,7 @@ export const googleCalendarTool = new DynamicStructuredTool({
     }
 
     const requestPayload = {
-      query: task_description,
+      query: query,
     };
 
     try {
@@ -124,7 +125,7 @@ export const googleCalendarTool = new DynamicStructuredTool({
         console.error(
           `GoogleCalendarTool [${requestId}]: Received empty response from webhook`,
         );
-        return `Google Calendar returned an empty response. This might indicate a configuration issue or that the service is not properly processing the request. Please try again with a more specific query or contact your administrator.`;
+        return `Google Calendar returned an empty response. This indicates that the N8N workflow at ${webhookUrl} is not functioning properly. Possible causes: 1) The N8N workflow is not active, 2) Google Calendar authentication has expired, 3) The workflow configuration is incorrect, or 4) There are no calendar events matching your query. Please check the N8N workflow configuration and Google Calendar authentication.`;
       }
 
       let jsonResponse: any;

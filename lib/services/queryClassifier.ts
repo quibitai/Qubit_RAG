@@ -40,14 +40,24 @@ export interface QueryClassifierConfig {
  * Pattern definitions for query analysis
  */
 const COMPLEX_PATTERNS = {
-  // Tool invocation patterns
-  TOOL_REQUESTS: [
+  // Tool-heavy operation patterns
+  TOOL_OPERATION: [
     /(?:create|make|generate|build).+(?:task|project|document|file)/i,
     /(?:search|find|look up|retrieve|get|fetch|access).+(?:asana|google|drive|file|document|content|data|knowledge)/i,
     /(?:update|modify|change|edit).+(?:task|project|status|document|file)/i,
     /(?:analyze|process|transform).+(?:data|content|document)/i,
     /(?:give me|show me|provide|display).+(?:contents|file|document|data|information)/i,
     /(?:upload|download|save|store|backup).+(?:file|document|data)/i,
+
+    // Enhanced Asana-specific patterns
+    /(?:asana|task|project).+(?:list|show|display|view|get)/i,
+    /(?:my|mine|assigned to me).+(?:task|project|asana)/i,
+    /(?:show|list|display|view).+(?:task|project).+(?:asana|in asana)/i,
+    /(?:show me|give me|list|display).+(?:my|mine).+(?:task|project|assignment)/i,
+    /(?:create|add|make).+(?:task|project).+(?:asana|in asana)/i,
+    /(?:complete|finish|mark).+(?:task|project)/i,
+    /(?:assign|assignee|due date|deadline).+(?:task|project)/i,
+    /(?:subtask|dependency|milestone|project)/i,
   ],
 
   // Multi-step operation patterns
@@ -365,6 +375,12 @@ export class QueryClassifier {
       p.startsWith('simple_'),
     );
 
+    // Strong Asana/tool operation indicators - always use LangChain
+    const hasToolPatterns = detectedPatterns.includes('complex_tool_operation');
+    if (hasToolPatterns) {
+      return true; // Force LangChain for tool operations
+    }
+
     // Strong simple indicators
     if (hasSimplePatterns && !hasComplexPatterns && contextComplexity < 0.3) {
       return false; // Use Vercel AI SDK
@@ -417,8 +433,12 @@ export class QueryClassifier {
         reasons.push('high query complexity');
       }
 
-      if (detectedPatterns.some((p) => p.includes('tool'))) {
-        reasons.push('tool usage detected');
+      if (detectedPatterns.some((p) => p.includes('tool_operation'))) {
+        reasons.push('tool operation detected');
+      }
+
+      if (detectedPatterns.some((p) => p.includes('knowledge_retrieval'))) {
+        reasons.push('knowledge retrieval required');
       }
 
       if (contextComplexity > 0.5) {

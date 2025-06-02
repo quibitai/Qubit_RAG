@@ -562,7 +562,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       // Reset the flag when session changes
       hasLoadedInitialChats.current = false;
     }
-  }, [sessionStatus]); // Only depend on sessionStatus
+  }, [sessionStatus, loadGlobalChats, loadAllSpecialistChats]); // Add missing dependencies
 
   // Cleaned-up message watcher: lock dropdown and refresh sidebar on assistant reply
   const prevMessageCount = useRef(0);

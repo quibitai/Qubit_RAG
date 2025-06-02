@@ -110,10 +110,41 @@ const components: Partial<Components> = {
 
 const remarkPlugins = [remarkGfm];
 
+/**
+ * Convert plain URLs in text to markdown links
+ */
+function linkifyUrls(text: string): string {
+  // URL regex that matches http/https URLs
+  const urlRegex = /(https?:\/\/[^\s\)]+)/g;
+
+  return text.replace(urlRegex, (url) => {
+    // Don't linkify URLs that are already in markdown link format
+    const beforeUrl = text.substring(0, text.indexOf(url));
+    const afterUrl = text.substring(text.indexOf(url) + url.length);
+
+    // Check if this URL is already in a markdown link [text](url)
+    if (
+      beforeUrl.endsWith('](') ||
+      beforeUrl.endsWith('](') ||
+      afterUrl.startsWith(')')
+    ) {
+      return url; // Already a markdown link, don't modify
+    }
+
+    // Check if this URL is already in an HTML link
+    if (beforeUrl.includes('<a ') && !beforeUrl.includes('</a>')) {
+      return url; // Already in HTML link, don't modify
+    }
+
+    // Convert to markdown link
+    return `[${url}](${url})`;
+  });
+}
+
 const NonMemoizedMarkdown = ({ children }: { children: string }) => {
   return (
     <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
-      {children}
+      {linkifyUrls(children)}
     </ReactMarkdown>
   );
 };
