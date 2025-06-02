@@ -37,6 +37,10 @@ import {
   type LangChainAgent,
 } from './langchainBridge';
 
+// Import new service dependencies
+import { createMessageService, type MessageService } from './messageService';
+import { createContextService, type ContextService } from './contextService';
+
 /**
  * BrainOrchestrator
  *
@@ -76,6 +80,8 @@ export class BrainOrchestrator {
   private logger: RequestLogger;
   private langchainAgent?: LangChainAgent;
   private startTime: number;
+  private messageService: MessageService;
+  private contextService: ContextService;
 
   constructor(request: NextRequest, config: BrainOrchestratorConfig) {
     this.request = request;
@@ -91,6 +97,13 @@ export class BrainOrchestrator {
     };
     this.logger = getRequestLogger(request);
     this.startTime = performance.now();
+
+    // Initialize service dependencies
+    this.messageService = createMessageService(this.logger);
+    this.contextService = createContextService(
+      this.logger,
+      this.config.clientConfig,
+    );
 
     this.logger.info('BrainOrchestrator initialized', {
       config: this.config,
@@ -186,12 +199,15 @@ export class BrainOrchestrator {
    * Loads the appropriate system prompt
    */
   private async loadSystemPrompt(request: BrainRequest) {
+    // Process context first using ContextService
+    const processedContext = this.contextService.processContext(request);
+
     const promptContext: PromptContext = {
       activeBitContextId: request.activeBitContextId,
       currentActiveSpecialistId: request.currentActiveSpecialistId,
       activeBitPersona: request.activeBitPersona,
       selectedChatModel: request.selectedChatModel,
-      userTimezone: request.userTimezone ?? undefined,
+      userTimezone: request.userTimezone || undefined, // Fix type issue
       isFromGlobalPane: request.isFromGlobalPane,
     };
 
@@ -200,24 +216,38 @@ export class BrainOrchestrator {
       currentDateTime: new Date().toISOString(),
     };
 
-    return await loadSystemPrompt(
+    const result = await loadSystemPrompt(
       request,
       promptContext,
       promptConfig,
       this.logger,
     );
+
+    // Add context-aware prompt additions
+    const contextAdditions =
+      this.contextService.createContextPromptAdditions(processedContext);
+    if (contextAdditions) {
+      result.systemPrompt += contextAdditions;
+    }
+
+    return result;
   }
 
   /**
-   * Select and prepare tools based on request context
+   * Select tools for the request
    */
   private async selectTools(
     brainRequest: BrainRequest,
     systemPrompt: string,
   ): Promise<any[]> {
+    if (!this.config.enableToolExecution) {
+      return [];
+    }
+
+    const userInput = this.messageService.extractUserInput(brainRequest);
     const toolContext: ToolContext = {
-      userQuery: this.extractUserInput(brainRequest),
-      activeBitContextId: brainRequest.activeBitContextId,
+      userQuery: userInput,
+      activeBitContextId: brainRequest.activeBitContextId || undefined,
       uploadedContent: brainRequest.uploadedContent,
       artifactContext: brainRequest.artifactContext,
       fileContext: brainRequest.fileContext,
@@ -255,9 +285,11 @@ export class BrainOrchestrator {
       );
       this.recordCheckpoint('agent_creation');
 
-      // Step 4: Prepare chat history and context
-      const chatHistory = this.prepareChatHistory(brainRequest);
-      const userInput = this.extractUserInput(brainRequest);
+      // Step 4: Prepare chat history and context using MessageService
+      const chatHistory = this.messageService.convertToLangChainFormat(
+        brainRequest.messages as any,
+      );
+      const userInput = this.messageService.extractUserInput(brainRequest);
 
       // Step 5: Execute with streaming
       this.recordCheckpoint('execution_start');
@@ -306,9 +338,11 @@ export class BrainOrchestrator {
         : [];
       this.recordCheckpoint('tool_selection');
 
-      // Step 4: Create streaming context
+      // Step 4: Create streaming context using MessageService
       this.recordCheckpoint('streaming_setup_start');
-      const streamingConfig = getDefaultStreamingConfig(brainRequest);
+      const streamingConfig = getDefaultStreamingConfig(
+        brainRequest.selectedChatModel,
+      );
       const streamingContext = await this.createStreamingContext(
         brainRequest,
         systemPrompt,
@@ -350,118 +384,17 @@ export class BrainOrchestrator {
   }
 
   /**
-   * Prepare chat history for LangChain format
-   */
-  private prepareChatHistory(brainRequest: BrainRequest): any[] {
-    // Convert UI messages to LangChain format
-    return brainRequest.messages.slice(0, -1).map((message) => {
-      if (message.role === 'user') {
-        return { type: 'human', content: message.content };
-      } else if (message.role === 'assistant') {
-        return { type: 'ai', content: message.content };
-      } else {
-        return { type: 'system', content: message.content };
-      }
-    });
-  }
-
-  /**
-   * Extract user input from the last message
-   */
-  private extractUserInput(brainRequest: BrainRequest): string {
-    const lastMessage = brainRequest.messages[brainRequest.messages.length - 1];
-    return lastMessage?.content || '';
-  }
-
-  /**
-   * Create streaming response from LangChain stream
-   */
-  private async createStreamingResponseFromLangChain(
-    stream: AsyncIterable<any>,
-    brainRequest: BrainRequest,
-  ): Promise<ReadableStream> {
-    const encoder = new TextEncoder();
-    const logger = this.logger; // Capture logger reference
-
-    return new ReadableStream({
-      async start(controller) {
-        try {
-          let chunkCount = 0;
-          for await (const chunk of stream) {
-            chunkCount++;
-
-            // Log chunk details for debugging
-            logger.info('LangChain stream chunk received', {
-              chunkNumber: chunkCount,
-              chunkKeys: Object.keys(chunk || {}),
-              hasOutput: !!chunk?.output,
-              hasContent: !!chunk?.content,
-              hasLog: !!chunk?.log,
-              chunkType: typeof chunk,
-            });
-
-            // Handle different chunk formats
-            let content = '';
-
-            if (chunk?.output) {
-              // Final output from agent
-              content = chunk.output;
-            } else if (chunk?.content) {
-              // Direct content streaming
-              content = chunk.content;
-            } else if (chunk?.log) {
-              // Intermediate steps or logs
-              content = chunk.log;
-            } else if (typeof chunk === 'string') {
-              // Direct string content
-              content = chunk;
-            } else if (chunk?.text) {
-              // Alternative text format
-              content = chunk.text;
-            }
-
-            if (content) {
-              logger.info('Streaming content chunk', {
-                contentLength: content.length,
-                chunkNumber: chunkCount,
-              });
-              controller.enqueue(encoder.encode(content));
-            } else {
-              logger.info('Chunk with no extractable content', {
-                chunk: JSON.stringify(chunk, null, 2),
-                chunkNumber: chunkCount,
-              });
-            }
-          }
-
-          logger.info('LangChain stream completed', {
-            totalChunks: chunkCount,
-          });
-
-          controller.close();
-        } catch (error) {
-          logger.error('Error in LangChain streaming', {
-            error: error instanceof Error ? error.message : 'Unknown error',
-          });
-          controller.error(error);
-        }
-      },
-    });
-  }
-
-  /**
-   * Create streaming context for modern pipeline
+   * Create streaming context for modern pipeline using MessageService
    */
   private async createStreamingContext(
     brainRequest: BrainRequest,
     systemPrompt: string,
     tools: any[],
   ): Promise<StreamingContext> {
-    // Convert request messages to streaming format
-    const messages = brainRequest.messages.map((msg) => ({
-      role: msg.role as 'user' | 'assistant' | 'system',
-      content: msg.content,
-    }));
+    // Convert request messages to streaming format using MessageService
+    const messages = this.messageService.convertToStreamingFormat(
+      brainRequest.messages as any,
+    );
 
     return {
       systemPrompt,
