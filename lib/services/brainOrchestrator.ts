@@ -347,30 +347,62 @@ export class BrainOrchestrator {
       executionPath: string;
     },
   ): Response {
-    const brainResponse: BrainResponse = {
-      success: true,
-      content: result.content,
-      executionPath: performance.executionPath as 'vercel-ai',
-      classification: performance.classification,
-      performance: {
-        totalTime: performance.totalTime,
-        classificationTime: performance.classificationTime,
-        executionTime: performance.executionTime,
-      },
-      tokenUsage: result.tokenUsage,
-      metadata: {
-        model: performance.classification?.recommendedModel || 'gpt-4.1-mini',
-        toolsUsed: result.toolCalls?.map((call) => call.name) || [],
-        confidence: performance.classification?.confidence,
-        reasoning: performance.classification?.reasoning,
-      },
-    };
+    // Create a streaming response to match the LangChain format expected by frontend
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        try {
+          // Stream the content character by character to match original behavior
+          const content = result.content || '';
+          const subChunkSize = 1; // Character-by-character streaming
 
-    // For Vercel AI SDK, we return a structured JSON response
-    // In production, this might be streamed differently
-    return new Response(JSON.stringify(brainResponse), {
+          for (let i = 0; i < content.length; i += subChunkSize) {
+            const subChunk = content.slice(i, i + subChunkSize);
+            const encoded = encoder.encode(`0:${JSON.stringify(subChunk)}\n`);
+            controller.enqueue(encoded);
+          }
+
+          // Send finish message with token usage
+          const finishMessage = encoder.encode(
+            `d:${JSON.stringify({
+              finishReason: result.finishReason || 'stop',
+              usage: {
+                promptTokens: result.tokenUsage?.promptTokens || 0,
+                completionTokens: result.tokenUsage?.completionTokens || 0,
+                totalTokens: result.tokenUsage?.totalTokens || 0,
+              },
+              performance: {
+                totalTime: performance.totalTime,
+                classificationTime: performance.classificationTime,
+                executionTime: performance.executionTime,
+              },
+              classification: performance.classification,
+              metadata: {
+                model:
+                  performance.classification?.recommendedModel ||
+                  'gpt-4.1-mini',
+                toolsUsed: result.toolCalls?.map((call) => call.name) || [],
+                confidence: performance.classification?.confidence,
+                reasoning: performance.classification?.reasoning,
+              },
+            })}\n`,
+          );
+          controller.enqueue(finishMessage);
+
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+    });
+
+    // Return streaming response with correct headers to match LangChain format
+    return new Response(stream, {
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
+        'X-Accel-Buffering': 'no',
+        Connection: 'keep-alive',
         'X-Execution-Path': 'vercel-ai',
         'X-Classification-Score':
           performance.classification?.complexityScore?.toString() || '',

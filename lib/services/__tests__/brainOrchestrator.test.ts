@@ -313,10 +313,13 @@ describe('BrainOrchestrator', () => {
         expect.any(Array),
       );
 
-      const responseData = await response.json();
-      expect(responseData.success).toBe(true);
-      expect(responseData.executionPath).toBe('vercel-ai');
+      // Check response headers for streaming format
+      expect(response.headers.get('Content-Type')).toBe('text/event-stream');
       expect(response.headers.get('X-Execution-Path')).toBe('vercel-ai');
+
+      // Verify it's a streaming response
+      expect(response.body).toBeDefined();
+      expect(response.status).toBe(200);
     });
 
     it('should default to LangChain when classification is disabled', async () => {
@@ -461,37 +464,20 @@ describe('BrainOrchestrator', () => {
       const response = await brainOrchestrator.processRequest(
         mockBrainRequestSimple,
       );
-      const responseData = await response.json();
 
-      expect(responseData).toMatchObject({
-        success: true,
-        content: 'I would be happy to help you!',
-        executionPath: 'vercel-ai',
-        classification: expect.objectContaining({
-          shouldUseLangChain: false,
-          confidence: 0.8,
-        }),
-        performance: expect.objectContaining({
-          totalTime: expect.any(Number),
-          classificationTime: expect.any(Number),
-          executionTime: expect.any(Number),
-        }),
-        tokenUsage: expect.objectContaining({
-          promptTokens: 10,
-          completionTokens: 15,
-          totalTokens: 25,
-        }),
-        metadata: expect.objectContaining({
-          model: 'gpt-4.1-mini',
-          toolsUsed: ['getWeather'],
-          confidence: 0.8,
-          reasoning: 'Simple conversational query',
-        }),
-      });
-
-      expect(response.headers.get('Content-Type')).toBe('application/json');
+      // Check streaming response format
+      expect(response.headers.get('Content-Type')).toBe('text/event-stream');
       expect(response.headers.get('X-Execution-Path')).toBe('vercel-ai');
       expect(response.headers.get('X-Classification-Score')).toBe('0.3');
+      expect(response.status).toBe(200);
+      expect(response.body).toBeDefined();
+
+      // Verify the service was called correctly
+      expect(mockVercelAIService.processQuery).toHaveBeenCalledWith(
+        'You are a helpful AI assistant.',
+        'What is the weather like?',
+        expect.any(Array),
+      );
     });
   });
 
@@ -520,17 +506,15 @@ describe('BrainOrchestrator', () => {
       const response = await brainOrchestrator.processRequest(
         mockBrainRequestSimple,
       );
-      const responseData = await response.json();
 
-      expect(responseData.performance).toMatchObject({
-        totalTime: expect.any(Number),
-        classificationTime: expect.any(Number),
-        executionTime: expect.any(Number),
-      });
+      // Check that it's a streaming response
+      expect(response.headers.get('Content-Type')).toBe('text/event-stream');
+      expect(response.status).toBe(200);
+      expect(response.body).toBeDefined();
 
-      expect(responseData.performance.totalTime).toBeGreaterThan(0);
-      expect(responseData.performance.classificationTime).toBeGreaterThan(0);
-      expect(responseData.performance.executionTime).toBeGreaterThan(0);
+      // Verify performance is tracked through service calls
+      expect(mockQueryClassifier.classifyQuery).toHaveBeenCalled();
+      expect(mockVercelAIService.processQuery).toHaveBeenCalled();
     });
   });
 
@@ -608,8 +592,8 @@ describe('BrainOrchestrator', () => {
       );
 
       expect(response).toBeInstanceOf(Response);
-      const responseData = await response.json();
-      expect(responseData.success).toBe(true);
+      expect(response.headers.get('Content-Type')).toBe('text/event-stream');
+      expect(response.status).toBe(200);
     });
   });
 });
