@@ -296,7 +296,7 @@ export class ContextManager {
       }
 
       const llm = new ChatOpenAI({
-        modelName: 'gpt-4o-mini', // Use cost-effective model for summaries
+        modelName: 'gpt-4.1-mini', // Use cost-effective model for summaries
         temperature: 0.3, // Lower temperature for consistent summaries
         maxTokens: 500,
         openAIApiKey: process.env.OPENAI_API_KEY,

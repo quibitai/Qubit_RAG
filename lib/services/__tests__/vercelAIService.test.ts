@@ -68,7 +68,7 @@ describe('VercelAIService', () => {
       const service = new VercelAIService(mockLogger);
       const metrics = service.getMetrics();
 
-      expect(metrics.model).toBe('gpt-4o-mini');
+      expect(metrics.model).toBe('gpt-4.1-mini');
       expect(metrics.enableTools).toBe(true);
       expect(metrics.toolCount).toBe(2); // getWeather and getRequestSuggestions
     });
@@ -95,7 +95,7 @@ describe('VercelAIService', () => {
       expect(mockLogger.info).toHaveBeenCalledWith(
         'Initializing VercelAI service',
         expect.objectContaining({
-          model: 'gpt-4o-mini',
+          model: 'gpt-4.1-mini',
           enableTools: true,
           toolCount: 2,
         }),
@@ -246,7 +246,7 @@ describe('VercelAIService', () => {
 
       expect(metrics).toEqual({
         toolCount: 2,
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-mini',
         enableTools: true,
       });
     });
@@ -258,7 +258,7 @@ describe('VercelAIService', () => {
 
       expect(metrics).toEqual({
         toolCount: 0,
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-mini',
         enableTools: false,
       });
     });
@@ -270,7 +270,7 @@ describe('VercelAIService', () => {
       expect(service).toBeInstanceOf(VercelAIService);
 
       const metrics = service.getMetrics();
-      expect(metrics.model).toBe('gpt-4o-mini');
+      expect(metrics.model).toBe('gpt-4.1-mini');
       expect(metrics.enableTools).toBe(true);
     });
 
@@ -297,7 +297,7 @@ describe('VercelAIService', () => {
       const service = new VercelAIService(mockLogger, config);
       const metrics = service.getMetrics();
 
-      expect(metrics.model).toBe('gpt-4o-mini'); // fallback to default
+      expect(metrics.model).toBe('gpt-4.1-mini'); // fallback to default
     });
 
     it('should handle undefined enableTools gracefully', () => {

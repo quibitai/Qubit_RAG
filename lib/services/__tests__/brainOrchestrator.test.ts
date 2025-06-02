@@ -72,7 +72,7 @@ const mockClientConfig: any = {
 };
 
 // Mock brain request - use any to avoid validation type imports
-const mockBrainRequest: any = {
+const mockBrainRequestComplex: any = {
   id: 'test-request-id',
   messages: [
     {
@@ -94,12 +94,30 @@ const mockBrainRequest: any = {
       createdAt: new Date(),
     },
   ],
-  selectedChatModel: 'gpt-4o',
+  selectedChatModel: 'gpt-4.1',
   activeBitContextId: 'test-context',
   currentActiveSpecialistId: 'test-specialist',
   activeBitPersona: 'helpful-assistant',
   userTimezone: 'America/New_York',
   isFromGlobalPane: false,
+};
+
+const mockBrainRequestSimple: any = {
+  id: 'test-request-simple',
+  messages: [
+    {
+      id: '1',
+      role: 'user',
+      content: 'What is the weather like?',
+      createdAt: new Date(),
+    },
+  ],
+  selectedChatModel: 'gpt-4.1',
+  activeBitContextId: null,
+  currentActiveSpecialistId: null,
+  activeBitPersona: 'weather-assistant',
+  userTimezone: 'UTC',
+  isFromGlobalPane: true,
 };
 
 // Mock service instances
@@ -153,9 +171,15 @@ describe('BrainOrchestrator', () => {
     (ContextService as any).mockImplementation(() => mockContextService);
 
     // Set up default service behavior
-    mockMessageService.extractUserInput.mockReturnValue(
-      'Can you help me with a task?',
-    );
+    mockMessageService.extractUserInput.mockImplementation((request: any) => {
+      // Return the last user message content
+      const userMessages = request.messages.filter(
+        (msg: any) => msg.role === 'user',
+      );
+      return userMessages.length > 0
+        ? userMessages[userMessages.length - 1].content
+        : 'Default message';
+    });
     mockMessageService.convertToLangChainFormat.mockReturnValue([
       { type: 'human', content: 'Hello, how are you?' },
       { type: 'ai', content: 'I am doing well, thank you!' },
@@ -163,7 +187,7 @@ describe('BrainOrchestrator', () => {
 
     mockContextService.processContext.mockReturnValue({
       activeBitContextId: 'test-context',
-      selectedChatModel: 'gpt-4o',
+      selectedChatModel: 'gpt-4.1',
       userTimezone: 'America/New_York',
       isFromGlobalPane: false,
     });
@@ -217,10 +241,11 @@ describe('BrainOrchestrator', () => {
       mockQueryClassifier.classifyQuery.mockResolvedValue({
         shouldUseLangChain: true,
         confidence: 0.9,
-        reasoning: 'Complex tool orchestration required',
+        reasoning: 'Complex query requiring tools',
         complexityScore: 0.8,
-        detectedPatterns: ['complex_tool_requests'],
-        recommendedModel: 'gpt-4o',
+        recommendedModel: 'gpt-4.1',
+        detectedPatterns: ['tool_usage'],
+        estimatedTokens: 150,
       });
 
       // Mock LangChain execution
@@ -241,7 +266,9 @@ describe('BrainOrchestrator', () => {
         langchainBridge.cleanupLangChainAgent as MockedFunction<any>
       ).mockImplementation(() => {});
 
-      const response = await brainOrchestrator.processRequest(mockBrainRequest);
+      const response = await brainOrchestrator.processRequest(
+        mockBrainRequestComplex,
+      );
 
       expect(mockQueryClassifier.classifyQuery).toHaveBeenCalledWith(
         'Can you help me with a task?',
@@ -258,11 +285,12 @@ describe('BrainOrchestrator', () => {
       // Mock classification result - simple query
       mockQueryClassifier.classifyQuery.mockResolvedValue({
         shouldUseLangChain: false,
-        confidence: 0.9,
-        reasoning: 'Simple conversational patterns detected',
+        confidence: 0.8,
+        reasoning: 'Simple conversational query',
         complexityScore: 0.3,
-        detectedPatterns: ['simple_conversational'],
-        recommendedModel: 'gpt-4o-mini',
+        recommendedModel: 'gpt-4.1-mini',
+        detectedPatterns: ['simple_conversation'],
+        estimatedTokens: 50,
       });
 
       // Mock Vercel AI execution
@@ -274,12 +302,14 @@ describe('BrainOrchestrator', () => {
         toolCalls: [],
       });
 
-      const response = await brainOrchestrator.processRequest(mockBrainRequest);
+      const response = await brainOrchestrator.processRequest(
+        mockBrainRequestSimple,
+      );
 
       expect(mockQueryClassifier.classifyQuery).toHaveBeenCalled();
       expect(mockVercelAIService.processQuery).toHaveBeenCalledWith(
         'You are a helpful AI assistant.',
-        'Can you help me with a task?',
+        'What is the weather like?',
         expect.any(Array),
       );
 
@@ -313,7 +343,9 @@ describe('BrainOrchestrator', () => {
         langchainBridge.cleanupLangChainAgent as MockedFunction<any>
       ).mockImplementation(() => {});
 
-      const response = await orchestrator.processRequest(mockBrainRequest);
+      const response = await orchestrator.processRequest(
+        mockBrainRequestComplex,
+      );
 
       expect(mockQueryClassifier.classifyQuery).not.toHaveBeenCalled();
       expect(langchainBridge.createLangChainAgent).toHaveBeenCalled();
@@ -326,11 +358,12 @@ describe('BrainOrchestrator', () => {
       // Mock classification result - simple query
       mockQueryClassifier.classifyQuery.mockResolvedValue({
         shouldUseLangChain: false,
-        confidence: 0.9,
-        reasoning: 'Simple query',
-        complexityScore: 0.3,
-        detectedPatterns: ['simple_conversational'],
-        recommendedModel: 'gpt-4o-mini',
+        confidence: 0.7,
+        reasoning: 'Simple query for Vercel AI SDK',
+        complexityScore: 0.4,
+        recommendedModel: 'gpt-4.1-mini',
+        detectedPatterns: ['simple_conversation'],
+        estimatedTokens: 75,
       });
 
       // Mock Vercel AI failure
@@ -355,7 +388,9 @@ describe('BrainOrchestrator', () => {
         langchainBridge.cleanupLangChainAgent as MockedFunction<any>
       ).mockImplementation(() => {});
 
-      const response = await brainOrchestrator.processRequest(mockBrainRequest);
+      const response = await brainOrchestrator.processRequest(
+        mockBrainRequestSimple,
+      );
 
       expect(mockVercelAIService.processQuery).toHaveBeenCalled();
       expect(mockLogger.info).toHaveBeenCalledWith(
@@ -369,11 +404,12 @@ describe('BrainOrchestrator', () => {
       // Mock classification result - simple query
       mockQueryClassifier.classifyQuery.mockResolvedValue({
         shouldUseLangChain: false,
-        confidence: 0.9,
-        reasoning: 'Simple query',
-        complexityScore: 0.3,
-        detectedPatterns: ['simple_conversational'],
-        recommendedModel: 'gpt-4o-mini',
+        confidence: 0.6,
+        reasoning: 'Default simple classification',
+        complexityScore: 0.2,
+        recommendedModel: 'gpt-4.1-mini',
+        detectedPatterns: [],
+        estimatedTokens: 25,
       });
 
       // Mock both services failing
@@ -384,7 +420,9 @@ describe('BrainOrchestrator', () => {
         langchainBridge.createLangChainAgent as MockedFunction<any>
       ).mockRejectedValue(new Error('LangChain failed'));
 
-      const response = await brainOrchestrator.processRequest(mockBrainRequest);
+      const response = await brainOrchestrator.processRequest(
+        mockBrainRequestSimple,
+      );
 
       expect(response.status).toBe(500);
       expect(response.headers.get('X-Error')).toBe('true');
@@ -401,11 +439,12 @@ describe('BrainOrchestrator', () => {
       // Mock classification result - simple query
       mockQueryClassifier.classifyQuery.mockResolvedValue({
         shouldUseLangChain: false,
-        confidence: 0.9,
-        reasoning: 'Simple conversational patterns detected',
+        confidence: 0.8,
+        reasoning: 'Simple conversational query',
         complexityScore: 0.3,
-        detectedPatterns: ['simple_conversational'],
-        recommendedModel: 'gpt-4o-mini',
+        recommendedModel: 'gpt-4.1-mini',
+        detectedPatterns: ['simple_conversation'],
+        estimatedTokens: 50,
       });
 
       // Mock Vercel AI execution
@@ -419,7 +458,9 @@ describe('BrainOrchestrator', () => {
 
       mockVercelAIService.processQuery.mockResolvedValue(mockResult);
 
-      const response = await brainOrchestrator.processRequest(mockBrainRequest);
+      const response = await brainOrchestrator.processRequest(
+        mockBrainRequestSimple,
+      );
       const responseData = await response.json();
 
       expect(responseData).toMatchObject({
@@ -428,7 +469,7 @@ describe('BrainOrchestrator', () => {
         executionPath: 'vercel-ai',
         classification: expect.objectContaining({
           shouldUseLangChain: false,
-          confidence: 0.9,
+          confidence: 0.8,
         }),
         performance: expect.objectContaining({
           totalTime: expect.any(Number),
@@ -441,10 +482,10 @@ describe('BrainOrchestrator', () => {
           totalTokens: 25,
         }),
         metadata: expect.objectContaining({
-          model: 'gpt-4o-mini',
+          model: 'gpt-4.1-mini',
           toolsUsed: ['getWeather'],
-          confidence: 0.9,
-          reasoning: 'Simple conversational patterns detected',
+          confidence: 0.8,
+          reasoning: 'Simple conversational query',
         }),
       });
 
@@ -459,11 +500,12 @@ describe('BrainOrchestrator', () => {
       // Mock classification result
       mockQueryClassifier.classifyQuery.mockResolvedValue({
         shouldUseLangChain: false,
-        confidence: 0.9,
-        reasoning: 'Simple query',
+        confidence: 0.8,
+        reasoning: 'Simple conversational query',
         complexityScore: 0.3,
-        detectedPatterns: ['simple_conversational'],
-        recommendedModel: 'gpt-4o-mini',
+        recommendedModel: 'gpt-4.1-mini',
+        detectedPatterns: ['simple_conversation'],
+        estimatedTokens: 50,
       });
 
       // Mock Vercel AI execution
@@ -475,7 +517,9 @@ describe('BrainOrchestrator', () => {
         toolCalls: [],
       });
 
-      const response = await brainOrchestrator.processRequest(mockBrainRequest);
+      const response = await brainOrchestrator.processRequest(
+        mockBrainRequestSimple,
+      );
       const responseData = await response.json();
 
       expect(responseData.performance).toMatchObject({
@@ -539,11 +583,12 @@ describe('BrainOrchestrator', () => {
       // Mock simple query
       mockQueryClassifier.classifyQuery.mockResolvedValue({
         shouldUseLangChain: false,
-        confidence: 0.9,
-        reasoning: 'Simple query',
+        confidence: 0.8,
+        reasoning: 'Simple conversational query',
         complexityScore: 0.3,
-        detectedPatterns: ['simple_conversational'],
-        recommendedModel: 'gpt-4o-mini',
+        recommendedModel: 'gpt-4.1-mini',
+        detectedPatterns: ['simple_conversation'],
+        estimatedTokens: 50,
       });
 
       mockVercelAIService.processQuery.mockResolvedValue({
@@ -554,9 +599,13 @@ describe('BrainOrchestrator', () => {
         toolCalls: [],
       });
 
-      const response = await processBrainRequest(mockBrainRequest, mockLogger, {
-        enableHybridRouting: true,
-      });
+      const response = await processBrainRequest(
+        mockBrainRequestSimple,
+        mockLogger,
+        {
+          enableHybridRouting: true,
+        },
+      );
 
       expect(response).toBeInstanceOf(Response);
       const responseData = await response.json();

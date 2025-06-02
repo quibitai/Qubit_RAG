@@ -116,7 +116,7 @@ describe('QueryClassifier', () => {
       expect(result.shouldUseLangChain).toBe(false);
       expect(result.detectedPatterns).toContain('simple_conversational');
       expect(result.complexityScore).toBeLessThan(0.5);
-      expect(result.recommendedModel).toBe('gpt-4o-mini');
+      expect(result.recommendedModel).toBe('gpt-4.1-mini');
     });
 
     it('should classify weather request as simple', async () => {
@@ -164,7 +164,7 @@ describe('QueryClassifier', () => {
 
       expect(result.shouldUseLangChain).toBe(true);
       expect(result.detectedPatterns).toContain('complex_tool_requests');
-      expect(result.recommendedModel).toBe('gpt-4o');
+      expect(result.recommendedModel).toBe('gpt-4.1');
     });
 
     it('should classify multi-step operations as complex', async () => {

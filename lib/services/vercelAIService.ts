@@ -2,12 +2,12 @@
  * VercelAIService
  *
  * Handles Vercel AI SDK integration for simpler queries that don't require
- * complex tool orchestration. Provides streamUI integration, token tracking,
- * and React component streaming.
+ * complex tool orchestration. Provides streamText integration, token tracking,
+ * and proper string responses for the frontend.
  * Target: ~120 lines as per roadmap specifications.
  */
 
-import { streamUI } from 'ai/rsc';
+import { streamText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import type { RequestLogger } from './observabilityService';
@@ -17,14 +17,24 @@ import type { ClientConfig } from '@/lib/db/queries';
  * Configuration for VercelAI service
  */
 export interface VercelAIConfig {
-  selectedChatModel?: string;
-  contextId?: string | null;
-  clientConfig?: ClientConfig | null;
+  enableToolExecution?: boolean;
   enableTools?: boolean;
+  selectedChatModel?: string;
   maxTokens?: number;
   temperature?: number;
-  verbose?: boolean;
+  contextId?: string | null;
+  clientConfig?: ClientConfig | null;
 }
+
+const DEFAULT_CONFIG: VercelAIConfig = {
+  enableToolExecution: true,
+  enableTools: true,
+  selectedChatModel: 'gpt-4.1-mini',
+  maxTokens: 4000,
+  temperature: 0.7,
+  contextId: null,
+  clientConfig: null,
+};
 
 /**
  * Vercel AI execution result
@@ -90,7 +100,7 @@ const getRequestSuggestionsTool = {
       `Consider: "What are the best practices for ${userIntent}?"`,
     ];
 
-    return suggestions;
+    return suggestions.join('\n');
   },
 };
 
@@ -107,11 +117,12 @@ export class VercelAIService {
   constructor(logger: RequestLogger, config: VercelAIConfig = {}) {
     this.logger = logger;
     this.config = {
-      selectedChatModel: 'gpt-4o-mini',
+      selectedChatModel: 'gpt-4.1-mini',
       maxTokens: 2000,
       temperature: 0.7,
       enableTools: true,
-      verbose: false,
+      contextId: config.contextId,
+      clientConfig: config.clientConfig,
       ...config,
     };
 
@@ -164,14 +175,22 @@ export class VercelAIService {
         { role: 'user' as const, content: userInput },
       ];
 
-      // Use streamUI for enhanced React component streaming
-      const result = await streamUI({
-        model: openai(this.config.selectedChatModel || 'gpt-4o-mini'),
+      // Use streamText for proper text responses
+      const result = await streamText({
+        model: openai(this.config.selectedChatModel || 'gpt-4.1-mini'),
         messages,
         tools: this.config.enableTools
           ? {
-              getWeather: getWeatherTool,
-              getRequestSuggestions: getRequestSuggestionsTool,
+              getWeather: {
+                description: getWeatherTool.description,
+                parameters: getWeatherTool.parameters,
+                execute: getWeatherTool.execute,
+              },
+              getRequestSuggestions: {
+                description: getRequestSuggestionsTool.description,
+                parameters: getRequestSuggestionsTool.parameters,
+                execute: getRequestSuggestionsTool.execute,
+              },
             }
           : undefined,
         maxTokens: this.config.maxTokens,
@@ -187,18 +206,36 @@ export class VercelAIService {
           }
           finishReason = event.finishReason || 'stop';
 
-          // Note: streamUI doesn't expose toolCalls in onFinish
-          // Tool tracking would need to be implemented differently
-
           this.logger.logTokenUsage({
             promptTokens: tokenUsage.promptTokens,
             completionTokens: tokenUsage.completionTokens,
             totalTokens: tokenUsage.totalTokens,
-            model: this.config.selectedChatModel || 'gpt-4o-mini',
+            model: this.config.selectedChatModel || 'gpt-4.1-mini',
             provider: 'openai',
           });
         },
       });
+
+      // Collect the full text response
+      let content = '';
+      for await (const delta of result.textStream) {
+        content += delta;
+      }
+
+      // Get final usage statistics
+      const finalResult = await result;
+      const usage = await finalResult.usage;
+      const finalFinishReason = await finalResult.finishReason;
+
+      if (usage) {
+        tokenUsage = {
+          promptTokens: usage.promptTokens,
+          completionTokens: usage.completionTokens,
+          totalTokens: usage.totalTokens,
+        };
+      }
+
+      finishReason = finalFinishReason || 'stop';
 
       const executionTime = performance.now() - startTime;
 
@@ -207,10 +244,11 @@ export class VercelAIService {
         tokenUsage,
         finishReason,
         toolCallCount: toolCalls.length,
+        contentLength: content.length,
       });
 
       return {
-        content: result.value,
+        content, // Now returns proper string content
         tokenUsage,
         finishReason,
         executionTime,
@@ -260,7 +298,7 @@ export class VercelAIService {
   } {
     return {
       toolCount: this.availableTools.length,
-      model: this.config.selectedChatModel || 'gpt-4o-mini',
+      model: this.config.selectedChatModel || 'gpt-4.1-mini',
       enableTools: this.config.enableTools || false,
     };
   }

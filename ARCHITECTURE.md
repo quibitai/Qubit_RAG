@@ -131,7 +131,7 @@ graph TB
 
 **Features**:
 - Automatic entity extraction (addresses, dates, names)
-- LLM-powered conversation summarization using GPT-4o-mini
+- LLM-powered conversation summarization using GPT-4.1-mini
 - Vector-based conversational memory storage and retrieval
 - File reference tracking and metadata storage
 - Cross-chat context sharing

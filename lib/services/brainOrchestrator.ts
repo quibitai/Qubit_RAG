@@ -359,7 +359,7 @@ export class BrainOrchestrator {
       },
       tokenUsage: result.tokenUsage,
       metadata: {
-        model: performance.classification?.recommendedModel || 'gpt-4o-mini',
+        model: performance.classification?.recommendedModel || 'gpt-4.1-mini',
         toolsUsed: result.toolCalls?.map((call) => call.name) || [],
         confidence: performance.classification?.confidence,
         reasoning: performance.classification?.reasoning,

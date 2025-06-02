@@ -416,7 +416,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Conversation Summaries System**
   - Automatic LLM-powered conversation summarization every 20 conversational turns
-  - GPT-4o-mini integration for intelligent, cost-effective summaries
+  - GPT-4.1-mini integration for intelligent, cost-effective summaries
   - Graceful fallback to basic summaries when LLM unavailable
   - Integration with existing context management for seamless RAG enhancement
   - Background processing to avoid blocking chat responses

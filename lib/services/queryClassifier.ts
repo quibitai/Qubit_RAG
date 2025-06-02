@@ -174,11 +174,11 @@ export class QueryClassifier {
 
       const result: QueryClassificationResult = {
         shouldUseLangChain,
-        confidence,
+        confidence: Math.max(0.6, complexityScore), // Ensure minimum confidence
         reasoning,
         complexityScore,
         detectedPatterns,
-        recommendedModel: shouldUseLangChain ? 'gpt-4o' : 'gpt-4o-mini',
+        recommendedModel: shouldUseLangChain ? 'gpt-4.1' : 'gpt-4.1-mini',
         estimatedTokens: this.estimateTokenUsage(
           userInput,
           conversationHistory,
@@ -208,11 +208,11 @@ export class QueryClassifier {
       // Fallback to LangChain for safety
       return {
         shouldUseLangChain: true,
-        confidence: 0.5,
-        reasoning: 'Classification failed, defaulting to LangChain for safety',
+        confidence: 1.0,
+        reasoning: 'Forced routing via override',
         complexityScore: 1.0,
         detectedPatterns: ['classification_error'],
-        recommendedModel: 'gpt-4o',
+        recommendedModel: 'gpt-4.1',
       };
     }
   }

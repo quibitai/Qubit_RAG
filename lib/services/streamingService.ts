@@ -48,20 +48,20 @@ function getLanguageModel(config: StreamingConfig): LanguageModel {
   const modelName = config.model;
 
   // Map your model names to AI SDK models - use simpler configuration
-  if (modelName.includes('gpt-4o-mini')) {
-    return openai('gpt-4o-mini');
+  if (modelName.includes('gpt-4.1-mini')) {
+    return openai('gpt-4.1-mini');
   }
 
-  if (modelName.includes('gpt-4o')) {
-    return openai('gpt-4o');
+  if (modelName.includes('gpt-4.1')) {
+    return openai('gpt-4.1');
   }
 
   if (modelName.includes('gpt-4')) {
     return openai('gpt-4-turbo');
   }
 
-  // Default to gpt-4o-mini for unknown models
-  return openai('gpt-4o-mini');
+  // Default to gpt-4.1-mini for unknown models
+  return openai('gpt-4.1-mini');
 }
 
 /**
@@ -284,7 +284,7 @@ export function validateStreamingConfig(config: StreamingConfig): {
  */
 export function getDefaultStreamingConfig(model?: string): StreamingConfig {
   return {
-    model: model || 'gpt-4o-mini',
+    model: model || 'gpt-4.1-mini',
     temperature: 0.7,
     maxTokens: 4000,
     presencePenalty: 0,

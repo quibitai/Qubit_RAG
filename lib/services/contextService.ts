@@ -176,7 +176,7 @@ export class ContextService {
    */
   private getDefaultModel(): string {
     // ClientConfig doesn't have defaultModel property, use environment default
-    return process.env.DEFAULT_MODEL_NAME || 'gpt-4o';
+    return process.env.DEFAULT_MODEL_NAME || 'gpt-4.1';
   }
 
   /**
