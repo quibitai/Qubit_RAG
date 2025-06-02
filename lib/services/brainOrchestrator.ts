@@ -245,7 +245,6 @@ export class BrainOrchestrator {
   ): Promise<Response> {
     this.logger.info('Executing LangChain path', {
       message: userInput.substring(0, 100),
-      contextId: context.activeBitContextId,
     });
 
     let langchainAgent: LangChainAgent | undefined;
@@ -268,37 +267,97 @@ export class BrainOrchestrator {
         this.logger,
       );
 
-      // Execute with streaming
-      const stream = await streamLangChainAgent(
-        langchainAgent,
-        userInput,
-        conversationHistory,
-        langchainConfig,
-        this.logger,
-      );
+      // Execute with streaming and handle potential streaming errors
+      try {
+        const stream = await streamLangChainAgent(
+          langchainAgent,
+          userInput,
+          conversationHistory,
+          langchainConfig,
+          this.logger,
+        );
 
-      // Convert the stream to a Response
-      const encoder = new TextEncoder();
-      const readableStream = new ReadableStream({
-        async start(controller) {
-          try {
-            for await (const chunk of stream) {
-              const encoded = encoder.encode(`${JSON.stringify(chunk)}\n`);
+        // Convert the stream to a Response with error handling
+        const encoder = new TextEncoder();
+        const logger = this.logger; // Capture logger reference for use in stream handler
+
+        const readableStream = new ReadableStream({
+          async start(controller) {
+            try {
+              for await (const chunk of stream) {
+                const encoded = encoder.encode(`${JSON.stringify(chunk)}\n`);
+                controller.enqueue(encoded);
+              }
+              controller.close();
+            } catch (streamError) {
+              // Handle specific LangChain streaming errors
+              const errorMessage =
+                streamError instanceof Error
+                  ? streamError.message
+                  : 'Unknown streaming error';
+
+              logger.error('LangChain streaming error encountered', {
+                error: errorMessage,
+                userInput: userInput.substring(0, 100),
+                errorType: 'langchain_streaming_error',
+              });
+
+              // Provide a fallback response instead of failing completely
+              const fallbackResponse = JSON.stringify({
+                output:
+                  'I encountered a technical issue while processing your request. This appears to be a document or knowledge retrieval query that requires access to internal systems. Please try rephrasing your question or contact support if the issue persists.',
+                metadata: {
+                  error: 'langchain_streaming_error',
+                  fallback: true,
+                  originalError: errorMessage,
+                },
+              });
+
+              const encoded = encoder.encode(`${fallbackResponse}\n`);
               controller.enqueue(encoded);
+              controller.close();
             }
-            controller.close();
-          } catch (error) {
-            controller.error(error);
-          }
-        },
-      });
+          },
+        });
 
-      return new Response(readableStream, {
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'X-Execution-Path': 'langchain',
-        },
-      });
+        return new Response(readableStream, {
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'X-Execution-Path': 'langchain',
+          },
+        });
+      } catch (streamSetupError) {
+        // If we can't even set up the stream, fall back to a simple response
+        this.logger.error('Failed to set up LangChain streaming', {
+          error:
+            streamSetupError instanceof Error
+              ? streamSetupError.message
+              : 'Unknown error',
+          userInput: userInput.substring(0, 100),
+        });
+
+        // Create a simple fallback response stream
+        const encoder = new TextEncoder();
+        const fallbackStream = new ReadableStream({
+          start(controller) {
+            const fallbackMessage =
+              "I'm experiencing technical difficulties accessing the knowledge base. Please try again in a moment or rephrase your request.";
+            const encoded = encoder.encode(
+              `${JSON.stringify({ output: fallbackMessage })}\n`,
+            );
+            controller.enqueue(encoded);
+            controller.close();
+          },
+        });
+
+        return new Response(fallbackStream, {
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'X-Execution-Path': 'langchain-fallback',
+            'X-Error': 'stream-setup-failed',
+          },
+        });
+      }
     } finally {
       // Cleanup resources
       if (langchainAgent) {
