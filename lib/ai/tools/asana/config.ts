@@ -4,22 +4,28 @@
 
 // API key retrieval from environment variables
 export const ASANA_PAT =
+  global.CURRENT_TOOL_CONFIGS?.asana?.apiKey ||
   global.CURRENT_TOOL_CONFIGS?.nativeAsana?.apiKey ||
   process.env.NATIVE_ASANA_PAT ||
   process.env.ASANA_PAT;
 
 // Default workspace and team GIDs
 export const ASANA_DEFAULT_WORKSPACE_GID =
+  global.CURRENT_TOOL_CONFIGS?.asana?.defaultWorkspaceGid ||
   global.CURRENT_TOOL_CONFIGS?.nativeAsana?.defaultWorkspaceGid ||
   process.env.ASANA_DEFAULT_WORKSPACE_GID;
 
 export const ASANA_DEFAULT_TEAM_GID =
+  global.CURRENT_TOOL_CONFIGS?.asana?.defaultTeamGid ||
   global.CURRENT_TOOL_CONFIGS?.nativeAsana?.defaultTeamGid ||
   process.env.ASANA_DEFAULT_TEAM_GID;
 
 // Request timeout in milliseconds
 export const ASANA_REQUEST_TIMEOUT_MS = Number.parseInt(
-  process.env.NATIVE_ASANA_TIMEOUT_MS || '30000',
+  global.CURRENT_TOOL_CONFIGS?.asana?.timeoutMs ||
+    global.CURRENT_TOOL_CONFIGS?.nativeAsana?.timeoutMs ||
+    process.env.NATIVE_ASANA_TIMEOUT_MS ||
+    '30000',
   10,
 );
 

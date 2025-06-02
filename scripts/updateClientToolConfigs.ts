@@ -29,7 +29,15 @@ const db = drizzle(client);
  * Complete tool configuration template that includes all available tools
  */
 const COMPLETE_TOOL_CONFIGS = {
-  // Native Asana Integration
+  // Modern Asana Integration (using lib/ai/tools/asana/ modular tools)
+  asana: {
+    apiKey: process.env.ASANA_PAT || process.env.NATIVE_ASANA_PAT || null,
+    defaultWorkspaceGid: process.env.ASANA_DEFAULT_WORKSPACE_GID || null,
+    defaultTeamGid: process.env.ASANA_DEFAULT_TEAM_GID || null,
+    timeoutMs: Number(process.env.NATIVE_ASANA_TIMEOUT_MS || '30000'),
+  },
+
+  // Backward compatibility (can be removed in future versions)
   nativeAsana: {
     apiKey: process.env.ASANA_PAT || process.env.NATIVE_ASANA_PAT || null,
     defaultWorkspaceGid: process.env.ASANA_DEFAULT_WORKSPACE_GID || null,
@@ -161,6 +169,11 @@ async function updateClientToolConfigs(
         return;
       }
 
+      // Skip backward compatibility config to avoid double counting
+      if (toolName === 'nativeAsana') {
+        return; // Skip - using 'asana' as the primary config
+      }
+
       const hasRequiredConfig = Object.values(config).some(
         (value) => value !== null && value !== undefined && value !== '',
       );
@@ -269,10 +282,13 @@ async function main(): Promise<void> {
     console.log('\n🎉 Tool configuration update completed!');
     console.log('\n📋 Summary:');
     console.log(
-      '- All clients now have access to: Asana, Google Calendar, Tavily, N8N, Knowledge Base',
+      '- All clients now have access to: Modern Asana (lib/ai/tools/asana/), Google Calendar, Tavily, N8N, Knowledge Base',
     );
     console.log(
       '- Each tool is configured with appropriate environment variables',
+    );
+    console.log(
+      '- Modern Asana tools use function calling architecture with enhanced error recovery',
     );
     console.log('- Invalid configurations will be logged during runtime');
   } catch (error) {

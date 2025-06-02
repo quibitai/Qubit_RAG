@@ -55,7 +55,8 @@ async function testToolConfigurations(): Promise<void> {
   );
 
   // Test each tool configuration
-  await testAsanaConfig(toolConfigs.nativeAsana);
+  await testAsanaConfig(toolConfigs.asana, 'Modern Asana (asana)');
+  await testAsanaConfig(toolConfigs.nativeAsana, 'Legacy Asana (nativeAsana)');
   await testGoogleCalendarConfig(toolConfigs.googleCalendar);
   await testTavilyConfig(toolConfigs.tavily);
   await testN8NConfig(toolConfigs.n8n);
@@ -65,11 +66,11 @@ async function testToolConfigurations(): Promise<void> {
 /**
  * Test Asana configuration
  */
-async function testAsanaConfig(config: any): Promise<void> {
-  console.log('📋 Testing Asana Configuration:');
+async function testAsanaConfig(config: any, toolName: string): Promise<void> {
+  console.log(`📋 Testing ${toolName} Configuration:`);
 
   if (!config) {
-    console.log('❌ No Asana configuration found');
+    console.log(`❌ No ${toolName} configuration found`);
     return;
   }
 
@@ -99,9 +100,9 @@ async function testAsanaConfig(config: any): Promise<void> {
   });
 
   if (validConfig) {
-    console.log('✅ Asana configuration is valid\n');
+    console.log(`✅ ${toolName} configuration is valid\n`);
   } else {
-    console.log('❌ Asana configuration has issues\n');
+    console.log(`❌ ${toolName} configuration has issues\n`);
   }
 }
 
@@ -318,9 +319,10 @@ async function generateToolAccessSummary(): Promise<void> {
 
   const summary = [
     {
-      tool: 'Asana (nativeAsana)',
+      tool: 'Modern Asana (lib/ai/tools/asana/)',
       status: 'Full Access',
-      capabilities: 'Tasks, Projects, Search, Dependencies',
+      capabilities:
+        'Function Calling, Tasks, Projects, Search, Dependencies, Error Recovery',
     },
     {
       tool: 'Google Calendar',
@@ -362,9 +364,12 @@ async function generateToolAccessSummary(): Promise<void> {
 
   console.log('🎯 Total Tools Available: 26 (All tools in the registry)');
   console.log(
-    '🔧 Client-Specific Configs: 5 (nativeAsana, googleCalendar, tavily, n8n, internalKnowledgeBase)',
+    '🔧 Client-Specific Configs: 5 (asana, googleCalendar, tavily, n8n, internalKnowledgeBase)',
   );
-  console.log('📋 Default Tools: 21 (Available to all clients)\n');
+  console.log('📋 Default Tools: 21 (Available to all clients)');
+  console.log(
+    '🚀 Modern Architecture: Asana uses modular function calling tools from lib/ai/tools/asana/\n',
+  );
 }
 
 /**
