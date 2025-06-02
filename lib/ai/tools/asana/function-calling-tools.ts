@@ -180,27 +180,39 @@ export function createAsanaFunctionCallingTools(
     new DynamicStructuredTool({
       name: 'asana_list_tasks',
       description:
-        'List tasks from Asana with optional filtering. Note: Asana requires exactly one filter - if both project and assignee are provided, project takes priority.',
-      schema: z.object({
-        project: z
-          .string()
-          .optional()
-          .describe('Project name or GID to filter tasks by'),
-        assignee: z
-          .string()
-          .optional()
-          .describe(
-            'User name or GID to filter tasks by assignee (only used if no project specified)',
-          ),
-        completed_since: z
-          .string()
-          .optional()
-          .describe('ISO date to get tasks completed since'),
-        include_completed: z
-          .boolean()
-          .optional()
-          .describe('Whether to include completed tasks'),
-      }),
+        "List tasks from Asana. IMPORTANT: You **MUST** provide either a 'project' OR an 'assignee' to filter by. If both are provided, 'project' will take priority. This tool cannot list all tasks from all projects/assignees at once.",
+      schema: z
+        .object({
+          project: z
+            .string()
+            .optional()
+            .describe(
+              'Project name or GID to filter tasks by. Use this if you know the project.',
+            ),
+          assignee: z
+            .string()
+            .optional()
+            .describe(
+              'User name, email, or GID to filter tasks by. Use this if you know the assignee AND no project is specified.',
+            ),
+          completed_since: z
+            .string()
+            .optional()
+            .describe(
+              'ISO date (YYYY-MM-DD) to get tasks completed since. Can be combined with project or assignee.',
+            ),
+          include_completed: z
+            .boolean()
+            .optional()
+            .default(false)
+            .describe(
+              'Whether to include completed tasks. Defaults to false. Can be combined with project or assignee.',
+            ),
+        })
+        .refine((data) => data.project || data.assignee, {
+          message:
+            "To list Asana tasks, you must provide either a 'project' or an 'assignee'.",
+        }),
       func: async ({
         project,
         assignee,

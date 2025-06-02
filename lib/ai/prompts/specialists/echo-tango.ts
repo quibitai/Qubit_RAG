@@ -45,28 +45,47 @@ export const echoTangoConfig: SpecialistConfig = {
   name: 'Echo Tango',
   description: 'Creative agency brand voice specialist',
   persona: echoTangoPersonaPrompt,
-  // Define tools specifically needed by this specialist.
-  // Ensure these tool names match the names defined in lib/ai/tools/index.ts
+  // All tools are now available to all specialists - the system will intelligently select the most relevant ones
+  // Tools are prioritized based on query content and specialist context, but all remain accessible
   defaultTools: [
+    // Core document and knowledge tools
     'searchInternalKnowledgeBase',
     'getFileContents',
     'listDocuments',
-    'tavilySearch',
     'createDocument',
     'updateDocument',
-    'getMessagesFromOtherChat', // Important for context awareness
-    'asana_get_project_details', // Get project information and overview
-    'asana_list_projects', // List and discover projects
-    'asana_create_task', // Create new tasks
-    'asana_list_tasks', // List tasks with filtering
-    'asana_update_task', // Update existing tasks
-    'asana_get_task_details', // Get task information
-    'asana_create_project', // Create new projects
-    'asana_list_users', // List workspace users
-    'asana_search_entity', // Search for entities
-    'googleCalendar', // Updated tool name to enable calendar capabilities
+    'queryDocumentRows',
+    'checkUploadedContent',
+    'getRecentlyUploadedContent',
+
+    // External search and research
+    'tavilySearch',
+    'tavilyExtract',
+
+    // Full Asana integration suite
+    'asana_get_user_info',
+    'asana_list_projects',
+    'asana_get_project_details',
+    'asana_create_project',
+    'asana_list_tasks',
+    'asana_get_task_details',
+    'asana_create_task',
+    'asana_update_task',
+    'asana_list_users',
+    'asana_search_entity',
+    'asana_list_subtasks',
+    'asana_add_followers',
+    'asana_set_dependencies',
+
+    // External integrations
+    'googleCalendar',
+    'getWeatherTool',
+
+    // Cross-context communication (orchestrator gets priority)
+    'getMessagesFromOtherChat',
+
+    // AI assistance
     'requestSuggestions',
-    // Add or remove tools like 'getWeather', 'queryDocumentRows' as needed for this specialist
   ],
 };
 

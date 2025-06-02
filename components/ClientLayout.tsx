@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Toaster } from 'sonner';
 import { useChatPane } from '@/context/ChatPaneContext';
 import {
   ResizablePanelGroup,
@@ -58,8 +57,6 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
             </>
           )}
         </ResizablePanelGroup>
-
-        <Toaster position="top-center" />
       </div>
     </TooltipProvider>
   );

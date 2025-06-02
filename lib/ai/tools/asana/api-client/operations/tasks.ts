@@ -230,13 +230,19 @@ export async function listTasks(
 
   // Make the request
   try {
-    return await apiClient.request<TaskResponseData[]>(
+    const tasksResponse = await apiClient.request<TaskResponseData[]>(
       'tasks',
       'GET',
       undefined,
       queryParams,
       requestId,
     );
+    // Log the raw response from Asana API
+    console.log(
+      `[TaskOperations] [${requestId}] Raw Asana response for listTasks:`,
+      JSON.stringify(tasksResponse, null, 2),
+    );
+    return tasksResponse;
   } catch (error) {
     console.error(`[TaskOperations] Error listing tasks: ${error}`);
     throw error;

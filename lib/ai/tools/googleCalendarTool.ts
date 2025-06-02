@@ -1,5 +1,6 @@
-import { Tool } from '@langchain/core/tools';
+import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
+import type { DynamicStructuredToolInput } from '@langchain/core/tools';
 
 // This schema defines the expected input structure for the tool.
 const GoogleCalendarToolInputSchema = z.object({
@@ -21,97 +22,32 @@ const GoogleCalendarToolInputSchema = z.object({
     ),
 });
 
-class GoogleCalendarTool extends Tool {
-  name = 'googleCalendar';
-  description =
+// Define the input type based on the schema for clarity
+interface GoogleCalendarToolArgs extends DynamicStructuredToolInput {
+  task_description: string;
+  input?: string;
+}
+
+export const googleCalendarTool = new DynamicStructuredTool({
+  name: 'googleCalendar',
+  description:
     'A tool for managing Google Calendar events and schedules. ' +
     'Use this tool for all calendar-related operations such as: ' +
     '- Creating, searching, updating, or deleting calendar events ' +
     '- Checking availability and scheduling conflicts ' +
     '- Managing meeting invitations and attendees ' +
     '- Viewing calendar events for specific dates or time ranges ' +
-    "The input must be an object containing a 'task_description' field with a clear, natural language description of the calendar task.";
-
-  zodSchema = GoogleCalendarToolInputSchema;
-
-  // Configure timeout for fetch requests (30 seconds default)
-  private timeoutMs = Number.parseInt(
-    process.env.GOOGLE_CALENDAR_TIMEOUT_MS || '30000',
-    10,
-  );
-
-  protected async _call(args: any): Promise<string> {
+    "The input must be an object containing a 'task_description' field with a clear, natural language description of the calendar task.",
+  schema: GoogleCalendarToolInputSchema,
+  func: async (args: GoogleCalendarToolArgs): Promise<string> => {
     const requestId = `gcal_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     console.log(
-      `GoogleCalendarTool [${requestId}]: Starting execution with args:`,
+      `GoogleCalendarTool [${requestId}]: Starting execution with validated args:`,
       JSON.stringify(args),
     );
 
-    // Handle different input formats
-    let task_description: string;
+    const task_description = args.task_description || args.input;
 
-    if (typeof args === 'string') {
-      // Direct string input
-      task_description = args;
-      console.log(
-        `GoogleCalendarTool [${requestId}]: Using direct string input as task_description`,
-      );
-    } else if (typeof args === 'object' && args !== null) {
-      // Object with properties
-      if (args.task_description) {
-        task_description = args.task_description;
-        console.log(
-          `GoogleCalendarTool [${requestId}]: Using task_description property from args`,
-        );
-      } else if (args.input) {
-        task_description = args.input;
-        console.log(
-          `GoogleCalendarTool [${requestId}]: Using input property from args`,
-        );
-      } else if (args.arguments) {
-        // Handle OpenAI tools format
-        try {
-          const argsContent =
-            typeof args.arguments === 'string'
-              ? JSON.parse(args.arguments)
-              : args.arguments;
-
-          if (argsContent.task_description) {
-            task_description = argsContent.task_description;
-            console.log(
-              `GoogleCalendarTool [${requestId}]: Using task_description from arguments property`,
-            );
-          } else if (argsContent.input) {
-            task_description = argsContent.input;
-            console.log(
-              `GoogleCalendarTool [${requestId}]: Using input from arguments property`,
-            );
-          } else {
-            throw new Error(
-              'No valid task description found in arguments property',
-            );
-          }
-        } catch (e) {
-          console.error(
-            `GoogleCalendarTool [${requestId}]: Error extracting task from arguments:`,
-            e,
-          );
-          throw new Error(
-            'Could not extract task description from arguments property',
-          );
-        }
-      } else {
-        throw new Error(
-          'No task_description or input property found in args object',
-        );
-      }
-    } else {
-      throw new Error(
-        'Args must be either a string or an object containing task_description or input',
-      );
-    }
-
-    // Verify we have a task_description
     if (!task_description) {
       const errorMsg =
         'Error: No task description provided. Cannot determine the calendar request.';
@@ -126,6 +62,10 @@ class GoogleCalendarTool extends Tool {
     const webhookUrl = process.env.GOOGLE_CALENDAR_WEBHOOK_URL;
     const authToken = process.env.GOOGLE_CALENDAR_AUTH_TOKEN;
     const authHeaderName = process.env.GOOGLE_CALENDAR_AUTH_HEADER;
+    const timeoutMs = Number.parseInt(
+      process.env.GOOGLE_CALENDAR_TIMEOUT_MS || '30000',
+      10,
+    );
 
     if (!webhookUrl || !authToken || !authHeaderName) {
       const errorMessage = `Error: The Google Calendar tool is not properly configured. Essential environment variables (webhook URL, auth token, or auth header name) are missing. Please contact your administrator.`;
@@ -145,14 +85,12 @@ class GoogleCalendarTool extends Tool {
         JSON.stringify(requestPayload),
       );
 
-      // Create timeout promise
       const timeoutPromise = new Promise<Response>((_, reject) => {
         setTimeout(() => {
-          reject(new Error(`Request timed out after ${this.timeoutMs}ms`));
-        }, this.timeoutMs);
+          reject(new Error(`Request timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
       });
 
-      // Create fetch promise
       const fetchPromise = fetch(webhookUrl, {
         method: 'POST',
         headers: {
@@ -162,7 +100,6 @@ class GoogleCalendarTool extends Tool {
         body: JSON.stringify(requestPayload),
       });
 
-      // Race the promises to implement timeout
       const response = (await Promise.race([
         fetchPromise,
         timeoutPromise,
@@ -311,7 +248,12 @@ class GoogleCalendarTool extends Tool {
               })
             : 'No end time';
 
-          result += `${index + 1}. ${event?.summary || 'Untitled Event'} - ${startDate}, ${startTime} to ${endTime}\n`;
+          result += `${index + 1}. ${event?.summary || 'Untitled Event'} - ${startDate}, ${startTime} to ${endTime}`;
+          // Add hyperlink if available
+          if (event?.htmlLink) {
+            result += ` (Link: ${event.htmlLink})`;
+          }
+          result += '\n';
 
           if (event?.description && event?.description.trim() !== '') {
             result += `   Description: ${event?.description}\n`;
@@ -359,13 +301,10 @@ class GoogleCalendarTool extends Tool {
 
       // Handle timeout specifically
       if (error?.message?.includes('timed out')) {
-        return `The request to Google Calendar timed out after ${this.timeoutMs / 1000} seconds. This might indicate that the service is overloaded or experiencing issues. Please try again later or with a simpler query.`;
+        return `The request to Google Calendar timed out after ${timeoutMs / 1000} seconds. This might indicate that the service is overloaded or experiencing issues. Please try again later or with a simpler query.`;
       }
 
       return `An exception occurred while trying to communicate with Google Calendar: ${error?.message}`;
     }
-  }
-}
-
-// Export an instance of the tool for use in the application.
-export const googleCalendarTool = new GoogleCalendarTool();
+  },
+});

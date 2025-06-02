@@ -34,23 +34,61 @@ const SPECIALIST_ID_MAP: Record<string, string[]> = {
  */
 export const getMessagesFromOtherChatTool = new DynamicStructuredTool({
   name: 'getMessagesFromOtherChat',
-  description:
-    'Fetches the most recent messages from a specified conversation thread (chatId). Use this to get context from other ongoing or past conversations, especially from specialist Bits.',
+  description: `
+🔄 **Cross-Context Chat Access** (Orchestrator Only)
+
+Retrieve messages from other chat sessions to provide context and continuity. This tool is **exclusively available to the Global Orchestrator** and allows it to:
+
+- Access conversations from the main UI chat
+- Retrieve messages from other specialist conversations  
+- Provide cross-context insights and summaries
+- Maintain conversation continuity across different interfaces
+
+**Usage Examples:**
+- "What did we discuss in the main chat about the project?"
+- "Show me the Echo Tango conversation history"
+- "What was the last decision made in the other chat?"
+
+**Access Control:** This tool is restricted to the Global Orchestrator to maintain proper information boundaries between specialists.
+  `.trim(),
   schema: z.object({
     targetChatId: z
       .string()
       .describe(
-        'The ID of the chat thread to fetch messages from. Can be a UUID or a specialist identifier like "echo-tango-specialist" or the string "main" to use the referenced chat ID.',
+        'Target chat ID, specialist name, or context keyword (e.g., "main", "echo-tango", "global", or specific chat ID)',
       ),
-    messageCount: z
-      .number()
-      .int()
-      .positive()
-      .optional()
-      .default(10) // Increased from 5 to 10 for better context
-      .describe('Number of recent messages to retrieve.'),
   }),
-  func: async ({ targetChatId, messageCount = 10 }, runManager?: any) => {
+  func: async ({ targetChatId }) => {
+    // Check if this request is from the Global Orchestrator
+    let isFromOrchestrator = false;
+    let requestContext = '';
+
+    if (global.CURRENT_REQUEST_BODY) {
+      const contextId = global.CURRENT_REQUEST_BODY.currentActiveSpecialistId;
+      isFromOrchestrator =
+        contextId === 'global-orchestrator' ||
+        global.CURRENT_REQUEST_BODY.isFromGlobalPane === true;
+      requestContext = contextId || 'unknown';
+    }
+
+    // Restrict access to orchestrator only
+    if (!isFromOrchestrator) {
+      console.log(
+        `[getMessagesFromOtherChatTool] Access denied - tool restricted to Global Orchestrator only. Current context: ${requestContext}`,
+      );
+      return {
+        error: 'Access Restricted',
+        message:
+          'This tool is exclusively available to the Global Orchestrator. Individual specialists cannot access other chat contexts to maintain proper information boundaries.',
+        requestedBy: requestContext,
+        restriction: 'orchestrator-only',
+      };
+    }
+
+    console.log(
+      `[getMessagesFromOtherChatTool] Access granted - request from Global Orchestrator for chat: ${targetChatId}`,
+    );
+
     try {
       console.log(
         `[getMessagesFromOtherChatTool] Fetching messages from chat ID/specialist ${targetChatId}`,
@@ -169,7 +207,7 @@ export const getMessagesFromOtherChatTool = new DynamicStructuredTool({
             WHERE "chatId" = ${specialistTargetChatId}
               AND role = 'assistant'
             ORDER BY "createdAt" DESC
-            LIMIT ${messageCount}
+            LIMIT 50
           `;
 
           if (specificChatResult && specificChatResult.length > 0) {
@@ -239,7 +277,7 @@ export const getMessagesFromOtherChatTool = new DynamicStructuredTool({
           FROM "Message_v2"
           WHERE "chatId" = ${targetChatId}
           ORDER BY "createdAt" DESC
-          LIMIT ${messageCount}
+          LIMIT 50
         `) as unknown as MessageResult[];
       } else {
         // Determine if this is a specialist reference
@@ -310,7 +348,7 @@ export const getMessagesFromOtherChatTool = new DynamicStructuredTool({
           );
 
           // Limit to requested message count
-          messagesResult = allMessages.slice(0, messageCount);
+          messagesResult = allMessages.slice(0, 50);
         } else {
           // As a last resort, try to find messages that mention the specialist
           console.log(
@@ -359,7 +397,7 @@ export const getMessagesFromOtherChatTool = new DynamicStructuredTool({
             );
 
             // Limit to requested message count
-            messagesResult = allMessages.slice(0, messageCount);
+            messagesResult = allMessages.slice(0, 50);
           } else {
             // Generic search with just the target ID
             messagesResult = (await sql`
@@ -367,7 +405,7 @@ export const getMessagesFromOtherChatTool = new DynamicStructuredTool({
               FROM "Message_v2"
               WHERE parts::text ILIKE ${`%${targetChatId}%`}
               ORDER BY "createdAt" DESC
-              LIMIT ${messageCount}
+              LIMIT 50
             `) as unknown as MessageResult[];
           }
         }
