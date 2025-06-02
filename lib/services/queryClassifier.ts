@@ -43,9 +43,11 @@ const COMPLEX_PATTERNS = {
   // Tool invocation patterns
   TOOL_REQUESTS: [
     /(?:create|make|generate|build).+(?:task|project|document|file)/i,
-    /(?:search|find|look up|retrieve).+(?:asana|google|drive)/i,
-    /(?:update|modify|change|edit).+(?:task|project|status)/i,
+    /(?:search|find|look up|retrieve|get|fetch|access).+(?:asana|google|drive|file|document|content|data|knowledge)/i,
+    /(?:update|modify|change|edit).+(?:task|project|status|document|file)/i,
     /(?:analyze|process|transform).+(?:data|content|document)/i,
+    /(?:give me|show me|provide|display).+(?:contents|file|document|data|information)/i,
+    /(?:upload|download|save|store|backup).+(?:file|document|data)/i,
   ],
 
   // Multi-step operation patterns
@@ -68,6 +70,14 @@ const COMPLEX_PATTERNS = {
     /(?:RAG|retrieval|embedding|vector|semantic)/i,
     /(?:workflow|automation|integration|API)/i,
     /(?:code|programming|development|technical)/i,
+    /(?:core values|knowledge base|company|organization|internal)/i,
+  ],
+
+  // Document and knowledge retrieval
+  KNOWLEDGE_RETRIEVAL: [
+    /(?:complete contents|full content|entire file|all content)/i,
+    /(?:knowledge base|internal docs|company files|core values|policies|procedures)/i,
+    /(?:from the|in our|company's|organization's).+(?:files|documents|database)/i,
   ],
 };
 
@@ -174,7 +184,7 @@ export class QueryClassifier {
 
       const result: QueryClassificationResult = {
         shouldUseLangChain,
-        confidence: Math.max(0.6, complexityScore), // Ensure minimum confidence
+        confidence,
         reasoning,
         complexityScore,
         detectedPatterns,
@@ -208,8 +218,8 @@ export class QueryClassifier {
       // Fallback to LangChain for safety
       return {
         shouldUseLangChain: true,
-        confidence: 1.0,
-        reasoning: 'Forced routing via override',
+        confidence: 0.5,
+        reasoning: 'Classification failed, using LangChain as fallback',
         complexityScore: 1.0,
         detectedPatterns: ['classification_error'],
         recommendedModel: 'gpt-4.1',

@@ -165,13 +165,39 @@ export class VercelAIService {
       let finishReason = 'stop';
       const toolCalls: Array<{ name: string; input: any; result: any }> = [];
 
-      // Build messages array
+      // Convert LangChain format messages to CoreMessage format for Vercel AI SDK
+      const convertedHistory = conversationHistory.map((msg) => {
+        // Handle LangChain format (type: 'human'|'ai'|'system')
+        if (msg.type) {
+          if (msg.type === 'human') {
+            return { role: 'user' as const, content: msg.content };
+          } else if (msg.type === 'ai') {
+            return { role: 'assistant' as const, content: msg.content };
+          } else {
+            return { role: 'system' as const, content: msg.content };
+          }
+        }
+        // Handle direct role format
+        else if (msg.role) {
+          return {
+            role: msg.role as 'user' | 'assistant' | 'system',
+            content: msg.content,
+          };
+        }
+        // Fallback for unknown format
+        else {
+          this.logger.warn('Unknown message format, treating as user message', {
+            messageKeys: Object.keys(msg),
+            message: msg,
+          });
+          return { role: 'user' as const, content: String(msg.content || msg) };
+        }
+      });
+
+      // Build messages array with proper CoreMessage format
       const messages = [
         { role: 'system' as const, content: systemPrompt },
-        ...conversationHistory.map((msg) => ({
-          role: msg.role as 'user' | 'assistant',
-          content: msg.content,
-        })),
+        ...convertedHistory,
         { role: 'user' as const, content: userInput },
       ];
 
