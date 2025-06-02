@@ -284,10 +284,73 @@ export class BrainOrchestrator {
         const readableStream = new ReadableStream({
           async start(controller) {
             try {
+              let finalOutput = '';
+              const toolsUsed: string[] = [];
+
               for await (const chunk of stream) {
-                const encoded = encoder.encode(`${JSON.stringify(chunk)}\n`);
-                controller.enqueue(encoded);
+                // Extract content from LangChain streaming chunks
+                let content = '';
+
+                if (chunk && typeof chunk === 'object') {
+                  // Handle different chunk types from LangChain
+                  if (
+                    chunk.intermediateSteps &&
+                    chunk.intermediateSteps.length > 0
+                  ) {
+                    // Tool execution step
+                    const step =
+                      chunk.intermediateSteps[
+                        chunk.intermediateSteps.length - 1
+                      ];
+                    if (step?.action?.tool) {
+                      toolsUsed.push(step.action.tool);
+                    }
+                  }
+
+                  if (chunk.output) {
+                    // Final output
+                    content = chunk.output;
+                    finalOutput = content;
+                  } else if (chunk.messages && chunk.messages.length > 0) {
+                    // Message content
+                    const lastMessage =
+                      chunk.messages[chunk.messages.length - 1];
+                    if (lastMessage?.content) {
+                      content = lastMessage.content;
+                    }
+                  }
+                }
+
+                // Stream content character by character to match Vercel AI format
+                if (content && typeof content === 'string') {
+                  for (let i = 0; i < content.length; i++) {
+                    const char = content[i];
+                    const encoded = encoder.encode(
+                      `0:${JSON.stringify(char)}\n`,
+                    );
+                    controller.enqueue(encoded);
+                  }
+                }
               }
+
+              // Send completion metadata in Vercel AI format
+              const finishMessage = encoder.encode(
+                `d:${JSON.stringify({
+                  finishReason: 'stop',
+                  usage: {
+                    promptTokens: 0,
+                    completionTokens: finalOutput.length,
+                    totalTokens: finalOutput.length,
+                  },
+                  metadata: {
+                    model: context.selectedChatModel || 'gpt-4.1-mini',
+                    toolsUsed: [...new Set(toolsUsed)], // Remove duplicates
+                    executionPath: 'langchain',
+                  },
+                })}\n`,
+              );
+              controller.enqueue(finishMessage);
+
               controller.close();
             } catch (streamError) {
               // Handle specific LangChain streaming errors
@@ -302,19 +365,26 @@ export class BrainOrchestrator {
                 errorType: 'langchain_streaming_error',
               });
 
-              // Provide a fallback response instead of failing completely
-              const fallbackResponse = JSON.stringify({
-                output:
-                  'I encountered a technical issue while processing your request. This appears to be a document or knowledge retrieval query that requires access to internal systems. Please try rephrasing your question or contact support if the issue persists.',
-                metadata: {
-                  error: 'langchain_streaming_error',
-                  fallback: true,
-                  originalError: errorMessage,
-                },
-              });
+              // Provide a fallback response in Vercel AI format
+              const fallbackContent =
+                'I encountered a technical issue while processing your request. This appears to be a document or knowledge retrieval query that requires access to internal systems. Please try rephrasing your question or contact support if the issue persists.';
 
-              const encoded = encoder.encode(`${fallbackResponse}\n`);
-              controller.enqueue(encoded);
+              // Stream fallback content character by character
+              for (let i = 0; i < fallbackContent.length; i++) {
+                const char = fallbackContent[i];
+                const encoded = encoder.encode(`0:${JSON.stringify(char)}\n`);
+                controller.enqueue(encoded);
+              }
+
+              // Send error metadata
+              const errorFinish = encoder.encode(
+                `d:${JSON.stringify({
+                  finishReason: 'error',
+                  error: 'langchain_streaming_error',
+                  originalError: errorMessage,
+                })}\n`,
+              );
+              controller.enqueue(errorFinish);
               controller.close();
             }
           },
@@ -322,7 +392,11 @@ export class BrainOrchestrator {
 
         return new Response(readableStream, {
           headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Type': 'text/event-stream',
+            'Cache-Control':
+              'no-cache, no-transform, no-store, must-revalidate',
+            'X-Accel-Buffering': 'no',
+            Connection: 'keep-alive',
             'X-Execution-Path': 'langchain',
           },
         });
@@ -342,17 +416,37 @@ export class BrainOrchestrator {
           start(controller) {
             const fallbackMessage =
               "I'm experiencing technical difficulties accessing the knowledge base. Please try again in a moment or rephrase your request.";
-            const encoded = encoder.encode(
-              `${JSON.stringify({ output: fallbackMessage })}\n`,
+
+            // Stream fallback content character by character in Vercel AI format
+            for (let i = 0; i < fallbackMessage.length; i++) {
+              const char = fallbackMessage[i];
+              const encoded = encoder.encode(`0:${JSON.stringify(char)}\n`);
+              controller.enqueue(encoded);
+            }
+
+            // Send completion metadata
+            const finishMessage = encoder.encode(
+              `d:${JSON.stringify({
+                finishReason: 'error',
+                error: 'stream-setup-failed',
+                metadata: {
+                  executionPath: 'langchain-fallback',
+                },
+              })}\n`,
             );
-            controller.enqueue(encoded);
+            controller.enqueue(finishMessage);
+
             controller.close();
           },
         });
 
         return new Response(fallbackStream, {
           headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Type': 'text/event-stream',
+            'Cache-Control':
+              'no-cache, no-transform, no-store, must-revalidate',
+            'X-Accel-Buffering': 'no',
+            Connection: 'keep-alive',
             'X-Execution-Path': 'langchain-fallback',
             'X-Error': 'stream-setup-failed',
           },
