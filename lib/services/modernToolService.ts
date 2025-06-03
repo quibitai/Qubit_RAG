@@ -3,6 +3,9 @@ import { availableTools } from '@/lib/ai/tools';
 import type { RequestLogger } from './observabilityService';
 import { z } from 'zod';
 
+// Import timezone tool
+import { timezoneToolDefinition } from '@/lib/tools/timezoneTool';
+
 /**
  * ModernToolService
  *
@@ -97,6 +100,14 @@ export async function executeToolWithMonitoring(
 export function categorizeTools(): CategorizedTool[] {
   const categorized: CategorizedTool[] = [];
 
+  // Add timezone tool first with high priority for time queries
+  categorized.push({
+    tool: timezoneToolDefinition,
+    category: ToolCategory.UTILITY,
+    priority: 9, // High priority for time queries
+    contextRequirements: [],
+  });
+
   for (const tool of availableTools) {
     const category: ToolCategory =
       tool.name.includes('Document') || tool.name.includes('document')
@@ -169,6 +180,33 @@ export async function selectRelevantTools(
     let score = priority;
 
     // Advanced keyword matching with intent detection
+
+    // Time and timezone queries (highest priority for time-related questions)
+    if (tool.name === 'timezoneTool') {
+      if (
+        keywords.includes('time') ||
+        keywords.includes('timezone') ||
+        keywords.includes('clock') ||
+        keywords.includes('what time is it') ||
+        keywords.includes('current time') ||
+        keywords.includes('time in') ||
+        keywords.includes('convert time') ||
+        keywords.includes('chicago') ||
+        keywords.includes('london') ||
+        keywords.includes('tokyo') ||
+        keywords.includes('paris') ||
+        keywords.includes('sydney') ||
+        keywords.includes('new york') ||
+        keywords.includes('est') ||
+        keywords.includes('pst') ||
+        keywords.includes('cst') ||
+        keywords.includes('mst') ||
+        keywords.includes('utc') ||
+        keywords.includes('gmt')
+      ) {
+        score += 50; // Very high priority for time queries
+      }
+    }
 
     // Document operations
     if (

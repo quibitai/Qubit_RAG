@@ -43,6 +43,12 @@ import type { DBMessage } from '@/lib/db/schema';
 import { DateTime } from 'luxon';
 import { loadPrompt } from '@/lib/ai/prompts/loader';
 
+// Import timezone service for proper timezone detection
+import { createTimezoneService, type TimezoneInfo } from './timezoneService';
+
+// Import document handlers for image generation support
+import { documentHandlersByArtifactKind } from '@/lib/artifacts/server';
+
 /**
  * Configuration for brain orchestration
  */
@@ -438,20 +444,15 @@ export class BrainOrchestrator {
     let langchainAgent: LangChainAgent | undefined;
 
     try {
-      // Generate current date/time with timezone support
-      const userTimezone = brainRequest.userTimezone || 'UTC';
-      let now = DateTime.now().setZone(userTimezone);
-      if (!now.isValid) {
-        now = DateTime.now().setZone('UTC');
-      }
-      const userFriendlyDate = now.toLocaleString(DateTime.DATE_FULL); // e.g., May 10, 2025
-      const userFriendlyTime = now.toLocaleString(DateTime.TIME_SIMPLE); // e.g., 6:04 PM
-      const currentDateTime = `${userFriendlyDate} ${userFriendlyTime} (${userTimezone})`;
+      // Generate current date/time with enhanced timezone support
+      const dateTimeContext =
+        await this.generateEnhancedDateTimeContext(brainRequest);
 
-      this.logger.info('Generated current date/time context', {
-        currentDateTime,
-        userTimezone,
-        iso: now.toISO(),
+      this.logger.info('Generated enhanced date/time context', {
+        currentDateTime: dateTimeContext.currentDateTime,
+        userTimezone: dateTimeContext.userTimezone,
+        detectionMethod: dateTimeContext.detectionMethod,
+        iso: dateTimeContext.iso,
       });
 
       // Load proper system prompt with date/time context
@@ -459,10 +460,10 @@ export class BrainOrchestrator {
         modelId: context.selectedChatModel || 'global-orchestrator',
         contextId: context.activeBitContextId || null,
         clientConfig: this.config.clientConfig,
-        currentDateTime,
+        currentDateTime: dateTimeContext.currentDateTime,
       });
 
-      this.logger.info('Loaded system prompt with date/time context', {
+      this.logger.info('Loaded system prompt with enhanced date/time context', {
         promptLength: systemPrompt.length,
         contextId: context.activeBitContextId,
         selectedModel: context.selectedChatModel,
@@ -715,52 +716,120 @@ export class BrainOrchestrator {
       historyLength: conversationHistory.length,
     });
 
-    // Generate current date/time with timezone support (same as LangChain path)
-    const userTimezone = brainRequest?.userTimezone || 'UTC';
-    let now = DateTime.now().setZone(userTimezone);
-    if (!now.isValid) {
-      now = DateTime.now().setZone('UTC');
-    }
-    const userFriendlyDate = now.toLocaleString(DateTime.DATE_FULL);
-    const userFriendlyTime = now.toLocaleString(DateTime.TIME_SIMPLE);
-    const currentDateTime = `${userFriendlyDate} ${userFriendlyTime} (${userTimezone})`;
-
-    this.logger.info('Generated current date/time context for VercelAI', {
-      currentDateTime,
-      userTimezone,
-      iso: now.toISO(),
-    });
-
-    // Load proper system prompt with date/time context
-    const systemPrompt = loadPrompt({
-      modelId: context?.selectedChatModel || 'gpt-4.1-mini',
-      contextId: context?.activeBitContextId || null,
-      clientConfig: this.config.clientConfig,
-      currentDateTime,
-    });
-
-    this.logger.info(
-      'Loaded system prompt with date/time context for VercelAI',
-      {
-        promptLength: systemPrompt.length,
-        contextId: context?.activeBitContextId,
-        hasDateTime: systemPrompt.includes('Current date and time:'),
+    // Create a buffered data stream to capture artifact events during tool execution
+    const artifactEventBuffer: any[] = [];
+    const mockDataStream = {
+      write: async (data: string) => {
+        // Parse and store the artifact event
+        try {
+          // Data comes in format "2:[{"type":"artifact-start",...}]\n"
+          if (data.startsWith('2:')) {
+            const jsonStr = data.slice(2).trim();
+            const eventArray = JSON.parse(jsonStr);
+            if (Array.isArray(eventArray) && eventArray.length > 0) {
+              artifactEventBuffer.push(eventArray[0]);
+              this.logger.info('Buffered artifact event', {
+                type: eventArray[0].type,
+                kind: eventArray[0].kind,
+              });
+            }
+          }
+        } catch (error) {
+          this.logger.warn('Failed to parse artifact event', {
+            data: data.substring(0, 100),
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
       },
-    );
+      writeData: async (data: any) => {
+        // Alternative method for writing data
+        artifactEventBuffer.push(data);
+        this.logger.info('Buffered artifact data', {
+          type: data.type,
+          kind: data.kind,
+        });
+      },
+    };
 
-    const result = await this.vercelAIService.processQuery(
-      systemPrompt, // Use proper prompt with date/time instead of hardcoded
-      userInput,
-      conversationHistory,
-    );
+    // Set up global context for document creation tools (image generation support)
+    try {
+      const session = await auth();
+      global.CREATE_DOCUMENT_CONTEXT = {
+        dataStream: mockDataStream,
+        session: session,
+        handlers: documentHandlersByArtifactKind,
+        toolInvocationsTracker: [], // Initialize tracker for manual tool invocation tracking
+      };
 
-    this.logger.info('Vercel AI SDK execution completed', {
-      tokenUsage: result.tokenUsage,
-      executionTime: result.executionTime,
-      finishReason: result.finishReason,
-    });
+      this.logger.info('Set up CREATE_DOCUMENT_CONTEXT for Vercel AI path', {
+        hasSession: !!session,
+        handlerCount: documentHandlersByArtifactKind.length,
+        hasMockDataStream: true,
+      });
+    } catch (error) {
+      this.logger.warn('Failed to set up CREATE_DOCUMENT_CONTEXT', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      // Continue without global context - tools will fall back to placeholder responses
+    }
 
-    return result;
+    try {
+      // Generate current date/time with timezone support (same as LangChain path)
+      const userTimezone = brainRequest?.userTimezone || 'UTC';
+      let now = DateTime.now().setZone(userTimezone);
+      if (!now.isValid) {
+        now = DateTime.now().setZone('UTC');
+      }
+      const userFriendlyDate = now.toLocaleString(DateTime.DATE_FULL);
+      const userFriendlyTime = now.toLocaleString(DateTime.TIME_SIMPLE);
+      const currentDateTime = `${userFriendlyDate} ${userFriendlyTime} (${userTimezone})`;
+
+      this.logger.info('Generated current date/time context for VercelAI', {
+        currentDateTime,
+        userTimezone,
+        iso: now.toISO(),
+      });
+
+      // Load proper system prompt with date/time context
+      const systemPrompt = loadPrompt({
+        modelId: context?.selectedChatModel || 'gpt-4.1-mini',
+        contextId: context?.activeBitContextId || null,
+        clientConfig: this.config.clientConfig,
+        currentDateTime,
+      });
+
+      this.logger.info(
+        'Loaded system prompt with date/time context for VercelAI',
+        {
+          promptLength: systemPrompt.length,
+          contextId: context?.activeBitContextId,
+          hasDateTime: systemPrompt.includes('Current date and time:'),
+        },
+      );
+
+      const result = await this.vercelAIService.processQuery(
+        systemPrompt, // Use proper prompt with date/time instead of hardcoded
+        userInput,
+        conversationHistory,
+      );
+
+      this.logger.info('Vercel AI SDK execution completed', {
+        tokenUsage: result.tokenUsage,
+        executionTime: result.executionTime,
+        finishReason: result.finishReason,
+        artifactEventsBuffered: artifactEventBuffer.length,
+      });
+
+      // Add buffered artifact events to the result for replay during streaming
+      return {
+        ...result,
+        artifactEvents: artifactEventBuffer,
+      };
+    } finally {
+      // Clean up global context
+      global.CREATE_DOCUMENT_CONTEXT = undefined;
+      this.logger.info('Cleaned up CREATE_DOCUMENT_CONTEXT');
+    }
   }
 
   /**
@@ -781,6 +850,15 @@ export class BrainOrchestrator {
     const stream = new ReadableStream({
       start(controller) {
         try {
+          // First, replay any buffered artifact events from tool execution
+          if (result.artifactEvents && result.artifactEvents.length > 0) {
+            for (const event of result.artifactEvents) {
+              // Send artifact events in the same format as LangChain route
+              const artifactData = `2:${JSON.stringify([event])}\n`;
+              controller.enqueue(encoder.encode(artifactData));
+            }
+          }
+
           // Stream the content character by character to match original behavior
           const content = result.content || '';
           const subChunkSize = 1; // Character-by-character streaming
@@ -813,6 +891,7 @@ export class BrainOrchestrator {
                 toolsUsed: result.toolCalls?.map((call) => call.name) || [],
                 confidence: performance.classification?.confidence,
                 reasoning: performance.classification?.reasoning,
+                artifactEventsReplayed: result.artifactEvents?.length || 0,
               },
             })}\n`,
           );
@@ -835,6 +914,7 @@ export class BrainOrchestrator {
         'X-Execution-Path': 'vercel-ai',
         'X-Classification-Score':
           performance.classification?.complexityScore?.toString() || '',
+        'X-Artifact-Events': result.artifactEvents?.length?.toString() || '0',
       },
     });
   }
@@ -914,6 +994,75 @@ export class BrainOrchestrator {
       hybridRouting: this.config.enableHybridRouting,
       classification: this.config.enableClassification,
     });
+  }
+
+  /**
+   * Generate enhanced date and time context with proper timezone handling
+   */
+  private async generateEnhancedDateTimeContext(brainRequest: any): Promise<{
+    currentDateTime: string;
+    userTimezone: string;
+    iso: string;
+    detectionMethod: string;
+  }> {
+    try {
+      // Use timezone service for proper detection
+      const timezoneService = createTimezoneService(this.logger, {
+        userPreference: brainRequest.userTimezone, // Use user preference if available
+        fallbackTimezone: 'UTC',
+      });
+
+      let timezoneInfo: TimezoneInfo;
+      try {
+        timezoneInfo = await timezoneService.detectTimezone();
+      } catch (error) {
+        this.logger.warn('Timezone detection failed, using UTC', { error });
+        timezoneInfo = {
+          timezone: 'UTC',
+          offset: 0,
+          isDST: false,
+          displayName: 'Coordinated Universal Time',
+          abbreviation: 'UTC',
+          detectionMethod: 'fallback',
+          confidence: 0.5,
+        };
+      }
+
+      // Create date with detected timezone
+      const now = DateTime.now().setZone(timezoneInfo.timezone);
+      const currentDateTime = now.toFormat('MMMM d, yyyy h:mm a (ZZZZ)');
+      const iso = now.toISO();
+
+      this.logger.info('Generated current date/time context', {
+        currentDateTime,
+        userTimezone: timezoneInfo.timezone,
+        timezoneDisplayName: timezoneInfo.displayName,
+        detectionMethod: timezoneInfo.detectionMethod,
+        confidence: timezoneInfo.confidence,
+        iso,
+      });
+
+      return {
+        currentDateTime,
+        userTimezone: timezoneInfo.timezone,
+        iso: iso || new Date().toISOString(),
+        detectionMethod: timezoneInfo.detectionMethod,
+      };
+    } catch (error) {
+      this.logger.error('Failed to generate date/time context', error);
+
+      // Fallback to UTC if everything fails
+      const now = DateTime.utc();
+      const currentDateTime = now.toFormat('MMMM d, yyyy h:mm a (ZZZZ)');
+      const iso = now.toISO();
+
+      return {
+        currentDateTime,
+        userTimezone: 'UTC',
+        iso: iso || new Date().toISOString(),
+        detectionMethod: 'fallback',
+      };
+    }
   }
 }
 

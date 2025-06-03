@@ -90,7 +90,10 @@ export class MessageService {
     // Exclude the last message (current user input) from history
     const historyMessages = messages.slice(0, -1);
 
-    return historyMessages.map((message) => {
+    // Filter out problematic conversation patterns that cause context bleeding
+    const filteredHistory = this.filterContextBleedingPatterns(historyMessages);
+
+    return filteredHistory.map((message) => {
       if (message.role === 'user') {
         return {
           type: 'human',
@@ -105,6 +108,84 @@ export class MessageService {
         };
       }
     });
+  }
+
+  /**
+   * Filter out conversation patterns that cause context bleeding
+   * Removes sequences where assistant couldn't fulfill a request to prevent
+   * the agent from trying to answer old questions
+   */
+  private filterContextBleedingPatterns(
+    messages: (UIMessage | MessageData)[],
+  ): (UIMessage | MessageData)[] {
+    const filtered: (UIMessage | MessageData)[] = [];
+
+    for (let i = 0; i < messages.length; i++) {
+      const message = messages[i];
+      const nextMessage = messages[i + 1];
+
+      // Check if this is a user message followed by an assistant "can't find" response
+      if (
+        message.role === 'user' &&
+        nextMessage?.role === 'assistant' &&
+        this.isUnsuccessfulResponse(nextMessage.content)
+      ) {
+        // Skip both the user question and the unsuccessful assistant response
+        // to prevent the agent from trying to answer the old question
+        this.logger.info(
+          'Filtered out unsuccessful Q&A pair to prevent context bleeding',
+          {
+            userQuestion: message.content.substring(0, 50),
+            assistantResponse: nextMessage.content.substring(0, 50),
+          },
+        );
+        i++; // Skip the next message too
+        continue;
+      }
+
+      // Only include successful exchanges and standalone messages
+      filtered.push(message);
+    }
+
+    this.logger.info('Context bleeding filter applied', {
+      originalCount: messages.length,
+      filteredCount: filtered.length,
+      removedCount: messages.length - filtered.length,
+    });
+
+    return filtered;
+  }
+
+  /**
+   * Check if an assistant response indicates it couldn't fulfill the request
+   */
+  private isUnsuccessfulResponse(content: string): boolean {
+    const lowerContent = content.toLowerCase();
+    const unsuccessfulPatterns = [
+      "i don't see",
+      "i can't find",
+      "i don't have access",
+      "i'm unable to",
+      "couldn't find",
+      "can't access",
+      'not found',
+      'unable to locate',
+      "can't retrieve",
+      'no document',
+      'please confirm',
+      'please provide',
+      'file again',
+      'upload the file',
+      "can't see",
+      "don't have",
+      'issue accessing',
+      'technical difficulties',
+      'experiencing difficulties',
+    ];
+
+    return unsuccessfulPatterns.some((pattern) =>
+      lowerContent.includes(pattern),
+    );
   }
 
   /**

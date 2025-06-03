@@ -17,6 +17,9 @@ import type { ClientConfig } from '@/lib/db/queries';
 import { DateTime } from 'luxon';
 import { loadPrompt } from '@/lib/ai/prompts/loader';
 
+// Import modern tool service for proper tool selection
+import { selectRelevantTools, type ToolContext } from './modernToolService';
+
 /**
  * Configuration for VercelAI service
  */
@@ -57,6 +60,7 @@ export interface VercelAIResult {
     input: any;
     result: any;
   }>;
+  artifactEvents?: any[]; // Buffered artifact events for image/document generation
 }
 
 /**
@@ -116,7 +120,6 @@ const getRequestSuggestionsTool = {
 export class VercelAIService {
   private logger: RequestLogger;
   private config: VercelAIConfig;
-  private availableTools: any[];
 
   constructor(logger: RequestLogger, config: VercelAIConfig = {}) {
     this.logger = logger;
@@ -130,9 +133,6 @@ export class VercelAIService {
       ...config,
     };
 
-    this.availableTools = this.config.enableTools
-      ? [getWeatherTool, getRequestSuggestionsTool]
-      : [];
     this.initializeService();
   }
 
@@ -143,7 +143,6 @@ export class VercelAIService {
     this.logger.info('Initializing VercelAI service', {
       model: this.config.selectedChatModel,
       enableTools: this.config.enableTools,
-      toolCount: this.availableTools.length,
       contextId: this.config.contextId,
     });
   }
@@ -168,6 +167,24 @@ export class VercelAIService {
       let tokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
       let finishReason = 'stop';
       const toolCalls: Array<{ name: string; input: any; result: any }> = [];
+
+      // Get relevant tools from modern tool service
+      let availableTools: any[] = [];
+      if (this.config.enableTools) {
+        const toolContext: ToolContext = {
+          userQuery: userInput,
+          activeBitContextId: this.config.contextId || undefined,
+          logger: this.logger,
+        };
+
+        availableTools = await selectRelevantTools(toolContext, 26);
+
+        this.logger.info('Selected tools for VercelAI', {
+          toolCount: availableTools.length,
+          toolNames: availableTools.map((t) => t.name),
+          contextId: this.config.contextId,
+        });
+      }
 
       // Convert LangChain format messages to CoreMessage format for Vercel AI SDK
       const convertedHistory = conversationHistory.map((msg) => {
@@ -205,24 +222,23 @@ export class VercelAIService {
         { role: 'user' as const, content: userInput },
       ];
 
+      // Convert modern tools to Vercel AI format
+      const vercelTools: Record<string, any> = {};
+      if (this.config.enableTools && availableTools.length > 0) {
+        for (const tool of availableTools) {
+          vercelTools[tool.name] = {
+            description: tool.description,
+            parameters: tool.schema,
+            execute: tool.func || tool.execute, // Handle both interfaces
+          };
+        }
+      }
+
       // Use streamText for proper text responses
       const result = await streamText({
         model: openai(this.config.selectedChatModel || 'gpt-4.1-mini'),
         messages,
-        tools: this.config.enableTools
-          ? {
-              getWeather: {
-                description: getWeatherTool.description,
-                parameters: getWeatherTool.parameters,
-                execute: getWeatherTool.execute,
-              },
-              getRequestSuggestions: {
-                description: getRequestSuggestionsTool.description,
-                parameters: getRequestSuggestionsTool.parameters,
-                execute: getRequestSuggestionsTool.execute,
-              },
-            }
-          : undefined,
+        tools: Object.keys(vercelTools).length > 0 ? vercelTools : undefined,
         maxTokens: this.config.maxTokens,
         temperature: this.config.temperature,
         onFinish: (event) => {
@@ -246,10 +262,36 @@ export class VercelAIService {
         },
       });
 
-      // Collect the full text response
+      // Collect both text content and tool calls
       let content = '';
-      for await (const delta of result.textStream) {
-        content += delta;
+
+      // Handle both text and tool calls
+      for await (const delta of result.fullStream) {
+        switch (delta.type) {
+          case 'text-delta':
+            content += delta.textDelta;
+            break;
+          case 'tool-call':
+            // Track tool calls for logging
+            toolCalls.push({
+              name: delta.toolName,
+              input: delta.args,
+              result: null, // Will be filled when tool-result comes
+            });
+            break;
+          case 'tool-result': {
+            // Find the corresponding tool call and update its result
+            const toolCall = toolCalls.find(
+              (call) => call.name === delta.toolName,
+            );
+            if (toolCall) {
+              toolCall.result = delta.result;
+              // Add tool result to content
+              content += `\n\n${delta.result}`;
+            }
+            break;
+          }
+        }
       }
 
       // Get final usage statistics
@@ -278,7 +320,7 @@ export class VercelAIService {
       });
 
       return {
-        content, // Now returns proper string content
+        content, // Now includes both text and tool results
         tokenUsage,
         finishReason,
         executionTime,
@@ -314,20 +356,33 @@ export class VercelAIService {
   /**
    * Get available tools
    */
-  public getAvailableTools(): string[] {
-    return this.availableTools.map((tool) => tool.name);
+  public async getAvailableTools(userQuery = ''): Promise<string[]> {
+    if (!this.config.enableTools) {
+      return [];
+    }
+
+    const toolContext: ToolContext = {
+      userQuery,
+      activeBitContextId: this.config.contextId || undefined,
+      logger: this.logger,
+    };
+
+    const tools = await selectRelevantTools(toolContext, 26);
+    return tools.map((tool) => tool.name);
   }
 
   /**
    * Get service metrics
    */
-  public getMetrics(): {
+  public async getMetrics(userQuery = ''): Promise<{
     toolCount: number;
     model: string;
     enableTools: boolean;
-  } {
+  }> {
+    const availableTools = await this.getAvailableTools(userQuery);
+
     return {
-      toolCount: this.availableTools.length,
+      toolCount: availableTools.length,
       model: this.config.selectedChatModel || 'gpt-4.1-mini',
       enableTools: this.config.enableTools || false,
     };

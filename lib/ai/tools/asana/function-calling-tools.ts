@@ -12,13 +12,15 @@ import {
   type ToolExecutionContext,
 } from './modern-asana-tool';
 import { AsanaApiClient } from './api-client/client';
-import { ASANA_PAT } from './config';
+import { ASANA_PAT, getWorkspaceGid } from './config';
 import {
   analyzeAsanaError,
   formatUserFriendlyError,
   type UserFriendlyErrorResult,
 } from './recovery/userFriendlyErrorHandler';
 import { AsanaIntegrationError } from './utils/errorHandler';
+import { formatWorkspaceUsersList } from './formatters/responseFormatter';
+import type { RequestContext } from './types';
 
 // Generate a simple request ID
 function generateRequestId(): string {
@@ -487,7 +489,39 @@ export function createAsanaFunctionCallingTools(
 
         try {
           const result = await modernTool.listUsers(context, workspace_id);
-          return formatResponse(result);
+
+          // Check if the operation was successful
+          if (!result.metadata.success || !result.data) {
+            return handleToolError(
+              new Error('Failed to retrieve user list'),
+              'listing users',
+              { workspace_id },
+            );
+          }
+
+          // Extract user data from the result
+          const usersData = Array.isArray(result.data) ? result.data : [];
+
+          // Get workspace information
+          const workspaceGid = workspace_id || getWorkspaceGid();
+          const workspaceInfo = {
+            name: 'Echo Tango Workspace', // We could fetch this, but for now use a default
+            gid: workspaceGid,
+          };
+
+          // Create request context for formatting
+          const requestContext: RequestContext = {
+            requestId: context.requestId || generateRequestId(),
+            sessionId: context.sessionId,
+            operation: 'list_users',
+          };
+
+          // Use the proper formatter
+          return formatWorkspaceUsersList(
+            usersData,
+            workspaceInfo,
+            requestContext,
+          );
         } catch (error) {
           return handleToolError(error, 'listing users', { workspace_id });
         }
