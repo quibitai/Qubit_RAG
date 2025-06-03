@@ -26,6 +26,9 @@ import {
 import { createLangGraphWrapper, shouldUseLangGraph } from '@/lib/ai/graphs';
 import type { SimpleLangGraphWrapper } from '@/lib/ai/graphs';
 
+// Import LangChainAdapter for proper Vercel AI SDK streaming
+import { LangChainAdapter } from 'ai';
+
 // Type imports
 import type { EnhancedAgentExecutor } from '@/lib/ai/executors/EnhancedAgentExecutor';
 import type { RequestLogger } from './observabilityService';
@@ -339,7 +342,7 @@ export async function executeLangChainAgent(
 
 /**
  * Stream LangChain agent execution
- * Now supports both AgentExecutor and LangGraph streaming
+ * Now supports both AgentExecutor and LangGraph streaming with proper Vercel AI SDK integration
  */
 export async function streamLangChainAgent(
   agent: LangChainAgent,
@@ -348,7 +351,7 @@ export async function streamLangChainAgent(
   config: LangChainBridgeConfig,
   logger: RequestLogger,
   callbacks?: any,
-): Promise<AsyncIterable<any>> {
+): Promise<Response> {
   logger.info('Streaming LangChain agent', {
     inputLength: input.length,
     historyLength: chatHistory.length,
@@ -358,25 +361,31 @@ export async function streamLangChainAgent(
 
   try {
     if (agent.executionType === 'langgraph' && agent.langGraphWrapper) {
-      // Stream with LangGraph wrapper
-      return agent.langGraphWrapper.stream(
+      // Stream with LangGraph wrapper using streamEvents for proper Vercel AI SDK integration
+      const stream = await agent.langGraphWrapper.streamEvents(
         {
           input,
           chat_history: chatHistory,
           activeBitContextId: config.contextId,
         },
-        { callbacks },
+        { version: 'v2', callbacks },
       );
+
+      // Use LangChainAdapter to convert StreamEvents to proper data stream response
+      return LangChainAdapter.toDataStreamResponse(stream);
     } else if (agent.executionType === 'agent' && agent.agentExecutor) {
-      // Stream with traditional AgentExecutor
-      return agent.agentExecutor.stream(
+      // Stream with traditional AgentExecutor using streamEvents
+      const stream = await agent.agentExecutor.streamEvents(
         {
           input,
           chat_history: chatHistory,
           activeBitContextId: config.contextId,
         },
-        { callbacks },
+        { version: 'v2', callbacks },
       );
+
+      // Use LangChainAdapter to convert StreamEvents to proper data stream response
+      return LangChainAdapter.toDataStreamResponse(stream);
     } else {
       throw new Error(`Invalid agent configuration: ${agent.executionType}`);
     }

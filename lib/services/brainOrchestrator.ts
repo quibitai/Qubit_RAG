@@ -200,7 +200,7 @@ export class BrainOrchestrator {
 
       if (shouldUseLangChain) {
         this.logger.info('Routing to LangChain path');
-        response = await this.executeLangChainPath(
+        response = await this.executeLangChainStreamingPath(
           brainRequest,
           context,
           userInput,
@@ -208,19 +208,12 @@ export class BrainOrchestrator {
         );
       } else {
         this.logger.info('Routing to Vercel AI path');
-        const result = await this.executeVercelAIPath(
+        response = await this.executeVercelAIStreamingPath(
           userInput,
           conversationHistory,
           brainRequest,
           context,
         );
-        response = this.formatVercelAIResponse(result, {
-          totalTime: performance.now() - startTime,
-          classificationTime,
-          executionTime: performance.now() - executionStart,
-          classification,
-          executionPath: 'vercel-ai',
-        });
       }
 
       const totalTime = performance.now() - startTime;
@@ -442,108 +435,113 @@ export class BrainOrchestrator {
   }
 
   /**
-   * Execute request using LangChain path
+   * Execute the Vercel AI path with proper streaming
    */
-  private async executeLangChainPath(
+  private async executeVercelAIStreamingPath(
+    userInput: string,
+    conversationHistory: any[],
+    brainRequest?: BrainRequest,
+    context?: ProcessedContext,
+  ): Promise<Response> {
+    const startTime = performance.now();
+
+    this.logger.info('Executing Vercel AI streaming path', {
+      inputLength: userInput.length,
+      historyLength: conversationHistory.length,
+      contextId: this.config.contextId,
+    });
+
+    try {
+      // Get system prompt based on context
+      const { systemPrompt } = await this.setupPromptAndTools(
+        brainRequest,
+        context,
+        userInput,
+      );
+
+      // Use the new streamQuery method for proper streaming
+      const response = await this.vercelAIService.streamQuery(
+        systemPrompt,
+        userInput,
+        conversationHistory,
+      );
+
+      const executionTime = performance.now() - startTime;
+
+      this.logger.info('Vercel AI streaming path completed', {
+        executionTime: `${executionTime.toFixed(2)}ms`,
+      });
+
+      return response;
+    } catch (error) {
+      const executionTime = performance.now() - startTime;
+
+      this.logger.error('Vercel AI streaming path failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        executionTime: `${executionTime.toFixed(2)}ms`,
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Execute the LangChain/LangGraph path with proper streaming
+   */
+  private async executeLangChainStreamingPath(
     brainRequest: BrainRequest,
     context: ProcessedContext,
     userInput: string,
     conversationHistory: any[],
   ): Promise<Response> {
-    this.logger.info('Executing LangChain path', {
-      message: userInput.substring(0, 100),
-      enableLangGraph: this.config.enableLangGraph,
-      langGraphForComplexQueries: this.config.langGraphForComplexQueries,
+    const startTime = performance.now();
+
+    this.logger.info('Executing LangChain streaming path', {
+      inputLength: userInput.length,
+      historyLength: conversationHistory.length,
+      contextId: brainRequest.activeBitContextId,
     });
 
-    let langchainAgent: LangChainAgent | undefined;
-
     try {
-      // Generate current date/time with enhanced timezone support
-      const dateTimeContext =
-        await this.generateEnhancedDateTimeContext(brainRequest);
+      // Get system prompt and set up agent configuration
+      const { systemPrompt } = await this.setupPromptAndTools(
+        brainRequest,
+        context,
+        userInput,
+      );
 
-      this.logger.info('Generated enhanced date/time context', {
-        currentDateTime: dateTimeContext.currentDateTime,
-        userTimezone: dateTimeContext.userTimezone,
-        detectionMethod: dateTimeContext.detectionMethod,
-        iso: dateTimeContext.iso,
+      // Detect LangGraph patterns for complex reasoning
+      const langGraphPatterns = this.detectComplexityPatterns(userInput);
+      const useLangGraph =
+        this.config.enableLangGraph && langGraphPatterns.length > 0;
+
+      this.logger.info('LangChain path execution details', {
+        useLangGraph,
+        langGraphPatterns,
+        patternCount: langGraphPatterns.length,
       });
 
-      // Load proper system prompt with date/time context
-      const systemPrompt = loadPrompt({
-        modelId: context.selectedChatModel || 'global-orchestrator',
-        contextId: context.activeBitContextId || null,
-        clientConfig: this.config.clientConfig,
-        currentDateTime: dateTimeContext.currentDateTime,
-      });
-
-      this.logger.info('Loaded system prompt with enhanced date/time context', {
-        promptLength: systemPrompt.length,
-        contextId: context.activeBitContextId,
-        selectedModel: context.selectedChatModel,
-        hasDateTime: systemPrompt.includes('Current date and time:'),
-        chatInterface: context.activeBitContextId
-          ? 'Chat Bit Specialist'
-          : 'Quibit',
-      });
-
-      // Determine if we should use LangGraph based on configuration and detected patterns
-      let useLangGraph = false;
-      let langGraphPatterns: string[] = [];
-
-      if (
-        this.config.enableLangGraph &&
-        this.config.langGraphForComplexQueries
-      ) {
-        // Use classification results from the earlier classification step if available
-        if (this.currentClassification?.detectedPatterns) {
-          langGraphPatterns = this.currentClassification.detectedPatterns;
-        } else {
-          // Fallback: analyze the user input for patterns that suggest complex reasoning
-          langGraphPatterns = this.detectComplexityPatterns(userInput);
-        }
-
-        // Import shouldUseLangGraph function to determine if patterns warrant LangGraph
-        const { shouldUseLangGraph } = await import('@/lib/ai/graphs');
-        useLangGraph = shouldUseLangGraph(langGraphPatterns);
-
-        this.logger.info('LangGraph routing decision', {
-          useLangGraph,
-          patterns: langGraphPatterns,
-          enableLangGraph: this.config.enableLangGraph,
-          langGraphForComplexQueries: this.config.langGraphForComplexQueries,
-        });
-      }
-
-      // Create LangChain agent with optional LangGraph support
+      // Configure LangChain bridge
       const langchainConfig: LangChainBridgeConfig = {
-        selectedChatModel: context.selectedChatModel,
-        contextId: context.activeBitContextId,
+        selectedChatModel: brainRequest.selectedChatModel,
+        contextId: brainRequest.activeBitContextId,
         clientConfig: this.config.clientConfig,
         enableToolExecution: true,
-        maxTools: 26,
         maxIterations: 10,
         verbose: false,
-        // Pass LangGraph configuration
         enableLangGraph: useLangGraph,
-        langGraphPatterns: langGraphPatterns,
+        langGraphPatterns,
       };
 
-      langchainAgent = await createLangChainAgent(
-        systemPrompt, // Use proper prompt with date/time instead of hardcoded
+      // Create LangChain agent
+      const langchainAgent = await createLangChainAgent(
+        systemPrompt,
         langchainConfig,
         this.logger,
       );
 
-      this.logger.info('LangChain agent created', {
-        executionType: langchainAgent.executionType,
-        toolCount: langchainAgent.tools.length,
-        usedLangGraph: langchainAgent.executionType === 'langgraph',
-      });
-
-      // Get the LangChain stream
-      const stream = await streamLangChainAgent(
+      // Stream the agent execution using proper LangChainAdapter
+      const response = await streamLangChainAgent(
         langchainAgent,
         userInput,
         conversationHistory,
@@ -551,217 +549,27 @@ export class BrainOrchestrator {
         this.logger,
       );
 
-      // TODO: In future iterations, use LangChainAdapter when TypeScript compatibility is resolved
-      // For now, use enhanced manual streaming with better error handling and observability
+      const executionTime = performance.now() - startTime;
 
-      // Convert the stream to a Response with enhanced error handling
-      const encoder = new TextEncoder();
-      const logger = this.logger; // Capture logger reference for use in stream handler
-      const orchestratorRef = this; // Capture 'this' reference for saveAssistantMessage
-
-      const readableStream = new ReadableStream({
-        async start(controller) {
-          try {
-            let finalOutput = '';
-            const toolsUsed: string[] = [];
-
-            for await (const chunk of stream) {
-              // Extract content from LangChain streaming chunks
-              let content = '';
-
-              if (chunk && typeof chunk === 'object') {
-                // Handle different chunk types from LangChain
-                if (
-                  chunk.intermediateSteps &&
-                  chunk.intermediateSteps.length > 0
-                ) {
-                  // Tool execution step
-                  const step =
-                    chunk.intermediateSteps[chunk.intermediateSteps.length - 1];
-                  if (step?.action?.tool) {
-                    toolsUsed.push(step.action.tool);
-                  }
-                }
-
-                if (chunk.output) {
-                  // Final output from agent execution
-                  content = chunk.output;
-                  finalOutput = content;
-                } else if (chunk.returnValues) {
-                  // Handle cases where agent returns values without tool calls
-                  if (chunk.returnValues.output) {
-                    content = chunk.returnValues.output;
-                    finalOutput = content;
-                  } else if (typeof chunk.returnValues === 'string') {
-                    content = chunk.returnValues;
-                    finalOutput = content;
-                  }
-                } else if (chunk.messages && chunk.messages.length > 0) {
-                  // Message content
-                  const lastMessage = chunk.messages[chunk.messages.length - 1];
-                  if (lastMessage?.content) {
-                    content = lastMessage.content;
-                  }
-                }
-              }
-
-              // Stream content character by character to match Vercel AI format
-              if (content && typeof content === 'string') {
-                for (let i = 0; i < content.length; i++) {
-                  const char = content[i];
-                  const encoded = encoder.encode(`0:${JSON.stringify(char)}\n`);
-                  controller.enqueue(encoded);
-                }
-              }
-            }
-
-            // Save assistant message after streaming completes
-            if (finalOutput?.trim()) {
-              await orchestratorRef.saveAssistantMessage(
-                brainRequest,
-                finalOutput,
-                toolsUsed,
-              );
-            }
-
-            // Send completion metadata in Vercel AI format with enhanced observability
-            const finishMessage = encoder.encode(
-              `d:${JSON.stringify({
-                finishReason: 'stop',
-                usage: {
-                  promptTokens: 0,
-                  completionTokens: finalOutput.length,
-                  totalTokens: finalOutput.length,
-                },
-                metadata: {
-                  model: context.selectedChatModel || 'gpt-4o-mini',
-                  toolsUsed: [...new Set(toolsUsed)], // Remove duplicates
-                  executionPath:
-                    langchainAgent?.executionType === 'langgraph'
-                      ? 'langgraph'
-                      : 'langchain',
-                  langGraphPatterns: useLangGraph
-                    ? langGraphPatterns
-                    : undefined,
-                  streamingMethod: 'manual-enhanced',
-                },
-              })}\n`,
-            );
-            controller.enqueue(finishMessage);
-
-            controller.close();
-          } catch (streamError) {
-            // Handle specific LangChain streaming errors
-            const errorMessage =
-              streamError instanceof Error
-                ? streamError.message
-                : 'Unknown streaming error';
-
-            logger.error('LangChain streaming error encountered', {
-              error: errorMessage,
-              userInput: userInput.substring(0, 100),
-              errorType: 'langchain_streaming_error',
-              executionType: langchainAgent?.executionType,
-            });
-
-            // Provide a fallback response in Vercel AI format
-            const fallbackContent =
-              'I encountered a technical issue while processing your request. This appears to be a document or knowledge retrieval query that requires access to internal systems. Please try rephrasing your question or contact support if the issue persists.';
-
-            // Stream fallback content character by character
-            for (let i = 0; i < fallbackContent.length; i++) {
-              const char = fallbackContent[i];
-              const encoded = encoder.encode(`0:${JSON.stringify(char)}\n`);
-              controller.enqueue(encoded);
-            }
-
-            // Send error metadata
-            const errorFinish = encoder.encode(
-              `d:${JSON.stringify({
-                finishReason: 'error',
-                error: 'langchain_streaming_error',
-                originalError: errorMessage,
-                streamingMethod: 'manual-enhanced-fallback',
-              })}\n`,
-            );
-            controller.enqueue(errorFinish);
-            controller.close();
-          }
-        },
+      this.logger.info('LangChain streaming path completed', {
+        executionTime: `${executionTime.toFixed(2)}ms`,
+        useLangGraph,
+        patternCount: langGraphPatterns.length,
       });
 
-      return new Response(readableStream, {
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
-          'X-Accel-Buffering': 'no',
-          Connection: 'keep-alive',
-          'X-Vercel-AI-Data-Stream': 'v1',
-          'X-Execution-Path':
-            langchainAgent?.executionType === 'langgraph'
-              ? 'langgraph'
-              : 'langchain',
-          'X-Model': context.selectedChatModel || 'gpt-4o-mini',
-          'X-Context-ID': context.activeBitContextId || '',
-          'X-LangGraph-Patterns': useLangGraph
-            ? langGraphPatterns.join(',')
-            : '',
-          'X-Streaming-Method': 'manual-enhanced',
-        },
-      });
-    } catch (error) {
-      this.logger.error('LangChain path execution failed', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        userInput: userInput.substring(0, 100),
-        executionType: langchainAgent?.executionType,
-      });
-
-      // Create a fallback response stream using traditional method
-      const encoder = new TextEncoder();
-      const fallbackStream = new ReadableStream({
-        start(controller) {
-          const fallbackMessage =
-            "I'm experiencing technical difficulties accessing the knowledge base. Please try again in a moment or rephrase your request.";
-
-          // Stream fallback content character by character in Vercel AI format
-          for (let i = 0; i < fallbackMessage.length; i++) {
-            const char = fallbackMessage[i];
-            const encoded = encoder.encode(`0:${JSON.stringify(char)}\n`);
-            controller.enqueue(encoded);
-          }
-
-          // Send completion metadata
-          const finishMessage = encoder.encode(
-            `d:${JSON.stringify({
-              finishReason: 'error',
-              error: 'langchain-execution-failed',
-              metadata: {
-                executionPath: 'langchain-fallback',
-              },
-            })}\n`,
-          );
-          controller.enqueue(finishMessage);
-
-          controller.close();
-        },
-      });
-
-      return new Response(fallbackStream, {
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
-          'X-Accel-Buffering': 'no',
-          Connection: 'keep-alive',
-          'X-Vercel-AI-Data-Stream': 'v1',
-          'X-Execution-Path': 'langchain-fallback',
-          'X-Error': 'true',
-        },
-      });
-    } finally {
       // Cleanup resources
-      if (langchainAgent) {
-        cleanupLangChainAgent(langchainAgent, this.logger);
-      }
+      cleanupLangChainAgent(langchainAgent, this.logger);
+
+      return response;
+    } catch (error) {
+      const executionTime = performance.now() - startTime;
+
+      this.logger.error('LangChain streaming path failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        executionTime: `${executionTime.toFixed(2)}ms`,
+      });
+
+      throw error;
     }
   }
 
@@ -832,232 +640,6 @@ export class BrainOrchestrator {
     }
 
     return patterns;
-  }
-
-  /**
-   * Execute request using Vercel AI SDK path
-   */
-  private async executeVercelAIPath(
-    userInput: string,
-    conversationHistory: any[],
-    brainRequest?: BrainRequest,
-    context?: ProcessedContext,
-  ): Promise<VercelAIResult> {
-    this.logger.info('Executing Vercel AI SDK path', {
-      message: userInput.substring(0, 100),
-      historyLength: conversationHistory.length,
-    });
-
-    // Create a buffered data stream to capture artifact events during tool execution
-    const artifactEventBuffer: any[] = [];
-    const mockDataStream = {
-      write: async (data: string) => {
-        // Parse and store the artifact event
-        try {
-          // Data comes in format "2:[{"type":"artifact-start",...}]\n"
-          if (data.startsWith('2:')) {
-            const jsonStr = data.slice(2).trim();
-            const eventArray = JSON.parse(jsonStr);
-            if (Array.isArray(eventArray) && eventArray.length > 0) {
-              artifactEventBuffer.push(eventArray[0]);
-              this.logger.info('Buffered artifact event', {
-                type: eventArray[0].type,
-                kind: eventArray[0].kind,
-              });
-            }
-          }
-        } catch (error) {
-          this.logger.warn('Failed to parse artifact event', {
-            data: data.substring(0, 100),
-            error: error instanceof Error ? error.message : 'Unknown error',
-          });
-        }
-      },
-      writeData: async (data: any) => {
-        // Alternative method for writing data
-        artifactEventBuffer.push(data);
-        this.logger.info('Buffered artifact data', {
-          type: data.type,
-          kind: data.kind,
-        });
-      },
-    };
-
-    // Set up global context for document creation tools (image generation support)
-    try {
-      const session = await auth();
-      global.CREATE_DOCUMENT_CONTEXT = {
-        dataStream: mockDataStream,
-        session: session,
-        handlers: documentHandlersByArtifactKind,
-        toolInvocationsTracker: [], // Initialize tracker for manual tool invocation tracking
-      };
-
-      this.logger.info('Set up CREATE_DOCUMENT_CONTEXT for Vercel AI path', {
-        hasSession: !!session,
-        handlerCount: documentHandlersByArtifactKind.length,
-        hasMockDataStream: true,
-      });
-    } catch (error) {
-      this.logger.warn('Failed to set up CREATE_DOCUMENT_CONTEXT', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-      // Continue without global context - tools will fall back to placeholder responses
-    }
-
-    try {
-      // Generate current date/time with timezone support (same as LangChain path)
-      const userTimezone = brainRequest?.userTimezone || 'UTC';
-      let now = DateTime.now().setZone(userTimezone);
-      if (!now.isValid) {
-        now = DateTime.now().setZone('UTC');
-      }
-      const userFriendlyDate = now.toLocaleString(DateTime.DATE_FULL);
-      const userFriendlyTime = now.toLocaleString(DateTime.TIME_SIMPLE);
-      const currentDateTime = `${userFriendlyDate} ${userFriendlyTime} (${userTimezone})`;
-
-      this.logger.info('Generated current date/time context for VercelAI', {
-        currentDateTime,
-        userTimezone,
-        iso: now.toISO(),
-      });
-
-      // Load proper system prompt with date/time context
-      const systemPrompt = loadPrompt({
-        modelId: context?.selectedChatModel || 'gpt-4.1-mini',
-        contextId: context?.activeBitContextId || null,
-        clientConfig: this.config.clientConfig,
-        currentDateTime,
-      });
-
-      this.logger.info(
-        'Loaded system prompt with date/time context for VercelAI',
-        {
-          promptLength: systemPrompt.length,
-          contextId: context?.activeBitContextId,
-          hasDateTime: systemPrompt.includes('Current date and time:'),
-        },
-      );
-
-      const result = await this.vercelAIService.processQuery(
-        systemPrompt, // Use proper prompt with date/time instead of hardcoded
-        userInput,
-        conversationHistory,
-      );
-
-      this.logger.info('Vercel AI SDK execution completed', {
-        tokenUsage: result.tokenUsage,
-        executionTime: result.executionTime,
-        finishReason: result.finishReason,
-        artifactEventsBuffered: artifactEventBuffer.length,
-      });
-
-      // Add buffered artifact events to the result for replay during streaming
-      return {
-        ...result,
-        artifactEvents: artifactEventBuffer,
-      };
-    } finally {
-      // Clean up global context
-      global.CREATE_DOCUMENT_CONTEXT = undefined;
-      this.logger.info('Cleaned up CREATE_DOCUMENT_CONTEXT');
-    }
-  }
-
-  /**
-   * Format Vercel AI SDK response to match expected Response format
-   */
-  private formatVercelAIResponse(
-    result: VercelAIResult,
-    performance: {
-      totalTime: number;
-      classificationTime?: number;
-      executionTime: number;
-      classification?: QueryClassificationResult;
-      executionPath: string;
-    },
-  ): Response {
-    // Create a streaming response to match the LangChain format expected by frontend
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      start(controller) {
-        try {
-          // First, replay any buffered artifact events from tool execution
-          if (result.artifactEvents && result.artifactEvents.length > 0) {
-            for (const event of result.artifactEvents) {
-              // Send artifact events in the same format as LangChain route
-              const artifactData = `2:${JSON.stringify([event])}\n`;
-              controller.enqueue(encoder.encode(artifactData));
-            }
-
-            // Send finish event for artifacts to complete the artifact streaming
-            const artifactFinishEvent = {
-              type: 'finish',
-              content: '',
-            };
-            const artifactFinishData = `2:${JSON.stringify([artifactFinishEvent])}\n`;
-            controller.enqueue(encoder.encode(artifactFinishData));
-          }
-
-          // Stream the content character by character to match original behavior
-          const content = result.content || '';
-          const subChunkSize = 1; // Character-by-character streaming
-
-          for (let i = 0; i < content.length; i += subChunkSize) {
-            const subChunk = content.slice(i, i + subChunkSize);
-            const encoded = encoder.encode(`0:${JSON.stringify(subChunk)}\n`);
-            controller.enqueue(encoded);
-          }
-
-          // Send finish message with token usage
-          const finishMessage = encoder.encode(
-            `d:${JSON.stringify({
-              finishReason: result.finishReason || 'stop',
-              usage: {
-                promptTokens: result.tokenUsage?.promptTokens || 0,
-                completionTokens: result.tokenUsage?.completionTokens || 0,
-                totalTokens: result.tokenUsage?.totalTokens || 0,
-              },
-              performance: {
-                totalTime: performance.totalTime,
-                classificationTime: performance.classificationTime,
-                executionTime: performance.executionTime,
-              },
-              classification: performance.classification,
-              metadata: {
-                model:
-                  performance.classification?.recommendedModel ||
-                  'gpt-4.1-mini',
-                toolsUsed: result.toolCalls?.map((call) => call.name) || [],
-                confidence: performance.classification?.confidence,
-                reasoning: performance.classification?.reasoning,
-                artifactEventsReplayed: result.artifactEvents?.length || 0,
-              },
-            })}\n`,
-          );
-          controller.enqueue(finishMessage);
-
-          controller.close();
-        } catch (error) {
-          controller.error(error);
-        }
-      },
-    });
-
-    // Return streaming response with correct headers to match LangChain format
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
-        'X-Accel-Buffering': 'no',
-        Connection: 'keep-alive',
-        'X-Vercel-AI-Data-Stream': 'v1',
-        'X-Execution-Path': 'vercel-ai',
-        'X-Classification-Score':
-          performance.classification?.complexityScore?.toString() || '',
-        'X-Artifact-Events': result.artifactEvents?.length?.toString() || '0',
-      },
-    });
   }
 
   /**
@@ -1204,6 +786,39 @@ export class BrainOrchestrator {
         detectionMethod: 'fallback',
       };
     }
+  }
+
+  /**
+   * Setup system prompt and tools for execution
+   */
+  private async setupPromptAndTools(
+    brainRequest: BrainRequest,
+    context: ProcessedContext,
+    userInput: string,
+  ): Promise<{ systemPrompt: string }> {
+    // Generate enhanced date/time context
+    const dateTimeContext =
+      await this.generateEnhancedDateTimeContext(brainRequest);
+
+    // Load system prompt with date/time context
+    const systemPrompt = loadPrompt({
+      modelId: context.selectedChatModel || 'global-orchestrator',
+      contextId: context.activeBitContextId || null,
+      clientConfig: this.config.clientConfig,
+      currentDateTime: dateTimeContext.currentDateTime,
+    });
+
+    this.logger.info('Loaded system prompt with enhanced date/time context', {
+      promptLength: systemPrompt.length,
+      contextId: context.activeBitContextId,
+      selectedModel: context.selectedChatModel,
+      hasDateTime: systemPrompt.includes('Current date and time:'),
+      chatInterface: context.activeBitContextId
+        ? 'Chat Bit Specialist'
+        : 'Quibit',
+    });
+
+    return { systemPrompt };
   }
 }
 

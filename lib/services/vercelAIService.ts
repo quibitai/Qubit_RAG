@@ -387,6 +387,128 @@ export class VercelAIService {
       enableTools: this.config.enableTools || false,
     };
   }
+
+  /**
+   * Stream a query using Vercel AI SDK with proper Response object
+   */
+  public async streamQuery(
+    systemPrompt: string,
+    userInput: string,
+    conversationHistory: any[] = [],
+  ): Promise<Response> {
+    this.logger.info('Streaming query with VercelAI', {
+      inputLength: userInput.length,
+      historyLength: conversationHistory.length,
+      toolsEnabled: this.config.enableTools,
+    });
+
+    try {
+      // Get relevant tools from modern tool service
+      let availableTools: any[] = [];
+      if (this.config.enableTools) {
+        const toolContext: ToolContext = {
+          userQuery: userInput,
+          activeBitContextId: this.config.contextId || undefined,
+          logger: this.logger,
+        };
+
+        availableTools = await selectRelevantTools(toolContext, 26);
+
+        this.logger.info('Selected tools for VercelAI streaming', {
+          toolCount: availableTools.length,
+          toolNames: availableTools.map((t) => t.name),
+          contextId: this.config.contextId,
+        });
+      }
+
+      // Convert LangChain format messages to CoreMessage format for Vercel AI SDK
+      const convertedHistory = conversationHistory.map((msg) => {
+        // Handle LangChain format (type: 'human'|'ai'|'system')
+        if (msg.type) {
+          if (msg.type === 'human') {
+            return { role: 'user' as const, content: msg.content };
+          } else if (msg.type === 'ai') {
+            return { role: 'assistant' as const, content: msg.content };
+          } else {
+            return { role: 'system' as const, content: msg.content };
+          }
+        }
+        // Handle direct role format
+        else if (msg.role) {
+          return {
+            role: msg.role as 'user' | 'assistant' | 'system',
+            content: msg.content,
+          };
+        }
+        // Fallback for unknown format
+        else {
+          this.logger.warn(
+            'Unknown message format in streaming, treating as user message',
+            {
+              messageKeys: Object.keys(msg),
+              message: msg,
+            },
+          );
+          return { role: 'user' as const, content: String(msg.content || msg) };
+        }
+      });
+
+      // Build messages array with proper CoreMessage format
+      const messages = [
+        { role: 'system' as const, content: systemPrompt },
+        ...convertedHistory,
+        { role: 'user' as const, content: userInput },
+      ];
+
+      // Convert modern tools to Vercel AI format
+      const vercelTools: Record<string, any> = {};
+      if (this.config.enableTools && availableTools.length > 0) {
+        for (const tool of availableTools) {
+          vercelTools[tool.name] = {
+            description: tool.description,
+            parameters: tool.schema,
+            execute: tool.func || tool.execute, // Handle both interfaces
+          };
+        }
+      }
+
+      // Use streamText and return proper Response object
+      const result = streamText({
+        model: openai(this.config.selectedChatModel || 'gpt-4.1-mini'),
+        messages,
+        tools: Object.keys(vercelTools).length > 0 ? vercelTools : undefined,
+        maxTokens: this.config.maxTokens,
+        temperature: this.config.temperature,
+        onFinish: (event) => {
+          // Track token usage
+          if (event.usage) {
+            this.logger.logTokenUsage({
+              promptTokens: event.usage.promptTokens,
+              completionTokens: event.usage.completionTokens,
+              totalTokens: event.usage.totalTokens,
+              model: this.config.selectedChatModel || 'gpt-4.1-mini',
+              provider: 'openai',
+            });
+          }
+
+          this.logger.info('VercelAI streaming completed', {
+            finishReason: event.finishReason,
+            usage: event.usage,
+          });
+        },
+      });
+
+      // Return proper Response object for streaming
+      return result.toDataStreamResponse();
+    } catch (error) {
+      this.logger.error('VercelAI streaming failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        inputLength: userInput.length,
+      });
+
+      throw error;
+    }
+  }
 }
 
 /**

@@ -53,12 +53,17 @@ export const messageSchema = z
       }),
     attachments: z.array(z.any()).optional(),
     experimental_attachments: z.array(z.any()).optional(),
-    // Allow Vercel AI SDK's parts field
+    // Allow Vercel AI SDK's parts field with flexible structure for streaming
     parts: z
       .array(
         z.object({
           type: z.string(),
-          text: z.string(),
+          text: z.string().optional(), // Make text optional for streaming parts like step-start
+          language: z.string().optional(), // For code parts
+          image: z.string().optional(), // For image parts
+          toolName: z.string().optional(), // For tool calls/results
+          toolInput: z.any().optional(), // For tool calls
+          toolResult: z.any().optional(), // For tool results
         }),
       )
       .optional(),
