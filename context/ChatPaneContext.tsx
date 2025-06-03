@@ -571,6 +571,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     id: mainUiChatId || undefined,
     api: '/api/brain',
     experimental_throttle: 100,
+    streamProtocol: 'data',
     sendExtraMessageFields: true,
     generateId: generateUUID,
     onResponse: (response) => {

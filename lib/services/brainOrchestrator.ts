@@ -692,10 +692,11 @@ export class BrainOrchestrator {
 
       return new Response(readableStream, {
         headers: {
-          'Content-Type': 'text/event-stream',
+          'Content-Type': 'text/plain; charset=utf-8',
           'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
           'X-Accel-Buffering': 'no',
           Connection: 'keep-alive',
+          'X-Vercel-AI-Data-Stream': 'v1',
           'X-Execution-Path':
             langchainAgent?.executionType === 'langgraph'
               ? 'langgraph'
@@ -747,10 +748,11 @@ export class BrainOrchestrator {
 
       return new Response(fallbackStream, {
         headers: {
-          'Content-Type': 'text/event-stream',
+          'Content-Type': 'text/plain; charset=utf-8',
           'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
           'X-Accel-Buffering': 'no',
           Connection: 'keep-alive',
+          'X-Vercel-AI-Data-Stream': 'v1',
           'X-Execution-Path': 'langchain-fallback',
           'X-Error': 'true',
         },
@@ -1045,10 +1047,11 @@ export class BrainOrchestrator {
     // Return streaming response with correct headers to match LangChain format
     return new Response(stream, {
       headers: {
-        'Content-Type': 'text/event-stream',
+        'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
         'X-Accel-Buffering': 'no',
         Connection: 'keep-alive',
+        'X-Vercel-AI-Data-Stream': 'v1',
         'X-Execution-Path': 'vercel-ai',
         'X-Classification-Score':
           performance.classification?.complexityScore?.toString() || '',
