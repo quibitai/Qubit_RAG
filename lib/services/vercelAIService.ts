@@ -239,6 +239,7 @@ export class VercelAIService {
         model: openai(this.config.selectedChatModel || 'gpt-4.1-mini'),
         messages,
         tools: Object.keys(vercelTools).length > 0 ? vercelTools : undefined,
+        maxSteps: 5, // Allow multiple steps for tool execution and response generation
         maxTokens: this.config.maxTokens,
         temperature: this.config.temperature,
         onFinish: (event) => {
@@ -477,6 +478,7 @@ export class VercelAIService {
         model: openai(this.config.selectedChatModel || 'gpt-4.1-mini'),
         messages,
         tools: Object.keys(vercelTools).length > 0 ? vercelTools : undefined,
+        maxSteps: 5, // Allow multiple steps for tool execution and response generation
         maxTokens: this.config.maxTokens,
         temperature: this.config.temperature,
         onFinish: (event) => {
