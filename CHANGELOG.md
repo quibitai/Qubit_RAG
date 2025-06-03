@@ -5,26 +5,31 @@ All notable changes to Quibit RAG will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.8.1] - 2025-06-02
+## [3.2.0] - 2025-06-03
 
-### Changed
-- **Documentation Cleanup**: Comprehensive cleanup and update of all documentation
-- **Codebase Maintenance**: Removed outdated implementation files and unused services
-- **Architecture Updates**: Updated README.md and ARCHITECTURE.md with current implementation details
-- **Service Optimization**: Removed unused performance dashboard, A/B testing, and performance comparison services
-- **Configuration Updates**: Updated brain API to use LangChain bridge by default for improved streaming
+### Known Issues - Critical
 
-### Removed
-- Outdated implementation guides and summaries
-- Unused performance monitoring services
-- Legacy dashboard functionality
-- Redundant documentation files
-- Completed migration trackers and rollout guides
+⚠️ **BROKEN: The following features are currently non-functional and require immediate attention:**
+
+- **History Global Dropdown**: Chat history dropdown not working properly
+- **Text Wrapping in Resizable Containers**: Text overflow issues in resizable UI components
+- **Streaming Responses**: Streaming may be intermittent or failing in some scenarios
+- **Artifact UI**: Image artifacts not displaying correctly despite successful backend generation
 
 ### Fixed
-- Updated all documentation dates to reflect current state
-- Corrected technology stack references to include Vercel AI SDK
-- Aligned documentation with actual implementation
+- **Artifact Streaming Finish Event**: Added missing `finish` event for artifacts in Vercel AI path to properly transition from 'streaming' to 'idle' status
+- **Image Generation Backend**: Confirmed image generation working correctly on backend with proper artifact event buffering
+
+### Technical Status
+- **Backend Systems**: ✅ Functioning correctly (image generation, tool execution, hybrid routing)
+- **Frontend Display**: ❌ Multiple UI rendering and interaction issues
+- **Streaming Protocol**: ⚠️ Partially functional with artifact completion fix applied
+
+### Next Priority Actions Required
+1. Fix History Global Dropdown functionality
+2. Resolve text wrapping in resizable containers
+3. Stabilize streaming response rendering
+4. Complete artifact UI display pipeline
 
 ## [2.8.0] - 2025-06-03
 

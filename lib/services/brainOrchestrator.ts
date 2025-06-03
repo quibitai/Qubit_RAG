@@ -857,6 +857,14 @@ export class BrainOrchestrator {
               const artifactData = `2:${JSON.stringify([event])}\n`;
               controller.enqueue(encoder.encode(artifactData));
             }
+
+            // Send finish event for artifacts to complete the artifact streaming
+            const artifactFinishEvent = {
+              type: 'finish',
+              content: '',
+            };
+            const artifactFinishData = `2:${JSON.stringify([artifactFinishEvent])}\n`;
+            controller.enqueue(encoder.encode(artifactFinishData));
           }
 
           // Stream the content character by character to match original behavior

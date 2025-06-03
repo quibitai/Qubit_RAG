@@ -1,4 +1,30 @@
-# Quibit RAG v2.8.0 - Hybrid AI Architecture
+# Quibit RAG v3.2.0 - Hybrid AI Architecture
+
+## 🔧 Current Status (v3.2.0)
+
+### Backend Systems Status ✅
+- **Hybrid Architecture**: Intelligent routing between LangChain and Vercel AI working correctly
+- **Image Generation**: Backend successfully generating images and buffering artifact events
+- **Tool Execution**: 26 tools functioning properly with intelligent selection
+- **Classification**: Query routing working with 95% accuracy
+- **Performance**: 30% token reduction and 2-3x faster responses maintained
+
+### Frontend Issues ❌
+- **Artifact Display**: Images generated but not appearing in UI due to streaming completion issues
+- **History Dropdown**: Chat history navigation broken
+- **Text Wrapping**: Overflow issues in resizable containers
+- **Streaming Display**: Intermittent rendering problems in response streaming
+
+## ⚠️ Known Issues - Critical
+
+**The following features are currently broken and require immediate attention:**
+
+- **History Global Dropdown**: Chat history dropdown not working properly
+- **Text Wrapping in Resizable Containers**: Text overflow issues in resizable UI components  
+- **Streaming Responses**: Streaming may be intermittent or failing in some scenarios
+- **Artifact UI**: Image artifacts not displaying correctly despite successful backend generation
+
+**Status**: Backend systems are functioning correctly (image generation, tool execution, hybrid routing), but frontend display has multiple UI rendering and interaction issues.
 
 ## Overview
 
@@ -153,21 +179,6 @@ GOOGLE_CALENDAR_WEBHOOK_URL=your_calendar_webhook
 "Create a data analysis spreadsheet"
 ```
 
-## 🔧 Recent Improvements (v2.8.0)
-
-### Major Features
-- ✅ **Hybrid Architecture**: Intelligent routing between LangChain and Vercel AI
-- ✅ **Cross-Path Artifacts**: Image generation working on both execution paths
-- ✅ **Context Bleeding Fix**: AI focuses on current question only
-- ✅ **Timezone Awareness**: Comprehensive timezone detection and handling
-- ✅ **User-Friendly Responses**: Formatted Asana responses instead of raw JSON
-
-### Performance Gains
-- 🚀 **2-3x Faster** responses for simple queries
-- 💰 **30% Token Reduction** via intelligent routing
-- 🎯 **95% Classification Accuracy** for path selection
-- ⚡ **Real-Time Artifacts** with buffered event system
-
 ## 📁 Project Structure
 
 ```
@@ -251,8 +262,23 @@ npm run test:coverage
 
 ## 🐛 Known Issues
 
-- **Tool Utilization**: AI needs better prompting to use `createDocument` for images (prompt engineering in progress)
-- **Classification Edge Cases**: Some complex queries may be routed to simple path (classification refinement planned)
+### Critical Issues Requiring Immediate Attention
+- **History Global Dropdown**: Chat history dropdown navigation not functioning properly
+- **Text Wrapping in Resizable Containers**: Text overflow and display issues in resizable UI components
+- **Streaming Responses**: Intermittent streaming response rendering problems  
+- **Artifact UI Display**: Generated images not appearing in UI despite successful backend generation
+
+### System Status
+- **Backend Health**: ✅ All core systems operational (AI, tools, routing, generation)
+- **Frontend Stability**: ❌ Multiple UI interaction and display issues
+- **Data Persistence**: ✅ Chat storage and retrieval working correctly
+- **API Integration**: ✅ All external integrations (Asana, OpenAI, etc.) functioning
+
+### Immediate Priorities
+1. **Fix artifact streaming completion** - Images generate but don't display
+2. **Restore history dropdown functionality** - Navigation between chats broken  
+3. **Resolve text wrapping issues** - Content overflow in resizable containers
+4. **Stabilize streaming responses** - Intermittent rendering problems
 
 ## 📄 License
 
@@ -273,4 +299,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Quibit RAG v2.8.0** - Intelligent, Fast, and Comprehensive AI Assistant
+**Quibit RAG v3.2.0** - Intelligent, Fast, and Comprehensive AI Assistant
+
+*Current Status: Backend systems operational, frontend UI issues require attention*
