@@ -342,7 +342,7 @@ export async function executeLangChainAgent(
 
 /**
  * Stream LangChain agent execution
- * Now supports both AgentExecutor and LangGraph streaming with proper Vercel AI SDK integration
+ * Uses LangChainAdapter.toDataStreamResponse() for proper Vercel AI SDK integration
  */
 export async function streamLangChainAgent(
   agent: LangChainAgent,
@@ -361,40 +361,96 @@ export async function streamLangChainAgent(
 
   try {
     if (agent.executionType === 'langgraph' && agent.langGraphWrapper) {
-      // Stream with LangGraph wrapper using streamEvents for proper Vercel AI SDK integration
-      const stream = await agent.langGraphWrapper.streamEvents(
-        {
-          input,
-          chat_history: chatHistory,
-          activeBitContextId: config.contextId,
-        },
-        { version: 'v2', callbacks },
-      );
+      // Use LangGraph wrapper's stream() method
+      logger.info('Using LangGraph execution path');
 
-      // Use LangChainAdapter to convert StreamEvents to proper data stream response
-      return LangChainAdapter.toDataStreamResponse(stream);
-    } else if (agent.executionType === 'agent' && agent.agentExecutor) {
-      // Stream with traditional AgentExecutor using streamEvents
-      const stream = await agent.agentExecutor.streamEvents(
-        {
-          input,
-          chat_history: chatHistory,
-          activeBitContextId: config.contextId,
-        },
-        { version: 'v2', callbacks },
-      );
+      // Create input for LangGraph
+      const langGraphInput = {
+        input: input,
+        chat_history: chatHistory,
+        activeBitContextId: config.contextId,
+      };
 
-      // Use LangChainAdapter to convert StreamEvents to proper data stream response
-      return LangChainAdapter.toDataStreamResponse(stream);
+      // Get stream from LangGraph wrapper
+      const langGraphStream = agent.langGraphWrapper.stream(langGraphInput, {
+        callbacks,
+      });
+
+      // Convert the async generator to a readable stream format
+      const streamGenerator = async function* () {
+        for await (const chunk of langGraphStream) {
+          // Extract content from the chunk
+          const content = chunk.output || chunk.messages?.[0]?.content || '';
+          if (content) {
+            yield content;
+          }
+        }
+      };
+
+      // Use LangChainAdapter to convert the stream to proper response
+      return LangChainAdapter.toDataStreamResponse(streamGenerator(), {
+        init: {
+          headers: {
+            'X-Execution-Path': 'langgraph',
+            'X-LangGraph-Enabled': 'true',
+          },
+        },
+      });
+    } else if (agent.executor) {
+      // Use regular AgentExecutor streaming
+      logger.info('Using AgentExecutor execution path');
+
+      // Create input for AgentExecutor
+      const executorInput = {
+        input: input,
+        chat_history: chatHistory,
+      };
+
+      // Get stream from AgentExecutor
+      const agentStream = agent.executor.stream(executorInput);
+
+      // Convert the async generator to a readable stream format
+      const streamGenerator = async function* () {
+        for await (const chunk of agentStream) {
+          // Extract content from the chunk
+          const content = chunk.output || chunk.agent?.log || '';
+          if (content) {
+            yield content;
+          }
+        }
+      };
+
+      // Use LangChainAdapter to convert the stream to proper response
+      return LangChainAdapter.toDataStreamResponse(streamGenerator(), {
+        init: {
+          headers: {
+            'X-Execution-Path': 'langchain',
+            'X-LangGraph-Enabled': 'false',
+          },
+        },
+      });
     } else {
-      throw new Error(`Invalid agent configuration: ${agent.executionType}`);
+      throw new Error('No valid execution method found for LangChain agent');
     }
   } catch (error) {
-    logger.error('LangChain agent streaming failed', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      executionType: agent.executionType,
+    logger.error('LangChain agent streaming failed', { error: String(error) });
+
+    // Return error response in proper streaming format
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+    const errorStream = async function* () {
+      yield `Error: ${errorMessage}`;
+    };
+
+    return LangChainAdapter.toDataStreamResponse(errorStream(), {
+      init: {
+        status: 500,
+        headers: {
+          'X-Execution-Path': 'langchain-error',
+          'X-Error': 'true',
+        },
+      },
     });
-    throw error;
   }
 }
 
