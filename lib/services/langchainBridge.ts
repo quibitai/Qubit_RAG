@@ -12,6 +12,11 @@ import {
   ChatPromptTemplate,
   MessagesPlaceholder,
 } from '@langchain/core/prompts';
+import {
+  HumanMessage,
+  AIMessage,
+  SystemMessage,
+} from '@langchain/core/messages';
 import { modelMapping } from '@/lib/ai/models';
 import {
   LangChainToolService,
@@ -342,7 +347,7 @@ export async function executeLangChainAgent(
 
 /**
  * Stream LangChain agent execution
- * Uses LangChainAdapter.toDataStreamResponse() for proper Vercel AI SDK integration
+ * Uses proper LangChain streaming methods with LangChainAdapter
  */
 export async function streamLangChainAgent(
   agent: LangChainAgent,
@@ -361,34 +366,35 @@ export async function streamLangChainAgent(
 
   try {
     if (agent.executionType === 'langgraph' && agent.langGraphWrapper) {
-      // Use LangGraph wrapper's stream() method
+      // For LangGraph, we need to use the underlying LLM stream directly
       logger.info('Using LangGraph execution path');
 
-      // Create input for LangGraph
-      const langGraphInput = {
-        input: input,
-        chat_history: chatHistory,
-        activeBitContextId: config.contextId,
-      };
+      // Get the LLM from the wrapper config
+      const wrapperConfig = agent.langGraphWrapper.getConfig();
 
-      // Get stream from LangGraph wrapper
-      const langGraphStream = agent.langGraphWrapper.stream(langGraphInput, {
-        callbacks,
+      // Convert chat history to LangChain messages
+      const messages = chatHistory.map((msg) => {
+        if (msg.type === 'human' || msg.role === 'user') {
+          return new HumanMessage(msg.content);
+        } else if (msg.type === 'ai' || msg.role === 'assistant') {
+          return new AIMessage(msg.content);
+        } else {
+          return new SystemMessage(msg.content);
+        }
       });
 
-      // Convert the async generator to a readable stream format
-      const streamGenerator = async function* () {
-        for await (const chunk of langGraphStream) {
-          // Extract content from the chunk
-          const content = chunk.output || chunk.messages?.[0]?.content || '';
-          if (content) {
-            yield content;
-          }
-        }
-      };
+      // Add system prompt and user input
+      const fullConversation = [
+        new SystemMessage(wrapperConfig.systemPrompt),
+        ...messages,
+        new HumanMessage(input),
+      ];
 
-      // Use LangChainAdapter to convert the stream to proper response
-      return LangChainAdapter.toDataStreamResponse(streamGenerator(), {
+      // Use the LLM directly for streaming with LangChainAdapter
+      const llmStream = await agent.llm.stream(fullConversation);
+
+      // Use LangChainAdapter with the actual LangChain stream
+      return LangChainAdapter.toDataStreamResponse(llmStream, {
         init: {
           headers: {
             'X-Execution-Path': 'langgraph',
@@ -396,7 +402,7 @@ export async function streamLangChainAgent(
           },
         },
       });
-    } else if (agent.executor) {
+    } else if (agent.agentExecutor) {
       // Use regular AgentExecutor streaming
       logger.info('Using AgentExecutor execution path');
 
@@ -406,22 +412,32 @@ export async function streamLangChainAgent(
         chat_history: chatHistory,
       };
 
-      // Get stream from AgentExecutor
-      const agentStream = agent.executor.stream(executorInput);
-
-      // Convert the async generator to a readable stream format
-      const streamGenerator = async function* () {
-        for await (const chunk of agentStream) {
-          // Extract content from the chunk
-          const content = chunk.output || chunk.agent?.log || '';
-          if (content) {
-            yield content;
-          }
+      // For AgentExecutor, we can't use direct streaming the same way
+      // Let's use the underlying LLM stream directly like we do for LangGraph
+      const messages = chatHistory.map((msg) => {
+        if (msg.type === 'human' || msg.role === 'user') {
+          return new HumanMessage(msg.content);
+        } else if (msg.type === 'ai' || msg.role === 'assistant') {
+          return new AIMessage(msg.content);
+        } else {
+          return new SystemMessage(msg.content);
         }
-      };
+      });
 
-      // Use LangChainAdapter to convert the stream to proper response
-      return LangChainAdapter.toDataStreamResponse(streamGenerator(), {
+      // Create full conversation with system prompt and user input
+      const fullConversation = [
+        new SystemMessage(
+          config.selectedChatModel || 'You are a helpful AI assistant.',
+        ),
+        ...messages,
+        new HumanMessage(input),
+      ];
+
+      // Use the LLM directly for streaming with LangChainAdapter
+      const llmStream = await agent.llm.stream(fullConversation);
+
+      // Use LangChainAdapter with the actual LangChain stream
+      return LangChainAdapter.toDataStreamResponse(llmStream, {
         init: {
           headers: {
             'X-Execution-Path': 'langchain',
@@ -436,19 +452,25 @@ export async function streamLangChainAgent(
     logger.error('LangChain agent streaming failed', { error: String(error) });
 
     // Return error response in proper streaming format
+    const encoder = new TextEncoder();
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
-    const errorStream = async function* () {
-      yield `Error: ${errorMessage}`;
-    };
 
-    return LangChainAdapter.toDataStreamResponse(errorStream(), {
-      init: {
-        status: 500,
-        headers: {
-          'X-Execution-Path': 'langchain-error',
-          'X-Error': 'true',
-        },
+    const errorStream = new ReadableStream({
+      start(controller) {
+        const errorChunk = `0:${JSON.stringify(`Error: ${errorMessage}`)}\n`;
+        controller.enqueue(encoder.encode(errorChunk));
+        controller.close();
+      },
+    });
+
+    return new Response(errorStream, {
+      status: 500,
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'X-Vercel-AI-Data-Stream': 'v1',
+        'X-Execution-Path': 'langchain-error',
+        'X-Error': 'true',
       },
     });
   }
