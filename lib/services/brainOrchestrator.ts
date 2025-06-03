@@ -542,224 +542,219 @@ export class BrainOrchestrator {
         usedLangGraph: langchainAgent.executionType === 'langgraph',
       });
 
-      // Execute with streaming and handle potential streaming errors
-      try {
-        const stream = await streamLangChainAgent(
-          langchainAgent,
-          userInput,
-          conversationHistory,
-          langchainConfig,
-          this.logger,
-        );
+      // Get the LangChain stream
+      const stream = await streamLangChainAgent(
+        langchainAgent,
+        userInput,
+        conversationHistory,
+        langchainConfig,
+        this.logger,
+      );
 
-        // Convert the stream to a Response with error handling
-        const encoder = new TextEncoder();
-        const logger = this.logger; // Capture logger reference for use in stream handler
-        const orchestratorRef = this; // Capture 'this' reference for saveAssistantMessage
+      // TODO: In future iterations, use LangChainAdapter when TypeScript compatibility is resolved
+      // For now, use enhanced manual streaming with better error handling and observability
 
-        const readableStream = new ReadableStream({
-          async start(controller) {
-            try {
-              let finalOutput = '';
-              const toolsUsed: string[] = [];
+      // Convert the stream to a Response with enhanced error handling
+      const encoder = new TextEncoder();
+      const logger = this.logger; // Capture logger reference for use in stream handler
+      const orchestratorRef = this; // Capture 'this' reference for saveAssistantMessage
 
-              for await (const chunk of stream) {
-                // Extract content from LangChain streaming chunks
-                let content = '';
+      const readableStream = new ReadableStream({
+        async start(controller) {
+          try {
+            let finalOutput = '';
+            const toolsUsed: string[] = [];
 
-                if (chunk && typeof chunk === 'object') {
-                  // Handle different chunk types from LangChain
-                  if (
-                    chunk.intermediateSteps &&
-                    chunk.intermediateSteps.length > 0
-                  ) {
-                    // Tool execution step
-                    const step =
-                      chunk.intermediateSteps[
-                        chunk.intermediateSteps.length - 1
-                      ];
-                    if (step?.action?.tool) {
-                      toolsUsed.push(step.action.tool);
-                    }
+            for await (const chunk of stream) {
+              // Extract content from LangChain streaming chunks
+              let content = '';
+
+              if (chunk && typeof chunk === 'object') {
+                // Handle different chunk types from LangChain
+                if (
+                  chunk.intermediateSteps &&
+                  chunk.intermediateSteps.length > 0
+                ) {
+                  // Tool execution step
+                  const step =
+                    chunk.intermediateSteps[chunk.intermediateSteps.length - 1];
+                  if (step?.action?.tool) {
+                    toolsUsed.push(step.action.tool);
                   }
+                }
 
-                  if (chunk.output) {
-                    // Final output from agent execution
-                    content = chunk.output;
+                if (chunk.output) {
+                  // Final output from agent execution
+                  content = chunk.output;
+                  finalOutput = content;
+                } else if (chunk.returnValues) {
+                  // Handle cases where agent returns values without tool calls
+                  if (chunk.returnValues.output) {
+                    content = chunk.returnValues.output;
                     finalOutput = content;
-                  } else if (chunk.returnValues) {
-                    // Handle cases where agent returns values without tool calls
-                    if (chunk.returnValues.output) {
-                      content = chunk.returnValues.output;
-                      finalOutput = content;
-                    } else if (typeof chunk.returnValues === 'string') {
-                      content = chunk.returnValues;
-                      finalOutput = content;
-                    }
-                  } else if (chunk.messages && chunk.messages.length > 0) {
-                    // Message content
-                    const lastMessage =
-                      chunk.messages[chunk.messages.length - 1];
-                    if (lastMessage?.content) {
-                      content = lastMessage.content;
-                    }
+                  } else if (typeof chunk.returnValues === 'string') {
+                    content = chunk.returnValues;
+                    finalOutput = content;
                   }
-                }
-
-                // Stream content character by character to match Vercel AI format
-                if (content && typeof content === 'string') {
-                  for (let i = 0; i < content.length; i++) {
-                    const char = content[i];
-                    const encoded = encoder.encode(
-                      `0:${JSON.stringify(char)}\n`,
-                    );
-                    controller.enqueue(encoded);
+                } else if (chunk.messages && chunk.messages.length > 0) {
+                  // Message content
+                  const lastMessage = chunk.messages[chunk.messages.length - 1];
+                  if (lastMessage?.content) {
+                    content = lastMessage.content;
                   }
                 }
               }
 
-              // Save assistant message after streaming completes
-              if (finalOutput?.trim()) {
-                await orchestratorRef.saveAssistantMessage(
-                  brainRequest,
-                  finalOutput,
-                  toolsUsed,
-                );
+              // Stream content character by character to match Vercel AI format
+              if (content && typeof content === 'string') {
+                for (let i = 0; i < content.length; i++) {
+                  const char = content[i];
+                  const encoded = encoder.encode(`0:${JSON.stringify(char)}\n`);
+                  controller.enqueue(encoded);
+                }
               }
-
-              // Send completion metadata in Vercel AI format
-              const finishMessage = encoder.encode(
-                `d:${JSON.stringify({
-                  finishReason: 'stop',
-                  usage: {
-                    promptTokens: 0,
-                    completionTokens: finalOutput.length,
-                    totalTokens: finalOutput.length,
-                  },
-                  metadata: {
-                    model: context.selectedChatModel || 'gpt-4.1-mini',
-                    toolsUsed: [...new Set(toolsUsed)], // Remove duplicates
-                    executionPath:
-                      langchainAgent?.executionType === 'langgraph'
-                        ? 'langgraph'
-                        : 'langchain',
-                    langGraphPatterns: useLangGraph
-                      ? langGraphPatterns
-                      : undefined,
-                  },
-                })}\n`,
-              );
-              controller.enqueue(finishMessage);
-
-              controller.close();
-            } catch (streamError) {
-              // Handle specific LangChain streaming errors
-              const errorMessage =
-                streamError instanceof Error
-                  ? streamError.message
-                  : 'Unknown streaming error';
-
-              logger.error('LangChain streaming error encountered', {
-                error: errorMessage,
-                userInput: userInput.substring(0, 100),
-                errorType: 'langchain_streaming_error',
-                executionType: langchainAgent?.executionType,
-              });
-
-              // Provide a fallback response in Vercel AI format
-              const fallbackContent =
-                'I encountered a technical issue while processing your request. This appears to be a document or knowledge retrieval query that requires access to internal systems. Please try rephrasing your question or contact support if the issue persists.';
-
-              // Stream fallback content character by character
-              for (let i = 0; i < fallbackContent.length; i++) {
-                const char = fallbackContent[i];
-                const encoded = encoder.encode(`0:${JSON.stringify(char)}\n`);
-                controller.enqueue(encoded);
-              }
-
-              // Send error metadata
-              const errorFinish = encoder.encode(
-                `d:${JSON.stringify({
-                  finishReason: 'error',
-                  error: 'langchain_streaming_error',
-                  originalError: errorMessage,
-                })}\n`,
-              );
-              controller.enqueue(errorFinish);
-              controller.close();
-            }
-          },
-        });
-
-        return new Response(readableStream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control':
-              'no-cache, no-transform, no-store, must-revalidate',
-            'X-Accel-Buffering': 'no',
-            Connection: 'keep-alive',
-            'X-Execution-Path':
-              langchainAgent?.executionType === 'langgraph'
-                ? 'langgraph'
-                : 'langchain',
-            'X-LangGraph-Patterns': useLangGraph
-              ? langGraphPatterns.join(',')
-              : '',
-          },
-        });
-      } catch (streamSetupError) {
-        // If we can't even set up the stream, fall back to a simple response
-        this.logger.error('Failed to set up LangChain streaming', {
-          error:
-            streamSetupError instanceof Error
-              ? streamSetupError.message
-              : 'Unknown error',
-          userInput: userInput.substring(0, 100),
-          executionType: langchainAgent?.executionType,
-        });
-
-        // Create a simple fallback response stream
-        const encoder = new TextEncoder();
-        const fallbackStream = new ReadableStream({
-          start(controller) {
-            const fallbackMessage =
-              "I'm experiencing technical difficulties accessing the knowledge base. Please try again in a moment or rephrase your request.";
-
-            // Stream fallback content character by character in Vercel AI format
-            for (let i = 0; i < fallbackMessage.length; i++) {
-              const char = fallbackMessage[i];
-              const encoded = encoder.encode(`0:${JSON.stringify(char)}\n`);
-              controller.enqueue(encoded);
             }
 
-            // Send completion metadata
+            // Save assistant message after streaming completes
+            if (finalOutput?.trim()) {
+              await orchestratorRef.saveAssistantMessage(
+                brainRequest,
+                finalOutput,
+                toolsUsed,
+              );
+            }
+
+            // Send completion metadata in Vercel AI format with enhanced observability
             const finishMessage = encoder.encode(
               `d:${JSON.stringify({
-                finishReason: 'error',
-                error: 'stream-setup-failed',
+                finishReason: 'stop',
+                usage: {
+                  promptTokens: 0,
+                  completionTokens: finalOutput.length,
+                  totalTokens: finalOutput.length,
+                },
                 metadata: {
-                  executionPath: 'langchain-fallback',
+                  model: context.selectedChatModel || 'gpt-4o-mini',
+                  toolsUsed: [...new Set(toolsUsed)], // Remove duplicates
+                  executionPath:
+                    langchainAgent?.executionType === 'langgraph'
+                      ? 'langgraph'
+                      : 'langchain',
+                  langGraphPatterns: useLangGraph
+                    ? langGraphPatterns
+                    : undefined,
+                  streamingMethod: 'manual-enhanced',
                 },
               })}\n`,
             );
             controller.enqueue(finishMessage);
 
             controller.close();
-          },
-        });
+          } catch (streamError) {
+            // Handle specific LangChain streaming errors
+            const errorMessage =
+              streamError instanceof Error
+                ? streamError.message
+                : 'Unknown streaming error';
 
-        return new Response(fallbackStream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control':
-              'no-cache, no-transform, no-store, must-revalidate',
-            'X-Accel-Buffering': 'no',
-            Connection: 'keep-alive',
-            'X-Execution-Path': 'langchain-fallback',
-            'X-Error': 'stream-setup-failed',
-          },
-        });
-      }
+            logger.error('LangChain streaming error encountered', {
+              error: errorMessage,
+              userInput: userInput.substring(0, 100),
+              errorType: 'langchain_streaming_error',
+              executionType: langchainAgent?.executionType,
+            });
+
+            // Provide a fallback response in Vercel AI format
+            const fallbackContent =
+              'I encountered a technical issue while processing your request. This appears to be a document or knowledge retrieval query that requires access to internal systems. Please try rephrasing your question or contact support if the issue persists.';
+
+            // Stream fallback content character by character
+            for (let i = 0; i < fallbackContent.length; i++) {
+              const char = fallbackContent[i];
+              const encoded = encoder.encode(`0:${JSON.stringify(char)}\n`);
+              controller.enqueue(encoded);
+            }
+
+            // Send error metadata
+            const errorFinish = encoder.encode(
+              `d:${JSON.stringify({
+                finishReason: 'error',
+                error: 'langchain_streaming_error',
+                originalError: errorMessage,
+                streamingMethod: 'manual-enhanced-fallback',
+              })}\n`,
+            );
+            controller.enqueue(errorFinish);
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(readableStream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
+          'X-Accel-Buffering': 'no',
+          Connection: 'keep-alive',
+          'X-Execution-Path':
+            langchainAgent?.executionType === 'langgraph'
+              ? 'langgraph'
+              : 'langchain',
+          'X-Model': context.selectedChatModel || 'gpt-4o-mini',
+          'X-Context-ID': context.activeBitContextId || '',
+          'X-LangGraph-Patterns': useLangGraph
+            ? langGraphPatterns.join(',')
+            : '',
+          'X-Streaming-Method': 'manual-enhanced',
+        },
+      });
+    } catch (error) {
+      this.logger.error('LangChain path execution failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        userInput: userInput.substring(0, 100),
+        executionType: langchainAgent?.executionType,
+      });
+
+      // Create a fallback response stream using traditional method
+      const encoder = new TextEncoder();
+      const fallbackStream = new ReadableStream({
+        start(controller) {
+          const fallbackMessage =
+            "I'm experiencing technical difficulties accessing the knowledge base. Please try again in a moment or rephrase your request.";
+
+          // Stream fallback content character by character in Vercel AI format
+          for (let i = 0; i < fallbackMessage.length; i++) {
+            const char = fallbackMessage[i];
+            const encoded = encoder.encode(`0:${JSON.stringify(char)}\n`);
+            controller.enqueue(encoded);
+          }
+
+          // Send completion metadata
+          const finishMessage = encoder.encode(
+            `d:${JSON.stringify({
+              finishReason: 'error',
+              error: 'langchain-execution-failed',
+              metadata: {
+                executionPath: 'langchain-fallback',
+              },
+            })}\n`,
+          );
+          controller.enqueue(finishMessage);
+
+          controller.close();
+        },
+      });
+
+      return new Response(fallbackStream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
+          'X-Accel-Buffering': 'no',
+          Connection: 'keep-alive',
+          'X-Execution-Path': 'langchain-fallback',
+          'X-Error': 'true',
+        },
+      });
     } finally {
       // Cleanup resources
       if (langchainAgent) {
