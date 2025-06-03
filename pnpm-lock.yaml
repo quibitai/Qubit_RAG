@@ -38,6 +38,9 @@ importers:
       '@langchain/core':
         specifier: ^0.3.55
         version: 0.3.55(openai@4.98.0(ws@8.18.2(bufferutil@4.0.9))(zod@3.24.4))
+      '@langchain/langgraph':
+        specifier: ^0.3.0
+        version: 0.3.0(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2(bufferutil@4.0.9))(zod@3.24.4)))(react@19.0.0-rc-45804af1-20241021)(zod-to-json-schema@3.24.5(zod@3.24.4))
       '@langchain/openai':
         specifier: ^0.5.7
         version: 0.5.10(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2(bufferutil@4.0.9))(zod@3.24.4)))(ws@8.18.2(bufferutil@4.0.9))
@@ -1681,6 +1684,33 @@ packages:
     resolution: {integrity: sha512-SojY2ugpT6t9eYfFB9Ysvyhhyh+KJTGXs50hdHUE9tAEQWp3WAwoxe4djwJnOZ6fSpWYdpFt2UT2ksHVDy2vXA==}
     engines: {node: '>=18'}
 
+  '@langchain/langgraph-checkpoint@0.0.18':
+    resolution: {integrity: sha512-IS7zJj36VgY+4pf8ZjsVuUWef7oTwt1y9ylvwu0aLuOn1d0fg05Om9DLm3v2GZ2Df6bhLV1kfWAM0IAl9O5rQQ==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@langchain/core': '>=0.2.31 <0.4.0'
+
+  '@langchain/langgraph-sdk@0.0.82':
+    resolution: {integrity: sha512-QxhGtDArHkqsJAbO5RuZsCyvDmPWf4pUpkOpLDzPEQXCBuasrBRgB6pxQWof2l6kfMYCfrc6lp3jL6TAqapmjQ==}
+    peerDependencies:
+      '@langchain/core': '>=0.2.31 <0.4.0'
+      react: ^18 || ^19
+    peerDependenciesMeta:
+      '@langchain/core':
+        optional: true
+      react:
+        optional: true
+
+  '@langchain/langgraph@0.3.0':
+    resolution: {integrity: sha512-4WT0DDh7qYXC0EjMk/KdLHjqpNVD0H9zSyOmlVXMCL53iIWFXvBUjgAwTGZytt9sO1td568Ovij0ZXONLzriOg==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@langchain/core': '>=0.2.36 <0.3.0 || >=0.3.40 < 0.4.0'
+      zod-to-json-schema: ^3.x
+    peerDependenciesMeta:
+      zod-to-json-schema:
+        optional: true
+
   '@langchain/openai@0.5.10':
     resolution: {integrity: sha512-hBQIWjcVxGS7tgVvgBBmrZ5jSaJ8nu9g6V64/Tx6KGjkW7VdGmUvqCO+koiQCOZVL7PBJkHWAvDsbghPYXiZEA==}
     engines: {node: '>=18'}
@@ -2368,6 +2398,9 @@ packages:
 
   '@types/hast@3.0.4':
     resolution: {integrity: sha512-WPs+bbQw5aCj+x6laNGWLH3wviHtoCv/P3+otBhbOhJgG8qtpdAMlTCxLtsTWA7LH1Oh/bFCHsBn0TPS5m30EQ==}
+
+  '@types/json-schema@7.0.15':
+    resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
 
   '@types/json5@0.0.29':
     resolution: {integrity: sha512-dRLjCWHYg4oaA77cxO64oO+7JwCwnIzkZPdrrC71jQmQtlhM556pwKo5bUzqvZndkVbeFLIIi+9TC40JNF5hNQ==}
@@ -6634,6 +6667,33 @@ snapshots:
     transitivePeerDependencies:
       - openai
 
+  '@langchain/langgraph-checkpoint@0.0.18(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2(bufferutil@4.0.9))(zod@3.24.4)))':
+    dependencies:
+      '@langchain/core': 0.3.55(openai@4.98.0(ws@8.18.2(bufferutil@4.0.9))(zod@3.24.4))
+      uuid: 10.0.0
+
+  '@langchain/langgraph-sdk@0.0.82(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2(bufferutil@4.0.9))(zod@3.24.4)))(react@19.0.0-rc-45804af1-20241021)':
+    dependencies:
+      '@types/json-schema': 7.0.15
+      p-queue: 6.6.2
+      p-retry: 4.6.2
+      uuid: 9.0.1
+    optionalDependencies:
+      '@langchain/core': 0.3.55(openai@4.98.0(ws@8.18.2(bufferutil@4.0.9))(zod@3.24.4))
+      react: 19.0.0-rc-45804af1-20241021
+
+  '@langchain/langgraph@0.3.0(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2(bufferutil@4.0.9))(zod@3.24.4)))(react@19.0.0-rc-45804af1-20241021)(zod-to-json-schema@3.24.5(zod@3.24.4))':
+    dependencies:
+      '@langchain/core': 0.3.55(openai@4.98.0(ws@8.18.2(bufferutil@4.0.9))(zod@3.24.4))
+      '@langchain/langgraph-checkpoint': 0.0.18(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2(bufferutil@4.0.9))(zod@3.24.4)))
+      '@langchain/langgraph-sdk': 0.0.82(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2(bufferutil@4.0.9))(zod@3.24.4)))(react@19.0.0-rc-45804af1-20241021)
+      uuid: 10.0.0
+      zod: 3.24.4
+    optionalDependencies:
+      zod-to-json-schema: 3.24.5(zod@3.24.4)
+    transitivePeerDependencies:
+      - react
+
   '@langchain/openai@0.5.10(@langchain/core@0.3.55(openai@4.98.0(ws@8.18.2(bufferutil@4.0.9))(zod@3.24.4)))(ws@8.18.2(bufferutil@4.0.9))':
     dependencies:
       '@langchain/core': 0.3.55(openai@4.98.0(ws@8.18.2(bufferutil@4.0.9))(zod@3.24.4))
@@ -7300,6 +7360,8 @@ snapshots:
   '@types/hast@3.0.4':
     dependencies:
       '@types/unist': 3.0.3
+
+  '@types/json-schema@7.0.15': {}
 
   '@types/json5@0.0.29': {}
 

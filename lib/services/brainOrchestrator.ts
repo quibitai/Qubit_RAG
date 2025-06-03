@@ -61,6 +61,9 @@ export interface BrainOrchestratorConfig {
   enableClassification?: boolean;
   clientConfig?: ClientConfig | null;
   contextId?: string | null;
+  // New LangGraph options
+  enableLangGraph?: boolean;
+  langGraphForComplexQueries?: boolean;
 }
 
 /**
@@ -101,6 +104,8 @@ export class BrainOrchestrator {
   private vercelAIService: VercelAIService;
   private messageService: MessageService;
   private contextService: ContextService;
+  // Store current classification for use in execution paths
+  private currentClassification?: QueryClassificationResult;
 
   constructor(logger: RequestLogger, config: BrainOrchestratorConfig = {}) {
     this.logger = logger;
@@ -111,6 +116,9 @@ export class BrainOrchestrator {
       maxRetries: 2,
       timeoutMs: 30000,
       enableClassification: true,
+      // LangGraph defaults
+      enableLangGraph: false, // Conservative default
+      langGraphForComplexQueries: true,
       ...config,
     };
 
@@ -131,6 +139,8 @@ export class BrainOrchestrator {
     this.logger.info('Initializing BrainOrchestrator', {
       enableHybridRouting: this.config.enableHybridRouting,
       enableClassification: this.config.enableClassification,
+      enableLangGraph: this.config.enableLangGraph,
+      langGraphForComplexQueries: this.config.langGraphForComplexQueries,
       contextId: this.config.contextId,
     });
   }
@@ -167,6 +177,9 @@ export class BrainOrchestrator {
         const classificationStart = performance.now();
         classification = await this.queryClassifier.classifyQuery(userInput);
         classificationTime = performance.now() - classificationStart;
+
+        // Store classification for use in execution paths
+        this.currentClassification = classification;
 
         this.logger.info('Query classification completed', {
           shouldUseLangChain: classification?.shouldUseLangChain,
@@ -439,6 +452,8 @@ export class BrainOrchestrator {
   ): Promise<Response> {
     this.logger.info('Executing LangChain path', {
       message: userInput.substring(0, 100),
+      enableLangGraph: this.config.enableLangGraph,
+      langGraphForComplexQueries: this.config.langGraphForComplexQueries,
     });
 
     let langchainAgent: LangChainAgent | undefined;
@@ -473,7 +488,35 @@ export class BrainOrchestrator {
           : 'Quibit',
       });
 
-      // Create LangChain agent
+      // Determine if we should use LangGraph based on configuration and detected patterns
+      let useLangGraph = false;
+      let langGraphPatterns: string[] = [];
+
+      if (
+        this.config.enableLangGraph &&
+        this.config.langGraphForComplexQueries
+      ) {
+        // Use classification results from the earlier classification step if available
+        if (this.currentClassification?.detectedPatterns) {
+          langGraphPatterns = this.currentClassification.detectedPatterns;
+        } else {
+          // Fallback: analyze the user input for patterns that suggest complex reasoning
+          langGraphPatterns = this.detectComplexityPatterns(userInput);
+        }
+
+        // Import shouldUseLangGraph function to determine if patterns warrant LangGraph
+        const { shouldUseLangGraph } = await import('@/lib/ai/graphs');
+        useLangGraph = shouldUseLangGraph(langGraphPatterns);
+
+        this.logger.info('LangGraph routing decision', {
+          useLangGraph,
+          patterns: langGraphPatterns,
+          enableLangGraph: this.config.enableLangGraph,
+          langGraphForComplexQueries: this.config.langGraphForComplexQueries,
+        });
+      }
+
+      // Create LangChain agent with optional LangGraph support
       const langchainConfig: LangChainBridgeConfig = {
         selectedChatModel: context.selectedChatModel,
         contextId: context.activeBitContextId,
@@ -482,6 +525,9 @@ export class BrainOrchestrator {
         maxTools: 26,
         maxIterations: 10,
         verbose: false,
+        // Pass LangGraph configuration
+        enableLangGraph: useLangGraph,
+        langGraphPatterns: langGraphPatterns,
       };
 
       langchainAgent = await createLangChainAgent(
@@ -489,6 +535,12 @@ export class BrainOrchestrator {
         langchainConfig,
         this.logger,
       );
+
+      this.logger.info('LangChain agent created', {
+        executionType: langchainAgent.executionType,
+        toolCount: langchainAgent.tools.length,
+        usedLangGraph: langchainAgent.executionType === 'langgraph',
+      });
 
       // Execute with streaming and handle potential streaming errors
       try {
@@ -587,7 +639,13 @@ export class BrainOrchestrator {
                   metadata: {
                     model: context.selectedChatModel || 'gpt-4.1-mini',
                     toolsUsed: [...new Set(toolsUsed)], // Remove duplicates
-                    executionPath: 'langchain',
+                    executionPath:
+                      langchainAgent?.executionType === 'langgraph'
+                        ? 'langgraph'
+                        : 'langchain',
+                    langGraphPatterns: useLangGraph
+                      ? langGraphPatterns
+                      : undefined,
                   },
                 })}\n`,
               );
@@ -605,6 +663,7 @@ export class BrainOrchestrator {
                 error: errorMessage,
                 userInput: userInput.substring(0, 100),
                 errorType: 'langchain_streaming_error',
+                executionType: langchainAgent?.executionType,
               });
 
               // Provide a fallback response in Vercel AI format
@@ -639,7 +698,13 @@ export class BrainOrchestrator {
               'no-cache, no-transform, no-store, must-revalidate',
             'X-Accel-Buffering': 'no',
             Connection: 'keep-alive',
-            'X-Execution-Path': 'langchain',
+            'X-Execution-Path':
+              langchainAgent?.executionType === 'langgraph'
+                ? 'langgraph'
+                : 'langchain',
+            'X-LangGraph-Patterns': useLangGraph
+              ? langGraphPatterns.join(',')
+              : '',
           },
         });
       } catch (streamSetupError) {
@@ -650,6 +715,7 @@ export class BrainOrchestrator {
               ? streamSetupError.message
               : 'Unknown error',
           userInput: userInput.substring(0, 100),
+          executionType: langchainAgent?.executionType,
         });
 
         // Create a simple fallback response stream
@@ -700,6 +766,75 @@ export class BrainOrchestrator {
         cleanupLangChainAgent(langchainAgent, this.logger);
       }
     }
+  }
+
+  /**
+   * Detect patterns in user input that suggest complex reasoning needs
+   */
+  private detectComplexityPatterns(userInput: string): string[] {
+    const patterns: string[] = [];
+    const input = userInput.toLowerCase();
+
+    // Tool operation patterns
+    if (
+      /(?:create|make|generate|build).+(?:task|project|document|file)/i.test(
+        input,
+      )
+    ) {
+      patterns.push('TOOL_OPERATION');
+    }
+    if (
+      /(?:search|find|look up|retrieve|get|fetch|access).+(?:asana|google|drive|file|document|content|data|knowledge)/i.test(
+        input,
+      )
+    ) {
+      patterns.push('TOOL_OPERATION');
+    }
+    if (
+      /(?:update|modify|change|edit).+(?:task|project|status|document|file)/i.test(
+        input,
+      )
+    ) {
+      patterns.push('TOOL_OPERATION');
+    }
+
+    // Multi-step reasoning patterns
+    if (/(?:first|then|next|after|before|finally)/i.test(input)) {
+      patterns.push('MULTI_STEP');
+    }
+    if (/(?:step \d+|phase \d+|\d+\. )/i.test(input)) {
+      patterns.push('MULTI_STEP');
+    }
+    if (/(?:if.+then|when.+do|unless.+)/i.test(input)) {
+      patterns.push('REASONING');
+    }
+
+    // Complex reasoning patterns
+    if (/(?:compare|contrast|analyze|evaluate|assess)/i.test(input)) {
+      patterns.push('REASONING');
+    }
+    if (/(?:pros and cons|advantages|disadvantages)/i.test(input)) {
+      patterns.push('REASONING');
+    }
+    if (/(?:explain why|how does|what if|suppose that)/i.test(input)) {
+      patterns.push('REASONING');
+    }
+
+    // Knowledge retrieval patterns
+    if (
+      /(?:complete contents|full content|entire file|all content)/i.test(input)
+    ) {
+      patterns.push('KNOWLEDGE_RETRIEVAL');
+    }
+    if (
+      /(?:knowledge base|internal docs|company files|core values|policies|procedures)/i.test(
+        input,
+      )
+    ) {
+      patterns.push('KNOWLEDGE_RETRIEVAL');
+    }
+
+    return patterns;
   }
 
   /**

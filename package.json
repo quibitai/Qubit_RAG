@@ -38,6 +38,7 @@
     "@codemirror/view": "^6.35.3",
     "@langchain/community": "^0.3.41",
     "@langchain/core": "^0.3.55",
+    "@langchain/langgraph": "^0.3.0",
     "@langchain/openai": "^0.5.7",
     "@radix-ui/react-alert-dialog": "^1.1.2",
     "@radix-ui/react-dialog": "^1.1.6",

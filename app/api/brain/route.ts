@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
       userId: session.user.id,
     });
 
-    // Step 4: Initialize brain orchestrator with hybrid configuration
+    // Step 4: Initialize brain orchestrator with hybrid configuration including LangGraph
     const orchestrator = createBrainOrchestrator(logger, {
       enableHybridRouting: true,
       enableClassification: true,
@@ -134,12 +134,17 @@ export async function POST(req: NextRequest) {
       enableFallbackOnError: true,
       clientConfig,
       contextId: brainRequest.activeBitContextId,
+      // Enable LangGraph for complex multi-step reasoning
+      enableLangGraph: true,
+      langGraphForComplexQueries: true,
     });
 
-    logger.info('Brain orchestrator initialized', {
+    logger.info('Brain orchestrator initialized with LangGraph support', {
       hybridRouting: true,
       classification: true,
       fallbackEnabled: true,
+      langGraphEnabled: true,
+      langGraphForComplex: true,
     });
 
     // Step 5: Process request through hybrid orchestrator

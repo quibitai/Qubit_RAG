@@ -3,6 +3,7 @@
  *
  * Connects our modern BrainOrchestrator architecture with existing LangChain
  * tools, agents, and enhanced executor while adding observability and performance monitoring.
+ * Now supports optional LangGraph integration for complex multi-step reasoning.
  */
 
 import { ChatOpenAI } from '@langchain/openai';
@@ -11,22 +12,27 @@ import {
   ChatPromptTemplate,
   MessagesPlaceholder,
 } from '@langchain/core/prompts';
-import { EnhancedAgentExecutor } from '@/lib/ai/executors/EnhancedAgentExecutor';
-import { availableTools } from '@/lib/ai/tools/index';
-import { specialistRegistry } from '@/lib/ai/prompts/specialists';
 import { modelMapping } from '@/lib/ai/models';
-import type { RequestLogger } from './observabilityService';
-import type { ClientConfig } from '@/lib/db/queries';
 import {
   LangChainToolService,
   createLangChainToolService,
-  type LangChainToolConfig,
 } from './langchainToolService';
 import {
   LangChainStreamingService,
   createLangChainStreamingService,
-  type LangChainStreamingConfig,
 } from './langchainStreamingService';
+
+// Import LangGraph support
+import { createLangGraphWrapper, shouldUseLangGraph } from '@/lib/ai/graphs';
+import type { SimpleLangGraphWrapper } from '@/lib/ai/graphs';
+
+// Type imports
+import type { EnhancedAgentExecutor } from '@/lib/ai/executors/EnhancedAgentExecutor';
+import type { RequestLogger } from './observabilityService';
+import type { ClientConfig } from '@/lib/db/queries';
+import type { LangChainToolConfig } from './langchainToolService';
+import type { LangChainStreamingConfig } from './langchainStreamingService';
+import type { LangGraphWrapperConfig } from '@/lib/ai/graphs';
 
 /**
  * Configuration for LangChain bridge
@@ -39,17 +45,23 @@ export interface LangChainBridgeConfig {
   maxTools?: number;
   maxIterations?: number;
   verbose?: boolean;
+  // New LangGraph options
+  enableLangGraph?: boolean;
+  langGraphPatterns?: string[];
 }
 
 /**
  * LangChain agent and executor wrapper
+ * Now supports both AgentExecutor and LangGraph
  */
 export interface LangChainAgent {
-  agentExecutor: AgentExecutor;
+  agentExecutor?: AgentExecutor;
+  langGraphWrapper?: SimpleLangGraphWrapper;
   enhancedExecutor?: EnhancedAgentExecutor;
   tools: any[];
   llm: ChatOpenAI;
-  prompt: ChatPromptTemplate;
+  prompt?: ChatPromptTemplate;
+  executionType: 'agent' | 'langgraph';
 }
 
 /**
@@ -138,6 +150,7 @@ function selectTools(
 
 /**
  * Create LangChain agent with tools and prompt
+ * Now supports optional LangGraph integration
  */
 export async function createLangChainAgent(
   systemPrompt: string,
@@ -150,6 +163,7 @@ export async function createLangChainAgent(
     contextId: config.contextId,
     enableToolExecution: config.enableToolExecution,
     maxIterations: config.maxIterations,
+    enableLangGraph: config.enableLangGraph,
   });
 
   // Initialize LLM
@@ -163,77 +177,110 @@ export async function createLangChainAgent(
     config.enableToolExecution !== false ? selectTools(config, logger) : [];
   const toolDuration = performance.now() - toolStartTime;
 
-  // Create streaming callbacks using the new LangChainStreamingService
-  const streamingConfig = {
-    enableTokenStreaming: true,
-    enableToolTracking: config.enableToolExecution !== false,
-    verbose: config.verbose || false,
-  };
-  const streamingService = createLangChainStreamingService(
-    logger,
-    streamingConfig,
-  );
-  const callbacks = streamingService.createStreamingCallbacks();
+  // Determine if we should use LangGraph
+  const useLangGraph =
+    config.enableLangGraph &&
+    (config.langGraphPatterns
+      ? shouldUseLangGraph(config.langGraphPatterns)
+      : true);
 
-  // Add callbacks to LLM
-  llm.callbacks = callbacks;
+  if (useLangGraph) {
+    // Create LangGraph wrapper
+    logger.info('Creating LangGraph wrapper for complex reasoning');
 
-  // Create prompt template
-  const prompt = ChatPromptTemplate.fromMessages([
-    ['system', systemPrompt],
-    new MessagesPlaceholder('chat_history'),
-    ['human', '{input}'],
-    new MessagesPlaceholder('agent_scratchpad'),
-  ]);
+    const langGraphConfig: LangGraphWrapperConfig = {
+      systemPrompt,
+      selectedChatModel: config.selectedChatModel,
+      contextId: config.contextId,
+      enableToolExecution: config.enableToolExecution,
+      maxIterations: config.maxIterations,
+      verbose: config.verbose || false,
+      logger,
+      tools,
+    };
 
-  // Create the agent
-  const agentStartTime = performance.now();
-  const agent = await createOpenAIToolsAgent({
-    llm,
-    tools,
-    prompt,
-  });
-  const agentDuration = performance.now() - agentStartTime;
+    const langGraphWrapper = createLangGraphWrapper(langGraphConfig);
 
-  // Create agent executor
-  const agentExecutor = new AgentExecutor({
-    agent,
-    tools,
-    maxIterations: config.maxIterations || 10,
-    returnIntermediateSteps: false,
-    verbose: config.verbose || false,
-    callbacks, // Add streaming callbacks to executor
-  });
+    const totalDuration = performance.now() - startTime;
+    logger.info('LangGraph wrapper created successfully', {
+      setupTime: `${totalDuration.toFixed(2)}ms`,
+      toolCount: tools.length,
+    });
 
-  // Create enhanced executor for smarter tool call enforcement
-  const enhancedExecutor = EnhancedAgentExecutor.fromExecutor(agentExecutor, {
-    enforceToolCalls: false, // Conservative approach for stability
-    verbose: config.verbose || false,
-  });
+    return {
+      langGraphWrapper,
+      tools,
+      llm,
+      executionType: 'langgraph',
+    };
+  } else {
+    // Create traditional AgentExecutor
+    logger.info('Creating traditional AgentExecutor');
 
-  const totalDuration = performance.now() - startTime;
+    // Create streaming callbacks using the new LangChainStreamingService
+    const streamingConfig = {
+      enableTokenStreaming: true,
+      enableToolTracking: config.enableToolExecution !== false,
+      verbose: config.verbose || false,
+    };
+    const streamingService = createLangChainStreamingService(
+      logger,
+      streamingConfig,
+    );
+    const callbacks = streamingService.createStreamingCallbacks();
 
-  logger.info('LangChain agent created successfully', {
-    totalSetupTime: `${totalDuration.toFixed(2)}ms`,
-    llmInitTime: `${llmDuration.toFixed(2)}ms`,
-    toolSelectionTime: `${toolDuration.toFixed(2)}ms`,
-    agentCreationTime: `${agentDuration.toFixed(2)}ms`,
-    toolCount: tools.length,
-    contextId: config.contextId,
-    callbacksEnabled: callbacks.length > 0,
-  });
+    // Add callbacks to LLM
+    llm.callbacks = callbacks;
 
-  return {
-    agentExecutor,
-    enhancedExecutor,
-    tools,
-    llm,
-    prompt,
-  };
+    // Create prompt template
+    const prompt = ChatPromptTemplate.fromMessages([
+      ['system', systemPrompt],
+      new MessagesPlaceholder('chat_history'),
+      ['human', '{input}'],
+      new MessagesPlaceholder('agent_scratchpad'),
+    ]);
+
+    // Create the agent
+    const agentStartTime = performance.now();
+    const agent = await createOpenAIToolsAgent({
+      llm,
+      tools,
+      prompt,
+    });
+    const agentDuration = performance.now() - agentStartTime;
+
+    // Create agent executor
+    const agentExecutor = new AgentExecutor({
+      agent,
+      tools,
+      maxIterations: config.maxIterations || 10,
+      verbose: config.verbose || false,
+      returnIntermediateSteps: true,
+    });
+
+    const totalDuration = performance.now() - startTime;
+
+    logger.info('LangChain agent created successfully', {
+      setupTime: `${totalDuration.toFixed(2)}ms`,
+      llmTime: `${llmDuration.toFixed(2)}ms`,
+      toolTime: `${toolDuration.toFixed(2)}ms`,
+      agentTime: `${agentDuration.toFixed(2)}ms`,
+      toolCount: tools.length,
+    });
+
+    return {
+      agentExecutor,
+      tools,
+      llm,
+      prompt,
+      executionType: 'agent',
+    };
+  }
 }
 
 /**
- * Execute LangChain agent with observability
+ * Execute LangChain agent with proper error handling
+ * Now supports both AgentExecutor and LangGraph
  */
 export async function executeLangChainAgent(
   agent: LangChainAgent,
@@ -247,45 +294,52 @@ export async function executeLangChainAgent(
   logger.info('Executing LangChain agent', {
     inputLength: input.length,
     historyLength: chatHistory.length,
-    hasEnhancedExecutor: !!agent.enhancedExecutor,
-    contextId: config.contextId,
+    executionType: agent.executionType,
   });
 
   try {
-    const executionInput = {
-      input,
-      chat_history: chatHistory,
-      activeBitContextId: config.contextId || null,
-    };
+    let result: any;
 
-    // Use enhanced executor if available, otherwise fall back to standard
-    const executor = agent.enhancedExecutor || agent.agentExecutor;
-    const result = await executor.invoke(executionInput);
+    if (agent.executionType === 'langgraph' && agent.langGraphWrapper) {
+      // Execute with LangGraph wrapper
+      result = await agent.langGraphWrapper.invoke({
+        input,
+        chat_history: chatHistory,
+        activeBitContextId: config.contextId,
+      });
+    } else if (agent.executionType === 'agent' && agent.agentExecutor) {
+      // Execute with traditional AgentExecutor
+      result = await agent.agentExecutor.invoke({
+        input,
+        chat_history: chatHistory,
+        activeBitContextId: config.contextId,
+      });
+    } else {
+      throw new Error(`Invalid agent configuration: ${agent.executionType}`);
+    }
 
     const duration = performance.now() - startTime;
-
     logger.info('LangChain agent execution completed', {
       executionTime: `${duration.toFixed(2)}ms`,
-      outputLength: result.output?.length || 0,
-      success: true,
+      outputLength: result?.output?.length || 0,
+      executionType: agent.executionType,
     });
 
     return result;
   } catch (error) {
     const duration = performance.now() - startTime;
-
     logger.error('LangChain agent execution failed', {
       error: error instanceof Error ? error.message : 'Unknown error',
       executionTime: `${duration.toFixed(2)}ms`,
-      inputLength: input.length,
+      executionType: agent.executionType,
     });
-
     throw error;
   }
 }
 
 /**
- * Stream LangChain agent execution with observability
+ * Stream LangChain agent execution
+ * Now supports both AgentExecutor and LangGraph streaming
  */
 export async function streamLangChainAgent(
   agent: LangChainAgent,
@@ -295,41 +349,42 @@ export async function streamLangChainAgent(
   logger: RequestLogger,
   callbacks?: any,
 ): Promise<AsyncIterable<any>> {
-  const startTime = performance.now();
-
-  logger.info('Starting LangChain agent streaming', {
+  logger.info('Streaming LangChain agent', {
     inputLength: input.length,
     historyLength: chatHistory.length,
+    executionType: agent.executionType,
     hasCallbacks: !!callbacks,
-    contextId: config.contextId,
   });
 
   try {
-    const executionInput = {
-      input,
-      chat_history: chatHistory,
-      activeBitContextId: config.contextId || null,
-    };
-
-    const options = callbacks ? { callbacks } : {};
-
-    // Use enhanced executor if available for streaming
-    const executor = agent.enhancedExecutor || agent.agentExecutor;
-    const stream = await executor.stream(executionInput, options);
-
-    logger.info('LangChain agent streaming started', {
-      setupTime: `${(performance.now() - startTime).toFixed(2)}ms`,
-    });
-
-    return stream;
+    if (agent.executionType === 'langgraph' && agent.langGraphWrapper) {
+      // Stream with LangGraph wrapper
+      return agent.langGraphWrapper.stream(
+        {
+          input,
+          chat_history: chatHistory,
+          activeBitContextId: config.contextId,
+        },
+        { callbacks },
+      );
+    } else if (agent.executionType === 'agent' && agent.agentExecutor) {
+      // Stream with traditional AgentExecutor
+      return agent.agentExecutor.stream(
+        {
+          input,
+          chat_history: chatHistory,
+          activeBitContextId: config.contextId,
+        },
+        { callbacks },
+      );
+    } else {
+      throw new Error(`Invalid agent configuration: ${agent.executionType}`);
+    }
   } catch (error) {
-    const duration = performance.now() - startTime;
-
     logger.error('LangChain agent streaming failed', {
       error: error instanceof Error ? error.message : 'Unknown error',
-      setupTime: `${duration.toFixed(2)}ms`,
+      executionType: agent.executionType,
     });
-
     throw error;
   }
 }
