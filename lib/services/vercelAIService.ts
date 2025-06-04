@@ -390,7 +390,7 @@ export class VercelAIService {
   }
 
   /**
-   * Stream a query using Vercel AI SDK with proper Response object
+   * Stream a query using Vercel AI SDK with proper Response object and artifact support
    */
   public async streamQuery(
     systemPrompt: string,
@@ -473,35 +473,69 @@ export class VercelAIService {
         }
       }
 
-      // Use streamText and return proper Response object
-      const result = streamText({
-        model: openai(this.config.selectedChatModel || 'gpt-4.1-mini'),
-        messages,
-        tools: Object.keys(vercelTools).length > 0 ? vercelTools : undefined,
-        maxSteps: 5, // Allow multiple steps for tool execution and response generation
-        maxTokens: this.config.maxTokens,
-        temperature: this.config.temperature,
-        onFinish: (event) => {
-          // Track token usage
-          if (event.usage) {
-            this.logger.logTokenUsage({
-              promptTokens: event.usage.promptTokens,
-              completionTokens: event.usage.completionTokens,
-              totalTokens: event.usage.totalTokens,
-              model: this.config.selectedChatModel || 'gpt-4.1-mini',
-              provider: 'openai',
-            });
+      // Import createDataStreamResponse for artifact support
+      const { createDataStreamResponse } = await import('ai');
+
+      // Capture current context for use in the execute function
+      const serviceConfig = this.config;
+      const serviceLogger = this.logger;
+
+      // Use createDataStreamResponse to allow artifact context injection
+      return createDataStreamResponse({
+        execute: async (dataStream) => {
+          // Update the global context with the actual dataStream
+          if (global.CREATE_DOCUMENT_CONTEXT) {
+            global.CREATE_DOCUMENT_CONTEXT.dataStream = dataStream;
+            console.log('[VercelAI] Updated global context with dataStream');
           }
 
-          this.logger.info('VercelAI streaming completed', {
-            finishReason: event.finishReason,
-            usage: event.usage,
-          });
+          try {
+            // Use streamText with the configured parameters
+            const result = streamText({
+              model: openai(serviceConfig.selectedChatModel || 'gpt-4.1-mini'),
+              messages,
+              tools:
+                Object.keys(vercelTools).length > 0 ? vercelTools : undefined,
+              maxSteps: 5, // Allow multiple steps for tool execution and response generation
+              maxTokens: serviceConfig.maxTokens,
+              temperature: serviceConfig.temperature,
+              onFinish: (event) => {
+                // Track token usage
+                if (event.usage) {
+                  serviceLogger.logTokenUsage({
+                    promptTokens: event.usage.promptTokens,
+                    completionTokens: event.usage.completionTokens,
+                    totalTokens: event.usage.totalTokens,
+                    model: serviceConfig.selectedChatModel || 'gpt-4.1-mini',
+                    provider: 'openai',
+                  });
+                }
+
+                serviceLogger.info('VercelAI streaming completed', {
+                  finishReason: event.finishReason,
+                  usage: event.usage,
+                });
+              },
+            });
+
+            // Stream the text response and forward to dataStream
+            for await (const chunk of result.textStream) {
+              dataStream.write(chunk);
+            }
+
+            // Close the stream
+            dataStream.close();
+          } catch (streamError) {
+            serviceLogger.error('Error during streaming execution', {
+              error:
+                streamError instanceof Error
+                  ? streamError.message
+                  : 'Unknown error',
+            });
+            throw streamError;
+          }
         },
       });
-
-      // Return proper Response object for streaming
-      return result.toDataStreamResponse();
     } catch (error) {
       this.logger.error('VercelAI streaming failed', {
         error: error instanceof Error ? error.message : 'Unknown error',

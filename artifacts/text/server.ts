@@ -42,7 +42,17 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
       '[SERVER TEXT_HANDLER] onCreateDocument called with args:',
       JSON.stringify(args),
     );
-    const { id: docId, title, dataStream, initialContentPrompt } = args;
+
+    // Extract callbacks from args for chunk reporting
+    const {
+      id: docId,
+      title,
+      dataStream,
+      initialContentPrompt,
+      onChunk, // NEW: callback for each content chunk
+      onComplete, // NEW: callback when content generation is complete
+    } = args;
+
     let draftContent = '';
 
     // Add flag to track if finish event has been sent
@@ -51,6 +61,10 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
 
     console.log(
       `[textDocumentHandler] onCreateDocument for ID: ${docId}, Title: "${title}"`,
+      {
+        hasOnChunkCallback: typeof onChunk === 'function',
+        hasOnCompleteCallback: typeof onComplete === 'function',
+      },
     );
 
     // Validate user authentication
@@ -140,6 +154,25 @@ EXAMPLE REFERENCE FORMAT:
           draftContent += textDelta;
           serverSideAccumulatedContentLength += textDelta.length;
 
+          // Report chunk to caller (createDocument) if callback is provided
+          if (onChunk && typeof onChunk === 'function') {
+            try {
+              console.log(
+                `[SERVER TEXT_HANDLER] Reporting chunk to caller: "${textDelta.substring(0, 50)}${textDelta.length > 50 ? '...' : ''}" (${textDelta.length} chars)`,
+              );
+              onChunk(textDelta);
+            } catch (callbackError) {
+              console.error(
+                '[SERVER TEXT_HANDLER] Error in onChunk callback:',
+                callbackError,
+              );
+            }
+          } else {
+            console.warn(
+              '[SERVER TEXT_HANDLER] No onChunk callback available to report chunk',
+            );
+          }
+
           const textDeltaPayload = { type: 'text-delta', content: textDelta };
           await sendArtifactDataToClient(dataStream, textDeltaPayload);
         } else if (type === 'finish' || type === 'step-finish') {
@@ -150,6 +183,18 @@ EXAMPLE REFERENCE FORMAT:
       console.log(
         `[SERVER TEXT_HANDLER] Finished iterating over fullStream. Total deltas processed: ${deltaCount}, Final content length: ${serverSideAccumulatedContentLength}`,
       );
+
+      // Report completion to caller (createDocument) if callback is provided
+      if (onComplete && typeof onComplete === 'function') {
+        try {
+          onComplete(draftContent);
+        } catch (callbackError) {
+          console.error(
+            '[SERVER TEXT_HANDLER] Error in onComplete callback:',
+            callbackError,
+          );
+        }
+      }
     } catch (error) {
       console.error(
         `[SERVER TEXT_HANDLER ERROR] Error during streamText call:`,

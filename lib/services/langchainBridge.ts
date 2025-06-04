@@ -13,34 +13,31 @@ import {
   MessagesPlaceholder,
 } from '@langchain/core/prompts';
 import {
-  HumanMessage,
   AIMessage,
+  BaseMessage,
+  HumanMessage,
   SystemMessage,
 } from '@langchain/core/messages';
 import { modelMapping } from '@/lib/ai/models';
-import {
-  LangChainToolService,
-  createLangChainToolService,
-} from './langchainToolService';
+import { createLangChainToolService } from './langchainToolService';
 import {
   LangChainStreamingService,
   createLangChainStreamingService,
 } from './langchainStreamingService';
 
-// Import LangGraph support
+// Import LangGraph support with UI capabilities
 import { createLangGraphWrapper, shouldUseLangGraph } from '@/lib/ai/graphs';
-import type { SimpleLangGraphWrapper } from '@/lib/ai/graphs';
+import type { SimpleLangGraphWrapper } from '@/lib/ai/graphs/simpleLangGraphWrapper';
 
-// Import LangChainAdapter for proper Vercel AI SDK streaming
+// Import LangChain UI utilities for generative UI
 import { LangChainAdapter } from 'ai';
 
 // Type imports
-import type { EnhancedAgentExecutor } from '@/lib/ai/executors/EnhancedAgentExecutor';
 import type { RequestLogger } from './observabilityService';
 import type { ClientConfig } from '@/lib/db/queries';
 import type { LangChainToolConfig } from './langchainToolService';
-import type { LangChainStreamingConfig } from './langchainStreamingService';
 import type { LangGraphWrapperConfig } from '@/lib/ai/graphs';
+import { generateUUID } from '@/lib/utils';
 
 /**
  * Configuration for LangChain bridge
@@ -65,24 +62,10 @@ export interface LangChainBridgeConfig {
 export interface LangChainAgent {
   agentExecutor?: AgentExecutor;
   langGraphWrapper?: SimpleLangGraphWrapper;
-  enhancedExecutor?: EnhancedAgentExecutor;
   tools: any[];
   llm: ChatOpenAI;
   prompt?: ChatPromptTemplate;
   executionType: 'agent' | 'langgraph';
-}
-
-/**
- * Performance metrics for LangChain operations
- */
-export interface LangChainMetrics {
-  agentCreationTime: number;
-  toolSelectionTime: number;
-  llmInitializationTime: number;
-  totalSetupTime: number;
-  toolCount: number;
-  selectedModel: string;
-  contextId: string | null;
 }
 
 /**
@@ -198,13 +181,9 @@ export async function createLangChainAgent(
 
     const langGraphConfig: LangGraphWrapperConfig = {
       systemPrompt,
-      selectedChatModel: config.selectedChatModel,
-      contextId: config.contextId,
-      enableToolExecution: config.enableToolExecution,
-      maxIterations: config.maxIterations,
-      verbose: config.verbose || false,
-      logger,
+      llm,
       tools,
+      logger,
     };
 
     const langGraphWrapper = createLangGraphWrapper(langGraphConfig);
@@ -309,12 +288,26 @@ export async function executeLangChainAgent(
     let result: any;
 
     if (agent.executionType === 'langgraph' && agent.langGraphWrapper) {
-      // Execute with LangGraph wrapper
-      result = await agent.langGraphWrapper.invoke({
-        input,
-        chat_history: chatHistory,
-        activeBitContextId: config.contextId,
+      // Execute with LangGraph wrapper - convert to BaseMessage[]
+      const messages = chatHistory.map((msg) => {
+        if (msg.type === 'human' || msg.role === 'user') {
+          return new HumanMessage(msg.content);
+        } else if (msg.type === 'ai' || msg.role === 'assistant') {
+          return new AIMessage(msg.content);
+        } else {
+          return new SystemMessage(msg.content);
+        }
       });
+
+      // Add system prompt and user input
+      const wrapperConfig = agent.langGraphWrapper.getConfig();
+      const fullConversation = [
+        new SystemMessage(wrapperConfig.systemPrompt),
+        ...messages,
+        new HumanMessage(input),
+      ];
+
+      result = await agent.langGraphWrapper.invoke(fullConversation);
     } else if (agent.executionType === 'agent' && agent.agentExecutor) {
       // Execute with traditional AgentExecutor
       result = await agent.agentExecutor.invoke({
@@ -366,13 +359,7 @@ export async function streamLangChainAgent(
 
   try {
     if (agent.executionType === 'langgraph' && agent.langGraphWrapper) {
-      // For LangGraph, we need to use the underlying LLM stream directly
-      logger.info('Using LangGraph execution path');
-
-      // Get the LLM from the wrapper config
-      const wrapperConfig = agent.langGraphWrapper.getConfig();
-
-      // Convert chat history to LangChain messages
+      // Execute with LangGraph wrapper - convert to BaseMessage[]
       const messages = chatHistory.map((msg) => {
         if (msg.type === 'human' || msg.role === 'user') {
           return new HumanMessage(msg.content);
@@ -384,26 +371,289 @@ export async function streamLangChainAgent(
       });
 
       // Add system prompt and user input
+      const wrapperConfig = agent.langGraphWrapper.getConfig();
       const fullConversation = [
         new SystemMessage(wrapperConfig.systemPrompt),
         ...messages,
         new HumanMessage(input),
       ];
 
-      // Use the LLM directly for streaming with LangChainAdapter
-      const llmStream = await agent.llm.stream(fullConversation);
+      // Get the LangGraph stream
+      const langGraphStream = agent.langGraphWrapper.stream(fullConversation);
 
-      // Use LangChainAdapter with the actual LangChain stream
-      return LangChainAdapter.toDataStreamResponse(llmStream, {
-        init: {
-          headers: {
-            'X-Execution-Path': 'langgraph',
-            'X-LangGraph-Enabled': 'true',
-          },
+      // Process LangGraph stream with comprehensive artifact and tool event handling
+      logger.info(
+        '[LangchainBridge] Processing LangGraph stream with enhanced event handling',
+      );
+
+      const { createDataStream } = await import('ai');
+
+      const dataStream = createDataStream({
+        async execute(dataStreamWriter) {
+          try {
+            logger.info(
+              '[LangchainBridge] Starting enhanced LangGraph stream processing',
+            );
+            let eventCount = 0;
+            const lastLogTime = Date.now();
+            let allUIEvents: any[] = [];
+
+            for await (const event of langGraphStream) {
+              eventCount++;
+
+              // Log all events for debugging
+              if (eventCount <= 10 || eventCount % 20 === 0) {
+                logger.info(
+                  `[LangchainBridge] Event ${eventCount}: ${event.event}`,
+                  {
+                    name: event.name,
+                    tags: event.tags,
+                    hasData: !!event.data,
+                    dataKeys: event.data ? Object.keys(event.data) : [],
+                  },
+                );
+              }
+
+              // Handle streaming text content from LLM
+              if (
+                event.event === 'on_chat_model_stream' &&
+                event.data?.chunk?.content
+              ) {
+                const textContent = event.data.chunk.content;
+                if (typeof textContent === 'string' && textContent.length > 0) {
+                  await (dataStreamWriter as any).write(
+                    `0:${JSON.stringify(textContent)}\n`,
+                  );
+                }
+              }
+
+              // Handle tool call start events
+              else if (event.event === 'on_tool_start') {
+                const toolCallData = {
+                  toolCallId: event.run_id || generateUUID(),
+                  toolName: event.name,
+                  args: event.data?.input || {},
+                };
+                await (dataStreamWriter as any).write(
+                  `9:${JSON.stringify(toolCallData)}\n`,
+                );
+                logger.info(
+                  `[LangchainBridge] Tool call started: ${event.name}`,
+                  { toolCallId: toolCallData.toolCallId },
+                );
+              }
+
+              // Handle tool call end events and extract artifact data
+              else if (event.event === 'on_tool_end') {
+                // Send tool result
+                const toolOutput = event.data?.output;
+                const toolResultData = {
+                  toolCallId: event.run_id || generateUUID(),
+                  toolName: event.name,
+                  result:
+                    typeof toolOutput === 'string'
+                      ? toolOutput
+                      : JSON.stringify(toolOutput),
+                };
+                await (dataStreamWriter as any).write(
+                  `a:${JSON.stringify(toolResultData)}\n`,
+                );
+
+                logger.info(
+                  `[LangchainBridge] Tool call completed: ${event.name}`,
+                  {
+                    toolCallId: toolResultData.toolCallId,
+                    outputType: typeof toolOutput,
+                    outputLength: toolResultData.result.length,
+                  },
+                );
+
+                // Check if tool execution results contain artifact events (from executeToolsNode)
+                if (
+                  event.data?.output &&
+                  typeof event.data.output === 'object'
+                ) {
+                  const output = event.data.output as any;
+
+                  // Look for artifact events in tool execution results
+                  if (
+                    output._lastToolExecutionResults &&
+                    Array.isArray(output._lastToolExecutionResults)
+                  ) {
+                    for (const toolExecResult of output._lastToolExecutionResults) {
+                      if (
+                        toolExecResult.quibitArtifactEvents &&
+                        Array.isArray(toolExecResult.quibitArtifactEvents)
+                      ) {
+                        logger.info(
+                          `[LangchainBridge] Found ${toolExecResult.quibitArtifactEvents.length} artifact events for tool ${toolExecResult.toolName}`,
+                        );
+
+                        for (const artifactEvent of toolExecResult.quibitArtifactEvents) {
+                          const uiData = {
+                            type: 'artifact',
+                            componentName: 'document', // Maps to frontend DocumentComponent
+                            props: {
+                              documentId: artifactEvent.documentId || 'unknown',
+                              title:
+                                artifactEvent.title ||
+                                `Document from ${toolExecResult.toolName}`,
+                              status: artifactEvent.status || 'complete',
+                              eventType: artifactEvent.type,
+                              artifactEvent: artifactEvent,
+                            },
+                            metadata: {
+                              toolCallId: toolExecResult.toolCallId,
+                              toolName: toolExecResult.toolName,
+                              timestamp: new Date().toISOString(),
+                            },
+                            id: generateUUID(),
+                          };
+
+                          // Stream as Data part
+                          dataStreamWriter.writeData(uiData);
+                          allUIEvents.push(uiData);
+
+                          logger.info(
+                            '[LangchainBridge] Streamed artifact event:',
+                            {
+                              documentId: uiData.props.documentId,
+                              title: uiData.props.title,
+                              toolName: uiData.metadata.toolName,
+                            },
+                          );
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+
+              // Handle node execution events for enhanced debugging
+              else if (
+                event.event === 'on_chain_end' &&
+                event.name !== 'RunnableSequence'
+              ) {
+                logger.info(`[LangchainBridge] Node completed: ${event.name}`, {
+                  runId: event.run_id,
+                  duration: `${Date.now() - lastLogTime}ms`,
+                });
+
+                // Check if this is our graph's final state containing UI events
+                if (
+                  event.data?.output &&
+                  typeof event.data.output === 'object'
+                ) {
+                  const output = event.data.output as any;
+
+                  // Look for UI events in the final graph state
+                  if (
+                    output.ui &&
+                    Array.isArray(output.ui) &&
+                    output.ui.length > 0
+                  ) {
+                    logger.info(
+                      `[LangchainBridge] Found ${output.ui.length} UI events in final graph state`,
+                    );
+
+                    for (const uiEvent of output.ui) {
+                      // Check if we haven't already processed this UI event
+                      const existingEvent = allUIEvents.find(
+                        (e) => e.id === uiEvent.id,
+                      );
+                      if (!existingEvent) {
+                        const uiData = {
+                          type: 'artifact',
+                          componentName: uiEvent.name,
+                          props: uiEvent.props,
+                          metadata: uiEvent.metadata,
+                          id: uiEvent.id,
+                        };
+
+                        dataStreamWriter.writeData(uiData);
+                        allUIEvents.push(uiData);
+
+                        logger.info(
+                          '[LangchainBridge] Streamed UI event from final state:',
+                          {
+                            componentName: uiEvent.name,
+                            eventId: uiEvent.id,
+                          },
+                        );
+                      }
+                    }
+                  }
+                }
+              }
+
+              // Log progress periodically
+              const now = Date.now();
+              if (eventCount % 50 === 0 || now - lastLogTime > 5000) {
+                logger.info(
+                  `[LangchainBridge] Processed ${eventCount} events`,
+                  {
+                    eventType: event.event,
+                    elapsed: `${now - lastLogTime}ms`,
+                    totalUIEvents: allUIEvents.length,
+                  },
+                );
+              }
+            }
+
+            logger.info(`[LangchainBridge] Stream processing completed`, {
+              totalEvents: eventCount,
+              totalUIEvents: allUIEvents.length,
+            });
+          } catch (error) {
+            logger.error(
+              '[LangchainBridge] Error in enhanced stream processing:',
+              error,
+            );
+
+            // Write error to stream
+            const errorData = {
+              type: 'error',
+              message:
+                error instanceof Error
+                  ? error.message
+                  : 'Unknown streaming error',
+              timestamp: new Date().toISOString(),
+            };
+            await (dataStreamWriter as any).write(
+              `3:${JSON.stringify(errorData)}\n`,
+            );
+            throw error;
+          }
+        },
+        onError: (error) => {
+          logger.error('[LangchainBridge] DataStream error:', error);
+          return error instanceof Error ? error.message : String(error);
+        },
+      });
+
+      // Schedule cleanup for global context
+      if (global.CREATE_DOCUMENT_CONTEXT) {
+        const cleanupTimeout = setTimeout(() => {
+          logger.info('Cleaning up global artifact context after timeout');
+          if (global.CREATE_DOCUMENT_CONTEXT?.cleanupTimeout) {
+            clearTimeout(global.CREATE_DOCUMENT_CONTEXT.cleanupTimeout);
+          }
+          global.CREATE_DOCUMENT_CONTEXT = undefined;
+        }, 30000);
+
+        global.CREATE_DOCUMENT_CONTEXT.cleanupTimeout = cleanupTimeout;
+      }
+
+      return new Response(dataStream, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'X-Execution-Path': 'langgraph-enhanced',
+          'X-LangGraph-Enabled': 'true',
+          'X-Vercel-AI-Data-Stream': 'v1',
         },
       });
     } else if (agent.agentExecutor) {
-      // Use regular AgentExecutor streaming
+      // Use regular AgentExecutor streaming with LangChainAdapter
       logger.info('Using AgentExecutor execution path');
 
       // Create input for AgentExecutor
@@ -446,21 +696,24 @@ export async function streamLangChainAgent(
         },
       });
     } else {
-      throw new Error('No valid execution method found for LangChain agent');
+      throw new Error('No valid agent execution method available');
     }
   } catch (error) {
-    logger.error('LangChain agent streaming failed', { error: String(error) });
+    logger.error('Error in streamLangChainAgent:', error);
 
-    // Return error response in proper streaming format
-    const encoder = new TextEncoder();
-    const errorMessage =
-      error instanceof Error ? error.message : 'Unknown error';
-
-    const errorStream = new ReadableStream({
-      start(controller) {
-        const errorChunk = `0:${JSON.stringify(`Error: ${errorMessage}`)}\n`;
-        controller.enqueue(encoder.encode(errorChunk));
-        controller.close();
+    // Return error response in proper format
+    const { createDataStream } = await import('ai');
+    const errorStream = createDataStream({
+      async execute(dataStreamWriter) {
+        const errorData = {
+          type: 'error',
+          message:
+            error instanceof Error ? error.message : 'Agent execution failed',
+          timestamp: new Date().toISOString(),
+        };
+        await (dataStreamWriter as any).write(
+          `3:${JSON.stringify(errorData)}\n`,
+        );
       },
     });
 
@@ -468,49 +721,66 @@ export async function streamLangChainAgent(
       status: 500,
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
-        'X-Vercel-AI-Data-Stream': 'v1',
-        'X-Execution-Path': 'langchain-error',
-        'X-Error': 'true',
+        'X-Execution-Path': 'error',
       },
     });
   }
 }
 
 /**
- * Get performance metrics for LangChain operations
- */
-export function getLangChainMetrics(
-  agent: LangChainAgent,
-  config: LangChainBridgeConfig,
-  setupTime: number,
-): LangChainMetrics {
-  return {
-    agentCreationTime: setupTime,
-    toolSelectionTime: 0, // Would need to be tracked during creation
-    llmInitializationTime: 0, // Would need to be tracked during creation
-    totalSetupTime: setupTime,
-    toolCount: agent.tools.length,
-    selectedModel: config.selectedChatModel || 'default',
-    contextId: config.contextId || null,
-  };
-}
-
-/**
- * Clean up LangChain resources
+ * Clean up LangChain agent resources
+ * Disposes of callbacks, clears any internal state, and performs cleanup operations
  */
 export function cleanupLangChainAgent(
   agent: LangChainAgent,
   logger: RequestLogger,
 ): void {
-  logger.info('Cleaning up LangChain agent resources', {
-    toolCount: agent.tools.length,
-  });
+  try {
+    logger.info('Cleaning up LangChain agent resources', {
+      executionType: agent.executionType,
+      toolCount: agent.tools.length,
+    });
 
-  // Clean up global tool configurations
-  if (global.CURRENT_TOOL_CONFIGS) {
-    global.CURRENT_TOOL_CONFIGS = {};
+    // Clean up LLM callbacks if they exist
+    if (agent.llm && agent.llm.callbacks) {
+      agent.llm.callbacks = [];
+      logger.info('Cleared LLM callbacks');
+    }
+
+    // Clean up agent executor callbacks if present
+    if (agent.executionType === 'agent' && agent.agentExecutor) {
+      // AgentExecutor cleanup - we know agentExecutor exists here
+      agent.agentExecutor.verbose = false;
+      logger.info('Cleaned up AgentExecutor resources');
+    }
+
+    // Clean up LangGraph wrapper if present
+    if (agent.executionType === 'langgraph' && agent.langGraphWrapper) {
+      // LangGraph wrapper cleanup - no specific cleanup needed as it's stateless
+      logger.info('LangGraph wrapper cleanup completed (stateless)');
+    }
+
+    // Clean up tools if they have cleanup methods
+    agent.tools.forEach((tool, index) => {
+      try {
+        // Some tools might have cleanup methods
+        if (tool && typeof tool.cleanup === 'function') {
+          tool.cleanup();
+          logger.info(`Cleaned up tool ${index}: ${tool.name || 'unnamed'}`);
+        }
+      } catch (toolError) {
+        logger.warn(`Failed to cleanup tool ${index}`, {
+          error:
+            toolError instanceof Error ? toolError.message : 'Unknown error',
+        });
+      }
+    });
+
+    logger.info('LangChain agent cleanup completed successfully');
+  } catch (error) {
+    logger.error('Error during LangChain agent cleanup', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+    // Don't throw - cleanup failures shouldn't break the main flow
   }
-
-  // LangChain objects are garbage collected automatically
-  logger.info('LangChain agent cleanup completed');
 }

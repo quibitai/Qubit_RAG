@@ -19,6 +19,15 @@ interface CreateDocumentContext {
       result?: any;
     };
   }>;
+  cleanupTimeout?: NodeJS.Timeout;
+}
+
+// Artifact event types
+interface ArtifactEvent {
+  type: string;
+  documentId: string;
+  timestamp: string;
+  [key: string]: any; // Allow additional properties
 }
 
 // Global context object that will be set by the brain route
@@ -59,8 +68,11 @@ export const createDocumentTool = new DynamicStructuredTool({
     const id = generateUUID();
     const toolCallId = generateUUID(); // Generate a unique ID for this tool call
 
+    // Initialize local artifact events collection with proper typing
+    const localArtifactEvents: ArtifactEvent[] = [];
+
     console.log(
-      `[CREATE_DOCUMENT_TOOL EXECUTE_START] Called with title: "${title}", kind: "${kind}", generated ID: ${id}`,
+      `[CREATE_DOCUMENT_TOOL EXECUTE_START] Called with title: "${title}", kind: "${kind}", generated ID: ${id}, toolCallId: ${toolCallId}`,
     );
 
     if (contentPrompt) {
@@ -75,36 +87,85 @@ export const createDocumentTool = new DynamicStructuredTool({
       console.error(
         '[CREATE_DOCUMENT_TOOL] No global context available - falling back to placeholder response',
       );
-      // Return placeholder response if no context
-      const result = {
+
+      // Create a fallback artifact event for when context is not available
+      const fallbackArtifactEvent = {
+        type: 'artifact-placeholder',
+        documentId: id,
+        title: title,
+        kind: kind,
+        status: 'fallback',
+        message: 'Document creation initiated without streaming context',
+        timestamp: new Date().toISOString(),
+      };
+      localArtifactEvents.push(fallbackArtifactEvent);
+
+      const summaryForLLM = `Document '${title}' of type '${kind}' with ID '${id}' was requested for creation. Content generation process was initiated but no streaming context was available.`;
+
+      const toolResult = {
+        summaryForLLM: summaryForLLM,
+        _isQubitArtifactToolResult: true,
+        quibitArtifactEvents: localArtifactEvents,
+        // Legacy fields for backward compatibility
         id,
         title,
         kind,
         contentPrompt,
-        message: `Document artifact of kind '${kind}' titled '${title}' requested with ID ${id}. Content generation process initiated.`,
+        message: summaryForLLM,
       };
-      return JSON.stringify(result);
+
+      console.log(
+        `[CREATE_DOCUMENT_TOOL] Returning fallback result with ${localArtifactEvents.length} artifact events`,
+      );
+      return JSON.stringify(toolResult);
     }
 
     console.log(
       `[CREATE_DOCUMENT_TOOL] Global context available - proceeding with actual document creation`,
     );
 
-    // MANUALLY TRACK TOOL CALL START
+    // Track the initial state of the global tracker to capture events for this tool invocation
+    const initialTrackerLength = context.toolInvocationsTracker?.length || 0;
+    console.log(
+      `[CREATE_DOCUMENT_TOOL] Initial global tracker length: ${initialTrackerLength}`,
+    );
+
+    // MANUALLY TRACK TOOL CALL START in global tracker (for backward compatibility)
     if (context.toolInvocationsTracker) {
-      context.toolInvocationsTracker.push({
-        type: 'tool-invocation',
+      const startEvent = {
+        type: 'tool-invocation' as const,
         toolInvocation: {
           toolName: 'createDocument',
           toolCallId: toolCallId,
-          state: 'call',
+          state: 'call' as const,
           args: { title, kind, contentPrompt },
         },
-      });
+      };
+      context.toolInvocationsTracker.push(startEvent);
       console.log(
-        `[CREATE_DOCUMENT_TOOL] Added tool call to tracker with ID: ${toolCallId}`,
+        `[CREATE_DOCUMENT_TOOL] Added tool call start to global tracker with ID: ${toolCallId}`,
       );
     }
+
+    // Create artifact-start event
+    const artifactStartEvent = {
+      type: 'artifact',
+      documentId: id,
+      timestamp: new Date().toISOString(),
+      componentName: 'document',
+      props: {
+        documentId: id,
+        title: title,
+        kind: kind,
+        eventType: 'artifact-start',
+        status: 'streaming',
+      },
+      id: `artifact-start-${id}`,
+    };
+    localArtifactEvents.push(artifactStartEvent);
+    console.log(
+      `[CREATE_DOCUMENT_TOOL] Added artifact-start event for document ${id}`,
+    );
 
     // Find the appropriate handler based on kind
     const handler = documentHandlersByArtifactKind.find((h) => h.kind === kind);
@@ -113,6 +174,18 @@ export const createDocumentTool = new DynamicStructuredTool({
       console.error(
         `[CREATE_DOCUMENT_TOOL CRITICAL] No handler found for artifact kind '${kind}' or onCreateDocument is not a function.`,
       );
+
+      // Create artifact error event
+      const artifactErrorEvent = {
+        type: 'artifact-error',
+        documentId: id,
+        title: title,
+        kind: kind,
+        error: `No handler found for kind '${kind}'`,
+        timestamp: new Date().toISOString(),
+      };
+      localArtifactEvents.push(artifactErrorEvent);
+
       const errorResult = {
         id,
         title,
@@ -120,23 +193,36 @@ export const createDocumentTool = new DynamicStructuredTool({
         error: `No handler found for kind '${kind}'`,
       };
 
-      // MANUALLY TRACK TOOL CALL ERROR RESULT
+      // MANUALLY TRACK TOOL CALL ERROR RESULT in global tracker
       if (context.toolInvocationsTracker) {
         context.toolInvocationsTracker.push({
-          type: 'tool-invocation',
+          type: 'tool-invocation' as const,
           toolInvocation: {
             toolName: 'createDocument',
             toolCallId: toolCallId,
-            state: 'result',
+            state: 'result' as const,
             result: errorResult,
           },
         });
         console.log(
-          `[CREATE_DOCUMENT_TOOL] Added tool error result to tracker`,
+          `[CREATE_DOCUMENT_TOOL] Added tool error result to global tracker`,
         );
       }
 
-      return JSON.stringify(errorResult);
+      const summaryForLLM = `Failed to create document '${title}' of type '${kind}' with ID '${id}'. Error: No handler found for kind '${kind}'.`;
+
+      const toolResult = {
+        summaryForLLM: summaryForLLM,
+        _isQubitArtifactToolResult: true,
+        quibitArtifactEvents: localArtifactEvents,
+        // Legacy fields for backward compatibility
+        ...errorResult,
+      };
+
+      console.log(
+        `[CREATE_DOCUMENT_TOOL] Returning error result with ${localArtifactEvents.length} artifact events`,
+      );
+      return JSON.stringify(toolResult);
     }
 
     console.log(
@@ -144,18 +230,102 @@ export const createDocumentTool = new DynamicStructuredTool({
     );
 
     try {
-      // Call the handler with the global context
+      // Initialize content tracking for artifact events
+      let capturedContent = '';
+      let chunkCount = 0;
+
+      console.log(
+        `[CREATE_DOCUMENT_TOOL] Starting content generation with callback-based chunk tracking...`,
+      );
+
+      // Define chunk capture callback
+      const onChunk = (chunk: string) => {
+        console.log(
+          `[CREATE_DOCUMENT_TOOL] Received chunk of length ${chunk.length}: "${chunk.substring(0, 50)}${chunk.length > 50 ? '...' : ''}"`,
+        );
+
+        chunkCount++;
+        capturedContent += chunk;
+
+        // Create artifact-chunk event for progressive display
+        const artifactChunkEvent = {
+          type: 'artifact',
+          documentId: id,
+          timestamp: new Date().toISOString(),
+          componentName: 'document',
+          props: {
+            documentId: id,
+            title: title,
+            eventType: 'artifact-chunk',
+            contentChunk: chunk,
+            totalContentLength: capturedContent.length,
+            chunkSequence: chunkCount,
+          },
+          id: `artifact-chunk-${id}-${chunkCount}`,
+        };
+        localArtifactEvents.push(artifactChunkEvent);
+
+        console.log(
+          `[CREATE_DOCUMENT_TOOL] Added artifact-chunk event #${chunkCount}: "${chunk.substring(0, 30)}${chunk.length > 30 ? '...' : ''}" (${chunk.length} chars, total: ${capturedContent.length})`,
+        );
+      };
+
+      // Define completion callback
+      const onComplete = (fullContent: string) => {
+        console.log(
+          `[CREATE_DOCUMENT_TOOL] Content generation complete. Final length: ${fullContent.length}`,
+        );
+
+        // Ensure captured content matches the full content
+        if (capturedContent !== fullContent) {
+          console.warn(
+            `[CREATE_DOCUMENT_TOOL] Captured content length (${capturedContent.length}) differs from final content length (${fullContent.length}). Using final content.`,
+          );
+          capturedContent = fullContent;
+        }
+      };
+
+      // Call the handler with callbacks for chunk capture
       const handlerResult = await handler.onCreateDocument({
         id,
         title,
         dataStream: context.dataStream,
         session: context.session,
         initialContentPrompt: contentPrompt,
+        onChunk,
+        onComplete,
       });
 
       console.log(
-        `[CREATE_DOCUMENT_TOOL] ${handler.kind} handler.onCreateDocument completed successfully. Result:`,
-        handlerResult,
+        `[CREATE_DOCUMENT_TOOL] ${handler.kind} handler.onCreateDocument completed successfully.`,
+        {
+          resultType: typeof handlerResult,
+          resultDocumentId: handlerResult?.documentId || 'N/A',
+          capturedChunks: chunkCount,
+          capturedContentLength: capturedContent.length,
+          artifactEventsGenerated: localArtifactEvents.length,
+        },
+      );
+
+      // Create artifact-end event
+      const artifactEndEvent = {
+        type: 'artifact',
+        documentId: id,
+        timestamp: new Date().toISOString(),
+        componentName: 'document',
+        props: {
+          documentId: id,
+          title: title,
+          kind: kind,
+          eventType: 'artifact-end',
+          status: 'completed',
+          contentLength: capturedContent.length,
+        },
+        id: `artifact-end-${id}`,
+      };
+      localArtifactEvents.push(artifactEndEvent);
+      console.log(
+        `[CREATE_DOCUMENT_TOOL] Added artifact-end event for document ${id} with ${chunkCount} chunks captured`,
       );
 
       const successResult = {
@@ -163,31 +333,70 @@ export const createDocumentTool = new DynamicStructuredTool({
         title,
         kind,
         message: `Document artifact of kind '${kind}' titled '${title}' created successfully with ID ${id}.`,
-        content: handlerResult,
+        content: capturedContent || '', // Use captured content
       };
 
-      // MANUALLY TRACK TOOL CALL SUCCESS RESULT
+      // MANUALLY TRACK TOOL CALL SUCCESS RESULT in global tracker
       if (context.toolInvocationsTracker) {
         context.toolInvocationsTracker.push({
-          type: 'tool-invocation',
+          type: 'tool-invocation' as const,
           toolInvocation: {
             toolName: 'createDocument',
             toolCallId: toolCallId,
-            state: 'result',
+            state: 'result' as const,
             result: successResult,
           },
         });
         console.log(
-          `[CREATE_DOCUMENT_TOOL] Added tool success result to tracker`,
+          `[CREATE_DOCUMENT_TOOL] Added tool success result to global tracker`,
         );
       }
 
-      return JSON.stringify(successResult);
+      const summaryForLLM = `Document '${title}' of type '${kind}' with ID '${id}' was created successfully. ${capturedContent.length > 0 ? `Content contains ${capturedContent.length} characters.` : 'Content generated successfully.'}`;
+
+      const toolResult = {
+        summaryForLLM: summaryForLLM,
+        _isQubitArtifactToolResult: true,
+        quibitArtifactEvents: localArtifactEvents,
+        // Legacy fields for backward compatibility
+        ...successResult,
+      };
+
+      console.log(
+        `[CREATE_DOCUMENT_TOOL] Tool execution completed successfully. Returning structured result:`,
+      );
+      console.log(`[CREATE_DOCUMENT_TOOL] - Document ID: ${id}`);
+      console.log(`[CREATE_DOCUMENT_TOOL] - Title: ${title}`);
+      console.log(`[CREATE_DOCUMENT_TOOL] - Kind: ${kind}`);
+      console.log(
+        `[CREATE_DOCUMENT_TOOL] - Artifact events collected: ${localArtifactEvents?.length || 0}`,
+      );
+      console.log(`[CREATE_DOCUMENT_TOOL] - Summary: ${summaryForLLM}`);
+      console.log(
+        `[CREATE_DOCUMENT_TOOL] - Structured result preview: ${JSON.stringify(toolResult).substring(0, 200)}...`,
+      );
+
+      return JSON.stringify(toolResult);
     } catch (handlerError) {
       console.error(
         `[CREATE_DOCUMENT_TOOL ERROR] Error during ${kind} handler.onCreateDocument call:`,
         handlerError,
       );
+
+      // Create artifact error event
+      const artifactErrorEvent = {
+        type: 'artifact-error',
+        documentId: id,
+        title: title,
+        kind: kind,
+        error:
+          handlerError instanceof Error
+            ? handlerError.message
+            : 'Unknown error',
+        timestamp: new Date().toISOString(),
+      };
+      localArtifactEvents.push(artifactErrorEvent);
+
       const errorResult = {
         id,
         title,
@@ -198,23 +407,36 @@ export const createDocumentTool = new DynamicStructuredTool({
             : 'Unknown error',
       };
 
-      // MANUALLY TRACK TOOL CALL ERROR RESULT
+      // MANUALLY TRACK TOOL CALL ERROR RESULT in global tracker
       if (context.toolInvocationsTracker) {
         context.toolInvocationsTracker.push({
-          type: 'tool-invocation',
+          type: 'tool-invocation' as const,
           toolInvocation: {
             toolName: 'createDocument',
             toolCallId: toolCallId,
-            state: 'result',
+            state: 'result' as const,
             result: errorResult,
           },
         });
         console.log(
-          `[CREATE_DOCUMENT_TOOL] Added tool error result to tracker`,
+          `[CREATE_DOCUMENT_TOOL] Added tool error result to global tracker`,
         );
       }
 
-      return JSON.stringify(errorResult);
+      const summaryForLLM = `Failed to create document '${title}' of type '${kind}' with ID '${id}'. Error: ${handlerError instanceof Error ? handlerError.message : 'Unknown error'}`;
+
+      const toolResult = {
+        summaryForLLM: summaryForLLM,
+        _isQubitArtifactToolResult: true,
+        quibitArtifactEvents: localArtifactEvents,
+        // Legacy fields for backward compatibility
+        ...errorResult,
+      };
+
+      console.log(
+        `[CREATE_DOCUMENT_TOOL] Returning error result with ${localArtifactEvents?.length || 0} artifact events due to handler error`,
+      );
+      return JSON.stringify(toolResult);
     }
   },
 });

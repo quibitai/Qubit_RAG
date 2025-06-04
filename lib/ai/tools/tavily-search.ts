@@ -20,7 +20,7 @@ const tavilySearchSchema = z.object({
 export const tavilySearchTool = new DynamicStructuredTool({
   name: 'tavilySearch',
   description:
-    'Search the web for real-time information. Useful for questions about current events or general knowledge queries. The search results will include relevant snippets from web pages.',
+    'Search the web for real-time information about companies, organizations, current events, industry trends, or any external information. Use immediately when users mention specific companies, ask for research, or need current data. Essential for comprehensive research tasks.',
   schema: tavilySearchSchema,
   func: async ({ query }) => {
     console.log(`[tavilySearchTool] Searching for: "${query}"`);

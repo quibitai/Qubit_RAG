@@ -30,6 +30,7 @@ import {
 
 import type { DBMessage } from '@/lib/db/schema';
 import { useDocumentState } from './DocumentContext';
+import { useArtifact, initialArtifactData } from '@/hooks/use-artifact';
 
 type MessageOptions = {
   message?: string;
@@ -98,8 +99,15 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   // Removed verbose server action logging
 
+  // Add useArtifact hook to handle artifact opening
+  const {
+    setArtifact,
+    startStreamingArtifact,
+    updateStreamingContent,
+    finishStreamingArtifact,
+  } = useArtifact();
+
   // Use a single chatPaneState object to hold state
-  // This prevents cascading re-renders when multiple states change
   const [chatPaneState, setChatPaneState] = useState<ChatPaneState>(() => {
     // Reduced logging
     return {
@@ -575,10 +583,54 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     sendExtraMessageFields: true,
     generateId: generateUUID,
     onResponse: (response) => {
-      // Reduced logging
-      // ... existing onResponse logic ...
+      console.log('[ChatPaneContext] 🎯 onResponse triggered:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        url: response.url,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Try to inspect response body for debugging (if possible)
+      try {
+        console.log('[ChatPaneContext] 🔍 Response inspection:', {
+          bodyUsed: response.bodyUsed,
+          ok: response.ok,
+          redirected: response.redirected,
+          type: response.type,
+        });
+      } catch (error) {
+        console.log(
+          '[ChatPaneContext] ⚠️ Could not inspect response body:',
+          error,
+        );
+      }
     },
-    // onFinish: handleChatFinish, // disabled—no longer reliable
+    onFinish: (message) => {
+      console.log('[ChatPaneContext] 🏁 onFinish triggered:', {
+        messageRole: message.role,
+        contentLength: message.content?.length || 0,
+        contentPreview: message.content?.substring(0, 100),
+        messageId: message.id,
+        dataArrayLength: baseState.data?.length || 0,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Log the final data array in detail
+      if (baseState.data && baseState.data.length > 0) {
+        console.log(
+          '[ChatPaneContext] 📊 Final data array contents:',
+          baseState.data.map((item, index) => ({
+            index,
+            type: typeof item,
+            stringified: JSON.stringify(item).substring(0, 200),
+          })),
+        );
+      }
+    },
+    onError: (error) => {
+      console.error('[ChatPaneContext] ❌ onError triggered:', error);
+    },
   });
 
   // ADD: Debug baseState to check if data is available
@@ -591,11 +643,215 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
       messagesCount: baseState.messages.length,
       timestamp: new Date().toISOString(),
     });
+
+    // Enhanced analysis of data array for artifact detection
+    if (baseState.data && baseState.data.length > 0) {
+      console.group('[CHATPANE_CONTEXT_DEBUG] 🔍 Data Array Analysis');
+
+      baseState.data.forEach((item, index) => {
+        console.log(`[${index}] Type: ${typeof item}`, {
+          item,
+          stringified: JSON.stringify(item),
+          isArray: Array.isArray(item),
+          hasType: item && typeof item === 'object' && 'type' in item,
+          type:
+            item && typeof item === 'object' && 'type' in item
+              ? item.type
+              : 'unknown',
+        });
+
+        // Enhanced artifact detection for LangGraph UI events
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          // Check for new artifact format from LangGraph UI streaming
+          if (
+            (item as any).type === 'artifact' &&
+            (item as any).componentName === 'document'
+          ) {
+            console.log(`[${index}] 🎨 LANGGRAPH ARTIFACT DETECTED:`, {
+              type: (item as any).type,
+              componentName: (item as any).componentName,
+              documentId: (item as any).props?.documentId,
+              title: (item as any).props?.title,
+              status: (item as any).props?.status,
+              eventType: (item as any).props?.eventType,
+              eventId: (item as any).id,
+            });
+
+            // Handle document artifacts with refined event type processing
+            if ((item as any).props?.documentId) {
+              const artifactData = item as any;
+              const { documentId, title, status, eventType, contentChunk } =
+                artifactData.props;
+
+              console.log(`[${index}] 📄 PROCESSING DOCUMENT ARTIFACT:`, {
+                documentId,
+                title,
+                status,
+                eventType,
+                hasContentChunk: !!contentChunk,
+                contentChunkLength: contentChunk?.length || 0,
+              });
+
+              // Process different event types appropriately
+              if (eventType === 'artifact-start') {
+                console.log(`[${index}] 🚀 STARTING ARTIFACT STREAM:`, {
+                  documentId,
+                  title,
+                });
+
+                // Start streaming and immediately set the correct documentId
+                setArtifact((current) => ({
+                  ...current,
+                  documentId: documentId, // Set the real documentId from the event
+                  kind: 'text',
+                  title: title || 'Document',
+                  content: '', // Start with empty content
+                  status: 'streaming',
+                  isVisible: true,
+                  boundingBox: initialArtifactData.boundingBox,
+                }));
+
+                console.log(`[${index}] ✅ ARTIFACT STREAM STARTED for:`, {
+                  documentId,
+                  title,
+                });
+              } else if (eventType === 'artifact-chunk' && contentChunk) {
+                console.log(`[${index}] 💨 STREAMING ARTIFACT CHUNK:`, {
+                  documentId,
+                  chunkLength: contentChunk.length,
+                  chunkPreview: contentChunk.substring(0, 50),
+                  totalContentLength: (item as any).props?.totalContentLength,
+                  chunkSequence: (item as any).props?.chunkSequence,
+                });
+
+                updateStreamingContent(contentChunk);
+
+                console.log(
+                  `[${index}] ✅ CHUNK PROCESSED - Called updateStreamingContent`,
+                );
+              } else if (eventType === 'artifact-chunk' && !contentChunk) {
+                console.warn(
+                  `[${index}] ⚠️ ARTIFACT-CHUNK EVENT MISSING contentChunk:`,
+                  {
+                    eventType,
+                    props: (item as any).props,
+                    hasContentChunk: !!contentChunk,
+                  },
+                );
+              } else if (eventType === 'artifact-end') {
+                console.log(`[${index}] ✅ FINISHING ARTIFACT STREAM:`, {
+                  documentId,
+                });
+
+                finishStreamingArtifact(documentId);
+              } else if (
+                eventType === 'tool-invocation' &&
+                status === 'complete'
+              ) {
+                // Handle complete tool invocation - artifact is ready in database
+                console.log(`[${index}] 🚀 OPENING COMPLETED ARTIFACT:`, {
+                  documentId,
+                  title,
+                  status,
+                });
+
+                setArtifact({
+                  documentId: documentId,
+                  title: title || 'Document',
+                  kind: 'text',
+                  content: '', // Will be fetched by SWR in Artifact.tsx
+                  status: 'idle',
+                  isVisible: true,
+                  boundingBox: initialArtifactData.boundingBox,
+                });
+
+                console.log(
+                  `[${index}] ✅ ARTIFACT UI OPENED for document:`,
+                  documentId,
+                );
+              } else if (
+                !eventType &&
+                status === 'complete' &&
+                documentId &&
+                title
+              ) {
+                // Handle events without explicit eventType but with complete status
+                console.log(`[${index}] 🚀 OPENING ARTIFACT (no eventType):`, {
+                  documentId,
+                  title,
+                  status,
+                });
+
+                setArtifact({
+                  documentId: documentId,
+                  title: title || 'Document',
+                  kind: 'text',
+                  content: '',
+                  status: 'idle',
+                  isVisible: true,
+                  boundingBox: initialArtifactData.boundingBox,
+                });
+
+                console.log(
+                  `[${index}] ✅ ARTIFACT UI OPENED (fallback) for document:`,
+                  documentId,
+                );
+              } else {
+                console.warn(
+                  `[${index}] ⚠️ Unknown artifact eventType or incomplete data:`,
+                  {
+                    eventType,
+                    status,
+                    hasDocumentId: !!documentId,
+                    hasTitle: !!title,
+                    hasContentChunk: !!contentChunk,
+                    artifactProps: (item as any).props,
+                  },
+                );
+              }
+            } else {
+              console.warn(
+                `[${index}] ⚠️ ARTIFACT MISSING documentId:`,
+                (item as any).props,
+              );
+            }
+          }
+          // Check for tool status updates
+          else if (
+            (item as any).type === 'tool-status' &&
+            (item as any).componentName === 'toolStatus'
+          ) {
+            console.log(`[${index}] 🔧 TOOL STATUS:`, {
+              toolName: (item as any).props?.toolName,
+              status: (item as any).props?.status,
+              message: (item as any).props?.message,
+            });
+          }
+          // Legacy artifact detection
+          else {
+            const hasLegacyArtifactProps =
+              'toolInvocation' in item ||
+              'artifactId' in item ||
+              'documentId' in item;
+
+            if (hasLegacyArtifactProps) {
+              console.log(`[${index}] 🎨 LEGACY ARTIFACT DATA:`, item);
+            }
+          }
+        }
+      });
+
+      console.groupEnd();
+    }
   }, [
     baseState.data,
     baseState.isLoading,
     baseState.error,
     baseState.messages,
+    setArtifact,
+    startStreamingArtifact,
+    updateStreamingContent,
+    finishStreamingArtifact,
   ]);
 
   const { messages, setMessages } = baseState;

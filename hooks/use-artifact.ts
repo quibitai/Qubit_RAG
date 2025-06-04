@@ -88,12 +88,16 @@ export function useArtifact() {
   // Additional helper functions for managing streaming state
   const startStreamingArtifact = useCallback(
     (kind: string, title: string) => {
+      console.log('[useArtifact] 🚀 Starting artifact stream:', {
+        kind,
+        title,
+      });
       setArtifact((current) => ({
         ...current,
         documentId: 'streaming', // Temporary ID until we get the real one
         kind: kind as any, // Type coercion needed here
         title,
-        content: '',
+        content: '', // Start with empty content
         status: 'streaming',
         isVisible: true,
       }));
@@ -102,22 +106,50 @@ export function useArtifact() {
   );
 
   const updateStreamingContent = useCallback(
-    (content: string) => {
-      setArtifact((current) => ({
-        ...current,
-        content: current.content + content,
-      }));
+    (contentChunk: string) => {
+      console.log('[useArtifact] 💨 Updating streaming content:', {
+        chunkLength: contentChunk?.length || 0,
+        chunkPreview: contentChunk?.substring(0, 50) || 'N/A',
+        chunkType: typeof contentChunk,
+      });
+      setArtifact((current) => {
+        const newContent = (current.content || '') + contentChunk;
+        console.log('[useArtifact] 📝 Content accumulation:', {
+          previousLength: current.content?.length || 0,
+          chunkLength: contentChunk?.length || 0,
+          newTotalLength: newContent.length,
+          currentStatus: current.status,
+          documentId: current.documentId,
+        });
+        return {
+          ...current,
+          content: newContent,
+          status: 'streaming', // Keep status as streaming
+        };
+      });
     },
     [setArtifact],
   );
 
   const finishStreamingArtifact = useCallback(
     (documentId: string) => {
-      setArtifact((current) => ({
-        ...current,
+      console.log('[useArtifact] ✅ Finishing artifact stream:', {
         documentId,
-        status: 'idle',
-      }));
+      });
+      setArtifact((current) => {
+        console.log('[useArtifact] 📊 Final streaming stats:', {
+          finalDocumentId: documentId,
+          finalContentLength: current.content?.length || 0,
+          wasStreaming: current.status === 'streaming',
+          currentDocumentId: current.documentId,
+        });
+        return {
+          ...current,
+          documentId, // Update to final documentId
+          status: 'idle', // Set to idle to indicate streaming is complete
+          // Keep the content that was accumulated during streaming
+        };
+      });
     },
     [setArtifact],
   );

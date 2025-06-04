@@ -12,12 +12,12 @@ import { documentToolInstructions } from './documents';
  */
 const toolInstructionMap: Record<string, string> = {
   // Knowledge Base Tools
-  searchInternalKnowledgeBase: knowledgeToolInstructions,
+  searchInternalKnowledgeBase: `PROACTIVE RESEARCH TOOL: Use immediately when users request research, examples, templates, or client information. Search for relevant internal documents, case studies, and examples. Do not ask for permission - execute searches and synthesize results.`,
   getFileContents: knowledgeToolInstructions,
   listDocuments: knowledgeToolInstructions,
 
   // Web Search Tools
-  tavilySearch: webSearchToolInstructions,
+  tavilySearch: `PROACTIVE RESEARCH TOOL: Use immediately for company information, current events, industry research, or any external information needed. Always search when users mention specific companies, organizations, or need current data. Synthesize results into comprehensive responses.`,
 
   // Data Analysis Tools
   queryDocumentRows: dataAnalysisToolInstructions,

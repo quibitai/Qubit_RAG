@@ -51,10 +51,7 @@ type SearchResponse = {
 
 export const searchInternalKnowledgeBase = new DynamicStructuredTool({
   name: 'searchInternalKnowledgeBase',
-  description: `
-    Performs semantic search across the internal knowledge base (Supabase vector store)
-    using the match_documents function. Returns content snippets, similarity, source info. Allows optional JSONB filtering on metadata.
-  `,
+  description: `Search the internal knowledge base for documents, examples, templates, client research, case studies, and other relevant content. Use immediately when users request research, examples, or need information from internal documents. Essential for finding relevant examples and templates.`,
   schema: z.object({
     query: z
       .string()

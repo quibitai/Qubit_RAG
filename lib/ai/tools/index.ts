@@ -49,31 +49,6 @@ const checkUploadedContentTool = new DynamicStructuredTool({
   },
 });
 
-// Enhanced wrapper for knowledge base tools to prevent misuse
-const createKnowledgeBaseWrapper = (originalTool: any, toolName: string) => {
-  return new DynamicStructuredTool({
-    name: originalTool.name,
-    description: `${originalTool.description} ⚠️ WARNING: Only use this tool if NO uploaded content (🔴 UPLOADED DOCUMENT) is available in the current context.`,
-    schema: originalTool.schema,
-    func: async (input) => {
-      console.log(
-        `[${toolName}] Tool called - should check for uploaded content first`,
-      );
-      return originalTool.func(input);
-    },
-  });
-};
-
-// Wrap knowledge base tools with warnings
-const wrappedListDocuments = createKnowledgeBaseWrapper(
-  listDocumentsTool,
-  'listDocuments',
-);
-const wrappedGetFileContents = createKnowledgeBaseWrapper(
-  getFileContentsTool,
-  'getFileContents',
-);
-
 // Create recently uploaded content tool
 const getRecentlyUploadedContentTool = new DynamicStructuredTool({
   name: 'getRecentlyUploadedContent',
@@ -94,8 +69,8 @@ const getRecentlyUploadedContentTool = new DynamicStructuredTool({
 export const availableTools = [
   createDocumentTool,
   updateDocumentTool,
-  wrappedListDocuments,
-  wrappedGetFileContents,
+  listDocumentsTool,
+  getFileContentsTool,
   queryDocumentRowsTool,
   searchInternalKnowledgeBase,
   requestSuggestionsTool,

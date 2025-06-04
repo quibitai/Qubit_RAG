@@ -22,6 +22,8 @@ export interface CreateDocumentCallbackProps {
   dataStream: DataStreamWriter;
   session: Session;
   initialContentPrompt?: string;
+  onChunk?: (chunk: string) => void;
+  onComplete?: (fullContent: string) => void;
 }
 
 export interface UpdateDocumentCallbackProps {
@@ -55,6 +57,8 @@ export function createDocumentHandler<T extends ArtifactKind>(config: {
         dataStream: args.dataStream,
         session: args.session,
         initialContentPrompt: args.initialContentPrompt,
+        onChunk: args.onChunk,
+        onComplete: args.onComplete,
       });
 
       if (!draftContent.includes('DOCUMENT_ALREADY_SAVED')) {

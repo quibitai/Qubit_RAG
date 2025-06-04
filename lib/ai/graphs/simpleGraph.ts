@@ -177,11 +177,13 @@ export class SimpleGraph {
         logger: this.config.logger,
       };
 
-      this.tools = await selectRelevantTools(toolContext, 5);
+      // Select more tools for complex research tasks
+      this.tools = await selectRelevantTools(toolContext, 26); // Use all available tools
 
       this.config.logger.info('Selected tools for simple graph', {
         toolCount: this.tools.length,
         toolNames: this.tools.map((t) => t.name),
+        userQuery: userInput.substring(0, 100),
       });
     } catch (error) {
       this.config.logger.error('Tool selection failed', {

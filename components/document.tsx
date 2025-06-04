@@ -38,6 +38,18 @@ function PureDocumentToolResult({
 }: DocumentToolResultProps) {
   // const { artifact } = useArtifact(); // Reverted: Remove global artifact state check
 
+  // Add enhanced debugging for DocumentToolResult props
+  console.log('[DocumentToolResult] Rendering with props:', {
+    type,
+    result,
+    isReadonly,
+    hasOnArtifactExpand: !!onArtifactExpand,
+    resultKeys: result ? Object.keys(result) : [],
+    resultId: result?.id,
+    resultTitle: result?.title,
+    resultKind: result?.kind,
+  });
+
   // Reverted: Remove conditional rendering based on global artifact state
   // if (artifact.isVisible && artifact.documentId === result.id) {
   //   return null;
@@ -48,6 +60,13 @@ function PureDocumentToolResult({
       type="button"
       className="bg-background cursor-pointer border py-2 px-3 rounded-xl w-fit flex flex-row gap-3 items-start"
       onClick={(event) => {
+        console.log('[DocumentToolResult] Button clicked with:', {
+          isReadonly,
+          hasOnArtifactExpand: !!onArtifactExpand,
+          resultId: result?.id,
+          result,
+        });
+
         if (isReadonly) {
           toast.error(
             'Viewing files in shared chats is currently not supported.',
@@ -55,15 +74,20 @@ function PureDocumentToolResult({
           return;
         }
 
-        if (onArtifactExpand && result.id) {
+        if (onArtifactExpand && result?.id) {
           console.log(
-            '[DocumentToolResult] Using onArtifactExpand callback with ID:',
+            '[DocumentToolResult] ✅ Using onArtifactExpand callback with ID:',
             result.id,
           );
           onArtifactExpand(result.id);
         } else {
           console.log(
-            '[DocumentToolResult] No onArtifactExpand callback or result ID available',
+            '[DocumentToolResult] ❌ No onArtifactExpand callback or result ID available',
+            {
+              hasCallback: !!onArtifactExpand,
+              hasResultId: !!result?.id,
+              result,
+            },
           );
         }
       }}

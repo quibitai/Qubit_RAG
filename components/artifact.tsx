@@ -175,6 +175,29 @@ function PureArtifact({
     };
   }, []);
 
+  // Add enhanced visibility tracking
+  useEffect(() => {
+    console.log(`[${componentId.current}] 👁️ VISIBILITY CHANGED: ${isVisible}`, {
+      documentId,
+      title,
+      kind,
+      shouldRender: isVisible && isValidUUID(documentId),
+    });
+
+    if (isVisible && isValidUUID(documentId)) {
+      console.log(
+        `[${componentId.current}] 🚀 ARTIFACT SHOULD RENDER - All conditions met!`,
+      );
+    } else if (isVisible && !isValidUUID(documentId)) {
+      console.warn(
+        `[${componentId.current}] ⚠️ ARTIFACT VISIBLE BUT INVALID DOCUMENT ID:`,
+        documentId,
+      );
+    } else {
+      console.log(`[${componentId.current}] 📦 ARTIFACT HIDDEN OR NOT READY`);
+    }
+  }, [isVisible, documentId, title, kind]);
+
   const {
     artifact: globalArtifact,
     setArtifact,
@@ -217,22 +240,51 @@ function PureArtifact({
     },
   );
 
+  // CRITICAL DEBUG: Check if we should enable SWR fetching for artifacts set via setArtifact
+  const shouldFetchDocument =
+    isValidUUID(documentId) && artifact.status !== 'streaming' && !content;
+  const swrKey = shouldFetchDocument ? `/api/document?id=${documentId}` : null;
+
+  // Update SWR to conditionally fetch when we have a valid documentId but no content
+  const {
+    data: documentsFromSWR,
+    isLoading: isDocumentsFetchingFromSWR,
+    error: documentsErrorFromSWR,
+  } = useSWR<Array<Document>>(swrKey, fetcher, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    dedupingInterval: 5000,
+    onSuccess: (data) => {
+      console.log(
+        '[SWR_DOCUMENT_FETCH_CONDITIONAL] Success for',
+        documentId,
+        ':',
+        data,
+      );
+    },
+    onError: (error) => {
+      console.log(
+        '[SWR_DOCUMENT_FETCH_CONDITIONAL] Error for',
+        documentId,
+        ':',
+        error,
+      );
+    },
+  });
+
   // Add debug logging for SWR state
-  console.log('[SWR_DOCUMENT_DEBUG] documentId:', documentId);
-  console.log(
-    '[SWR_DOCUMENT_DEBUG] isValidUUID(documentId):',
-    isValidUUID(documentId),
-  );
-  console.log('[SWR_DOCUMENT_DEBUG] artifact.status:', artifact.status);
-  console.log(
-    '[SWR_DOCUMENT_DEBUG] SWR key:',
-    isValidUUID(documentId) && artifact.status !== 'streaming'
-      ? `/api/document?id=${documentId}`
-      : null,
-  );
-  console.log('[SWR_DOCUMENT_DEBUG] documents:', documents);
-  console.log('[SWR_DOCUMENT_DEBUG] isDocumentsFetching:', isDocumentsFetching);
-  console.log('[SWR_DOCUMENT_DEBUG] documentsError:', documentsError);
+  console.log('[SWR_DOCUMENT_DEBUG] Enhanced Debug:', {
+    documentId,
+    isValidDocumentId: isValidUUID(documentId),
+    artifactStatus: artifact.status,
+    hasContentProp: !!content,
+    contentLength: content?.length || 0,
+    shouldFetchDocument,
+    swrKey,
+    documentsFromSWR,
+    isDocumentsFetchingFromSWR,
+    documentsErrorFromSWR,
+  });
 
   // SWR fetching is disabled for streaming artifacts - they already have complete content
 
@@ -618,37 +670,95 @@ function PureArtifact({
               {!error &&
                 artifactDefinition &&
                 (() => {
-                  const contentToPass = content; // Always use streaming content since we disabled document fetching
+                  // PRIORITIZE STREAMED CONTENT OVER SWR FETCHED CONTENT
+                  let contentToPass = content; // First priority: prop content (from artifact streaming)
+
+                  // Log current content sources
+                  console.log(
+                    '[ARTIFACT_CONTENT_DEBUG] Content source evaluation:',
+                    {
+                      hasPropsContent: !!content,
+                      propsContentLength: content?.length || 0,
+                      artifactGlobalContent: artifact.content || '',
+                      artifactGlobalContentLength:
+                        artifact.content?.length || 0,
+                      artifactStatus: artifact.status,
+                      isStreaming,
+                      isVisible,
+                    },
+                  );
+
+                  // If no content from props, use artifact state content (from progressive streaming)
+                  if (!contentToPass && artifact.content) {
+                    contentToPass = artifact.content;
+                    console.log(
+                      '[ARTIFACT_CONTENT_DEBUG] Using artifact state content (progressive):',
+                      {
+                        contentLength: contentToPass.length,
+                        contentPreview: contentToPass.substring(0, 100),
+                        source: 'artifact.content',
+                      },
+                    );
+                  }
+
+                  // Only use SWR fetched content as final fallback if streaming is complete and no content exists
+                  if (
+                    !contentToPass &&
+                    artifact.status === 'idle' &&
+                    documentsFromSWR &&
+                    documentsFromSWR.length > 0
+                  ) {
+                    const fetchedDocument = documentsFromSWR[0];
+                    contentToPass = fetchedDocument.content || '';
+                    console.log(
+                      '[ARTIFACT_CONTENT_DEBUG] Using SWR fetched content (fallback):',
+                      {
+                        documentId: fetchedDocument.id,
+                        title: fetchedDocument.title,
+                        contentLength: contentToPass.length,
+                        contentPreview: contentToPass.substring(0, 100),
+                        source: 'SWR',
+                      },
+                    );
+                  }
+
+                  // Determine loading state
+                  const isContentLoading =
+                    artifact.status === 'streaming' ||
+                    (artifact.status === 'idle' &&
+                      !contentToPass &&
+                      isDocumentsFetchingFromSWR);
 
                   console.log(
-                    '[ARTIFACT_COMPONENT] About to render artifact content with:',
-                  );
-                  console.log(
-                    '[ARTIFACT_COMPONENT] artifact.status:',
-                    artifact.status,
-                  );
-                  console.log(
-                    '[ARTIFACT_COMPONENT] Using streaming content only',
-                  );
-                  console.log(
-                    '[ARTIFACT_COMPONENT] content prop length:',
-                    content?.length || 0,
-                  );
-                  console.log(
-                    '[ARTIFACT_COMPONENT] contentToPass length:',
-                    contentToPass?.length || 0,
-                  );
-                  console.log(
-                    '[ARTIFACT_COMPONENT] contentToPass preview:',
-                    contentToPass?.substring(0, 100) || 'empty',
+                    '[ARTIFACT_CONTENT_DEBUG] Final content processing:',
+                    {
+                      artifactStatus: artifact.status,
+                      isStreaming,
+                      isVisible,
+                      finalContentLength: contentToPass?.length || 0,
+                      finalContentPreview:
+                        contentToPass?.substring(0, 100) || 'empty',
+                      isContentLoading,
+                      willRenderTextEditor: !!artifactDefinition.content,
+                    },
                   );
 
                   // Add fallback content for debugging
                   const finalContent =
                     contentToPass ||
-                    (artifact.status === 'streaming'
+                    (isContentLoading
                       ? 'Loading content...'
-                      : '');
+                      : 'No content available');
+
+                  console.log(
+                    '[ARTIFACT_CONTENT_DEBUG] About to render with final content:',
+                    {
+                      finalContentLength: finalContent.length,
+                      finalContentPreview: finalContent.substring(0, 100),
+                      willRenderTextEditor: !!artifactDefinition.content,
+                      isContentLoading,
+                    },
+                  );
 
                   return (
                     <artifactDefinition.content
@@ -656,7 +766,7 @@ function PureArtifact({
                       content={finalContent}
                       mode={mode}
                       status={
-                        (isStreaming ? 'streaming' : 'idle') as
+                        (isContentLoading ? 'streaming' : 'idle') as
                           | 'streaming'
                           | 'idle'
                       }
@@ -666,7 +776,7 @@ function PureArtifact({
                       isInline={false}
                       isCurrentVersion={isCurrentVersion}
                       getDocumentContentById={getDocumentContentById}
-                      isLoading={isLoading}
+                      isLoading={isContentLoading}
                       metadata={metadata}
                       setMetadata={setMetadata}
                     />

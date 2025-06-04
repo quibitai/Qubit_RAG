@@ -49,6 +49,9 @@ import { createTimezoneService, type TimezoneInfo } from './timezoneService';
 // Import document handlers for image generation support
 import { documentHandlersByArtifactKind } from '@/lib/artifacts/server';
 
+// Add artifact context imports
+import type { Session } from 'next-auth';
+
 /**
  * Configuration for brain orchestration
  */
@@ -64,6 +67,28 @@ export interface BrainOrchestratorConfig {
   // New LangGraph options
   enableLangGraph?: boolean;
   langGraphForComplexQueries?: boolean;
+  // Add session for artifact context
+  session?: Session | null;
+}
+
+/**
+ * Interface for artifact context that can be passed to tools
+ */
+export interface ArtifactContext {
+  dataStream?: any;
+  session?: Session | null;
+  handlers?: typeof documentHandlersByArtifactKind;
+  toolInvocationsTracker?: Array<{
+    type: 'tool-invocation';
+    toolInvocation: {
+      toolName: string;
+      toolCallId: string;
+      state: 'call' | 'result';
+      args?: any;
+      result?: any;
+    };
+  }>;
+  cleanupTimeout?: NodeJS.Timeout;
 }
 
 /**
@@ -106,6 +131,7 @@ export class BrainOrchestrator {
   private contextService: ContextService;
   // Store current classification for use in execution paths
   private currentClassification?: QueryClassificationResult;
+  private artifactContext: ArtifactContext | null = null;
 
   constructor(logger: RequestLogger, config: BrainOrchestratorConfig = {}) {
     this.logger = logger;
@@ -435,7 +461,7 @@ export class BrainOrchestrator {
   }
 
   /**
-   * Execute the Vercel AI path with proper streaming
+   * Enhanced Vercel AI path with artifact context
    */
   private async executeVercelAIStreamingPath(
     userInput: string,
@@ -448,14 +474,21 @@ export class BrainOrchestrator {
     this.logger.info('Executing Vercel AI streaming path', {
       inputLength: userInput.length,
       historyLength: conversationHistory.length,
-      contextId: this.config.contextId,
+      contextId: brainRequest?.activeBitContextId,
     });
 
     try {
+      // Set up artifact context before streaming
+      const session = this.config.session;
+
+      // Note: DataStream will be set up in the streamQuery method
+      // We'll pass the setup/cleanup callbacks to handle artifact context
+      this.setupArtifactContext(null, session);
+
       // Get system prompt based on context
       const { systemPrompt } = await this.setupPromptAndTools(
-        brainRequest,
-        context,
+        brainRequest || ({} as BrainRequest),
+        context || ({} as ProcessedContext),
         userInput,
       );
 
@@ -472,9 +505,18 @@ export class BrainOrchestrator {
         executionTime: `${executionTime.toFixed(2)}ms`,
       });
 
+      // Add artifact context header
+      response.headers.set('X-Artifact-Context', 'enabled');
+
+      // Clean up artifact context
+      this.cleanupArtifactContext();
+
       return response;
     } catch (error) {
       const executionTime = performance.now() - startTime;
+
+      // Clean up on error
+      this.cleanupArtifactContext();
 
       this.logger.error('Vercel AI streaming path failed', {
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -486,7 +528,7 @@ export class BrainOrchestrator {
   }
 
   /**
-   * Execute the LangChain/LangGraph path with proper streaming
+   * Execute the LangChain/LangGraph path with proper streaming and artifact support
    */
   private async executeLangChainStreamingPath(
     brainRequest: BrainRequest,
@@ -503,6 +545,65 @@ export class BrainOrchestrator {
     });
 
     try {
+      // Set up artifact context before streaming - create a mock dataStream for LangChain path
+      const session = await auth(); // Get session directly instead of relying on config
+
+      // Create a mock dataStream that captures artifact events for later injection
+      const mockDataStream = {
+        write: (content: string) => {
+          // For LangChain path, we'll handle text differently
+          this.logger.info('Mock dataStream write (LangChain path)', {
+            contentLength: content.length,
+          });
+        },
+        writeData: (data: any) => {
+          // Buffer artifact data for injection into LangChain stream
+          this.logger.info('Mock dataStream writeData (LangChain path)', {
+            data,
+          });
+          if (this.artifactContext?.toolInvocationsTracker) {
+            this.artifactContext.toolInvocationsTracker.push({
+              type: 'tool-invocation',
+              toolInvocation: {
+                toolName: 'artifact_stream',
+                toolCallId: `artifact_${Date.now()}`,
+                state: 'result',
+                result: data,
+              },
+            });
+          }
+        },
+        appendData: (data: any) => {
+          // Same as writeData for our purposes
+          this.logger.info('Mock dataStream appendData (LangChain path)', {
+            data,
+          });
+        },
+      };
+
+      this.logger.info('Setting up artifact context', {
+        hasSession: !!session,
+        sessionUserId: session?.user?.id,
+        hasMockDataStream: !!mockDataStream,
+      });
+
+      this.setupArtifactContext(mockDataStream, session); // Provide mock dataStream for LangChain
+
+      // Set up a safety timeout to clean up artifact context in case stream doesn't complete properly
+      const artifactContextCleanupTimeout = setTimeout(() => {
+        if (global.CREATE_DOCUMENT_CONTEXT) {
+          this.logger.warn(
+            'Artifact context cleanup via timeout (stream may not have completed properly)',
+          );
+          global.CREATE_DOCUMENT_CONTEXT = undefined;
+        }
+      }, 60000); // 60 second timeout
+
+      // Store cleanup timeout in the global context for access by cleanup function
+      if (this.artifactContext) {
+        this.artifactContext.cleanupTimeout = artifactContextCleanupTimeout;
+      }
+
       // Get system prompt and set up agent configuration
       const { systemPrompt } = await this.setupPromptAndTools(
         brainRequest,
@@ -557,12 +658,24 @@ export class BrainOrchestrator {
         patternCount: langGraphPatterns.length,
       });
 
-      // Cleanup resources
+      // Add artifact context headers
+      response.headers.set('X-Execution-Path', 'langchain');
+      response.headers.set('X-LangGraph-Enabled', String(!!useLangGraph));
+      response.headers.set('X-Artifact-Context', 'enabled');
+
+      // Cleanup resources but DON'T cleanup artifact context yet
+      // The artifact context will be cleaned up when the stream ends
       cleanupLangChainAgent(langchainAgent, this.logger);
+
+      // IMPORTANT: Don't cleanup artifact context here as LangGraph tools may still be executing
+      // this.cleanupArtifactContext(); // REMOVED - moved to stream completion
 
       return response;
     } catch (error) {
       const executionTime = performance.now() - startTime;
+
+      // Clean up on error
+      this.cleanupArtifactContext();
 
       this.logger.error('LangChain streaming path failed', {
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -819,6 +932,39 @@ export class BrainOrchestrator {
     });
 
     return { systemPrompt };
+  }
+
+  /**
+   * Set up artifact context for tools that need streaming and session access
+   */
+  private setupArtifactContext(
+    dataStream?: any,
+    session?: Session | null,
+  ): void {
+    this.artifactContext = {
+      dataStream,
+      session,
+      handlers: documentHandlersByArtifactKind,
+      toolInvocationsTracker: [],
+    };
+
+    // Set global context for backward compatibility with existing tools
+    global.CREATE_DOCUMENT_CONTEXT = this.artifactContext;
+
+    this.logger.info('Artifact context initialized', {
+      hasDataStream: !!dataStream,
+      hasSession: !!session,
+      handlerCount: documentHandlersByArtifactKind.length,
+    });
+  }
+
+  /**
+   * Clean up artifact context
+   */
+  private cleanupArtifactContext(): void {
+    this.artifactContext = null;
+    global.CREATE_DOCUMENT_CONTEXT = undefined;
+    this.logger.info('Artifact context cleaned up');
   }
 }
 

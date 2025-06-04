@@ -276,6 +276,34 @@ export function Chat({
 
   const isArtifactVisible = artifact?.isVisible || false;
 
+  // Add enhanced artifact state debugging
+  useEffect(() => {
+    console.log('[CHAT_ARTIFACT_DEBUG] Artifact state changed:', {
+      documentId: artifact?.documentId,
+      title: artifact?.title,
+      isVisible: artifact?.isVisible,
+      status: artifact?.status,
+      kind: artifact?.kind,
+      contentLength: artifact?.content?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Log specifically when artifact becomes visible
+    if (artifact?.isVisible) {
+      console.log('[CHAT_ARTIFACT_DEBUG] 🎨 ARTIFACT SHOULD BE VISIBLE NOW!', {
+        documentId: artifact.documentId,
+        title: artifact.title,
+      });
+    } else {
+      console.log('[CHAT_ARTIFACT_DEBUG] 📦 Artifact is hidden or not set');
+    }
+  }, [
+    artifact?.documentId,
+    artifact?.title,
+    artifact?.isVisible,
+    artifact?.status,
+  ]);
+
   // JSX rendering part
   return (
     <>

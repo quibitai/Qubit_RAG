@@ -58,8 +58,15 @@ function PureMessages(props: MessagesProps) {
       try {
         // Fetch the document from the database
         const documents = await fetcher(`/api/document?id=${artifactId}`);
+        console.log(
+          '[Messages] Fetched documents for ID:',
+          artifactId,
+          documents,
+        );
+
         if (documents && documents.length > 0) {
           const document = documents[0];
+          console.log('[Messages] Using document:', document);
 
           // Set the artifact to visible with the document data
           setArtifact({
@@ -76,11 +83,16 @@ function PureMessages(props: MessagesProps) {
               height: 0,
             },
           });
+
+          console.log(
+            '[Messages] ✅ Artifact UI opened for document:',
+            document.id,
+          );
         } else {
-          console.error('[Messages] No document found for ID:', artifactId);
+          console.error('[Messages] ❌ No document found for ID:', artifactId);
         }
       } catch (error) {
-        console.error('[Messages] Error fetching document:', error);
+        console.error('[Messages] ❌ Error fetching document:', error);
       }
     },
     [setArtifact],
