@@ -299,10 +299,20 @@ function PureEditor({
   }
 
   return (
-    <div
-      className="relative prose dark:prose-invert prose-headings:mt-4 prose-headings:mb-2 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 max-w-none"
-      ref={containerRef}
-    />
+    <div className="relative">
+      {/* Streaming indicator */}
+      {status === 'streaming' && (
+        <div className="absolute top-2 right-2 z-10 flex items-center space-x-2 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-md text-xs">
+          <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+          <span>Streaming...</span>
+        </div>
+      )}
+
+      <div
+        className="relative prose dark:prose-invert prose-headings:mt-4 prose-headings:mb-2 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 max-w-none"
+        ref={containerRef}
+      />
+    </div>
   );
 }
 

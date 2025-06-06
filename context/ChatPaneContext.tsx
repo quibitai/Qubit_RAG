@@ -28,6 +28,17 @@ import {
 
 // Reduced logging
 
+import { useQueryState } from 'nuqs';
+import { logger } from '@/lib/logger';
+import { validateClients } from '@/lib/validation';
+
+// Add a logger for frontend-specific debugging
+const logger = {
+  info: (...args: any[]) => console.log('[ChatPaneContext]', ...args),
+  warn: (...args: any[]) => console.warn('[ChatPaneContext]', ...args),
+  error: (...args: any[]) => console.error('[ChatPaneContext]', ...args),
+};
+
 import type { DBMessage } from '@/lib/db/schema';
 import { useDocumentState } from './DocumentContext';
 import { useArtifact, initialArtifactData } from '@/hooks/use-artifact';
@@ -344,10 +355,8 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     },
     [
       sessionStatus,
-      setIsLoadingSidebarChats,
-      setSidebarChats,
-      setSpecialistGroupedChats,
-      setSidebarDataRevision,
+      // Remove problematic dependencies that cause infinite loops
+      // setIsLoadingSidebarChats, setSidebarChats, setSpecialistGroupedChats, setSidebarDataRevision,
     ],
   );
 
@@ -427,8 +436,8 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     [
       sessionStatus,
       _isLoadingGlobalChats,
-      setIsLoadingGlobalChats,
-      setGlobalChats,
+      // Remove problematic dependencies that cause infinite loops
+      // setIsLoadingGlobalChats, setGlobalChats,
     ],
   );
 
@@ -633,6 +642,20 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     },
   });
 
+  // Use refs for artifact functions to prevent infinite loops in useEffect
+  const setArtifactRef = useRef(setArtifact);
+  const startStreamingArtifactRef = useRef(startStreamingArtifact);
+  const updateStreamingContentRef = useRef(updateStreamingContent);
+  const finishStreamingArtifactRef = useRef(finishStreamingArtifact);
+
+  // Keep refs up to date
+  useEffect(() => {
+    setArtifactRef.current = setArtifact;
+    startStreamingArtifactRef.current = startStreamingArtifact;
+    updateStreamingContentRef.current = updateStreamingContent;
+    finishStreamingArtifactRef.current = finishStreamingArtifact;
+  });
+
   // ADD: Debug baseState to check if data is available
   useEffect(() => {
     console.log('[CHATPANE_CONTEXT_DEBUG] baseState changed:', {
@@ -699,8 +722,8 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
                   title,
                 });
 
-                // Start streaming and immediately set the correct documentId
-                setArtifact((current) => ({
+                // Use ref to avoid dependency issues
+                setArtifactRef.current((current) => ({
                   ...current,
                   documentId: documentId, // Set the real documentId from the event
                   kind: 'text',
@@ -716,18 +739,52 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
                   title,
                 });
               } else if (eventType === 'artifact-chunk' && contentChunk) {
-                console.log(`[${index}] 💨 STREAMING ARTIFACT CHUNK:`, {
-                  documentId,
-                  chunkLength: contentChunk.length,
-                  chunkPreview: contentChunk.substring(0, 50),
-                  totalContentLength: (item as any).props?.totalContentLength,
-                  chunkSequence: (item as any).props?.chunkSequence,
+                console.log(
+                  `[${index}] 💨 STREAMING ARTIFACT CHUNK:`,
+                  contentChunk,
+                );
+
+                // Add critical debugging for contentChunk structure
+                console.log(`[${index}] 🔍 CHUNK TYPE ANALYSIS:`, {
+                  contentChunkType: typeof contentChunk,
+                  contentChunkValue: contentChunk,
+                  isString: typeof contentChunk === 'string',
+                  chunkLength: contentChunk?.length,
+                  chunkPreview:
+                    typeof contentChunk === 'string'
+                      ? contentChunk.substring(0, 50)
+                      : 'NOT_STRING',
+                  artifactEventProps: artifactData.props,
                 });
 
-                updateStreamingContent(contentChunk);
+                // Extract the actual text content if contentChunk is an object
+                let actualTextContent: string;
+                if (typeof contentChunk === 'string') {
+                  actualTextContent = contentChunk;
+                } else if (contentChunk && typeof contentChunk === 'object') {
+                  // Check if contentChunk is an object with a text property
+                  actualTextContent =
+                    contentChunk.contentChunk ||
+                    contentChunk.content ||
+                    contentChunk.text ||
+                    JSON.stringify(contentChunk);
+                  console.log(`[${index}] 🔧 EXTRACTED TEXT FROM OBJECT:`, {
+                    originalObject: contentChunk,
+                    extractedText: actualTextContent.substring(0, 50),
+                    extractedLength: actualTextContent.length,
+                  });
+                } else {
+                  actualTextContent = String(contentChunk);
+                }
+
+                // Use ref to avoid dependency issues
+                updateStreamingContentRef.current(actualTextContent);
 
                 console.log(
-                  `[${index}] ✅ CHUNK PROCESSED - Called updateStreamingContent`,
+                  `[${index}] ✅ CHUNK PROCESSED - Called updateStreamingContent with:`,
+                  typeof actualTextContent === 'string'
+                    ? actualTextContent.substring(0, 50)
+                    : actualTextContent,
                 );
               } else if (eventType === 'artifact-chunk' && !contentChunk) {
                 console.warn(
@@ -743,19 +800,23 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
                   documentId,
                 });
 
-                finishStreamingArtifact(documentId);
+                // Increase delay significantly to allow all chunks to be processed and prevent race condition with SWR
+                setTimeout(() => {
+                  finishStreamingArtifactRef.current(documentId);
+                }, 500); // Increased to 500ms delay to ensure all chunks are processed
               } else if (
                 eventType === 'tool-invocation' &&
                 status === 'complete'
               ) {
-                // Handle complete tool invocation - artifact is ready in database
+                // This should NOT happen during streaming - only open artifact after all streaming is complete
                 console.log(`[${index}] 🚀 OPENING COMPLETED ARTIFACT:`, {
                   documentId,
                   title,
                   status,
                 });
 
-                setArtifact({
+                // Use ref to avoid dependency issues
+                setArtifactRef.current({
                   documentId: documentId,
                   title: title || 'Document',
                   kind: 'text',
@@ -782,7 +843,8 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
                   status,
                 });
 
-                setArtifact({
+                // Use ref to avoid dependency issues
+                setArtifactRef.current({
                   documentId: documentId,
                   title: title || 'Document',
                   kind: 'text',
@@ -848,10 +910,11 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     baseState.isLoading,
     baseState.error,
     baseState.messages,
-    setArtifact,
-    startStreamingArtifact,
-    updateStreamingContent,
-    finishStreamingArtifact,
+    // Removed function dependencies to prevent infinite loop:
+    // setArtifact,
+    // startStreamingArtifact,
+    // updateStreamingContent,
+    // finishStreamingArtifact,
   ]);
 
   const { messages, setMessages } = baseState;
@@ -1081,7 +1144,7 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
         });
       });
     }
-  }, [activeDocId, streamedContentMap]);
+  }, [activeDocId]); // Remove streamedContentMap from dependencies to prevent infinite loops
 
   // Add setIsNewChat function
   const setIsNewChat = useCallback((isNew: boolean) => {
@@ -1150,6 +1213,90 @@ export const ChatPaneProvider: FC<{ children: ReactNode }> = ({ children }) => {
     isCurrentChatCommitted,
     sidebarDataRevision,
   ]);
+
+  // This effect hook handles incoming data from the Vercel AI SDK stream.
+  // It's responsible for processing custom events, like artifact updates.
+  useEffect(() => {
+    // baseState.data contains the custom JSON payloads sent from the backend
+    const data = baseState.data;
+
+    if (data && Array.isArray(data)) {
+      data.forEach((item: any) => {
+        if (item.type === 'artifact' && item.props) {
+          const artifactProps = item.props;
+          const { documentId, eventType } = artifactProps;
+
+          if (!documentId || !eventType) {
+            logger.warn(
+              'Received artifact event without documentId or eventType',
+              item,
+            );
+            return;
+          }
+
+          switch (eventType) {
+            case 'artifact-start':
+              logger.info(
+                `[STREAM] Artifact Start: ${documentId}`,
+                artifactProps,
+              );
+              // Correctly call with kind and title
+              startStreamingArtifact(
+                artifactProps.kind || 'text',
+                artifactProps.title || 'Untitled',
+              );
+              break;
+
+            case 'artifact-chunk':
+              if (
+                artifactProps.contentChunk &&
+                typeof artifactProps.contentChunk === 'string'
+              ) {
+                logger.info(
+                  `✅ [STREAM] RECEIVED ARTIFACT CHUNK for ${documentId}: "${artifactProps.contentChunk.substring(0, 70)}..." (Length: ${artifactProps.contentChunk.length})`,
+                );
+                // Correctly call with just the chunk
+                updateStreamingContent(artifactProps.contentChunk);
+              } else {
+                logger.error(
+                  `⚠️ [STREAM] ARTIFACT-CHUNK EVENT RECEIVED BUT MISSING/INVALID contentChunk! Props:`,
+                  artifactProps,
+                );
+              }
+              break;
+
+            case 'artifact-end':
+              logger.info(
+                `[STREAM] Artifact End: ${documentId}`,
+                artifactProps,
+              );
+              // Correctly call with the final documentId
+              finishStreamingArtifact(documentId);
+              break;
+
+            case 'artifact-error':
+              logger.error(
+                `[STREAM] Artifact Error: ${documentId}`,
+                artifactProps,
+              );
+              // Here you could update the artifact state to show an error
+              break;
+
+            default:
+              logger.warn('Unknown artifact event type:', eventType, item);
+          }
+        }
+      });
+    }
+  }, [
+    baseState.data,
+    startStreamingArtifact,
+    updateStreamingContent,
+    finishStreamingArtifact,
+  ]);
+
+  // Add a throttled update to streamedContentMap to avoid excessive re-renders
+  const lastUpdateRef = useRef(0);
 
   return (
     <ChatPaneContext.Provider value={contextValue}>

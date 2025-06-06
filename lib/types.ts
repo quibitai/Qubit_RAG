@@ -123,7 +123,8 @@ export interface ChatPaneState {
   isNewChat: boolean; // Tracks if the current chat is new (no messages persisted yet)
 }
 
-import { DataStreamWriter } from 'ai';
+import type { DataStreamWriter } from 'ai';
+import type { Session } from 'next-auth';
 
 // Extend the DataStreamWriter interface to include the appendData method
 declare module 'ai' {
@@ -136,4 +137,61 @@ declare module 'ai' {
   }
 }
 
+export interface DocumentStreamCallbacks {
+  onChunk: (chunk: string) => void;
+  onComplete: (fullContent: string) => void;
+}
+
+export interface CreateDocumentCallbackProps {
+  id: string;
+  title: string;
+  dataStream: DataStreamWriter;
+  session: Session;
+  initialContentPrompt?: string;
+  streamCallbacks?: DocumentStreamCallbacks; // Make it optional
+}
+
+export interface UIMessage {
+  type: 'artifact';
+  componentName: 'document';
+  id: string;
+  props: {
+    documentId: string;
+    title: string;
+    kind?: 'text' | 'code' | 'image' | 'sheet';
+    eventType:
+      | 'artifact-start'
+      | 'artifact-chunk'
+      | 'artifact-end'
+      | 'artifact-error';
+    status?: 'streaming' | 'complete';
+    contentChunk?: string;
+    contentLength?: number;
+    error?: string;
+  };
+}
+
 // Export any other custom types here
+
+// Global context types for artifact streaming
+export interface ArtifactContextGlobal {
+  dataStream?: DataStreamWriter;
+  session?: Session | null;
+  handlers?: any;
+  toolInvocationsTracker?: Array<{
+    type: 'tool-invocation';
+    toolInvocation: {
+      toolName: string;
+      toolCallId: string;
+      state: 'call' | 'result';
+      args?: any;
+      result?: any;
+    };
+  }>;
+  cleanupTimeout?: NodeJS.Timeout;
+}
+
+// Extend global namespace to include our custom properties
+declare global {
+  var CREATE_DOCUMENT_CONTEXT: ArtifactContextGlobal | undefined;
+}

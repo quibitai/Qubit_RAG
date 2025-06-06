@@ -157,7 +157,7 @@ export function Chat({
         switch (typedDataObject.type) {
           case 'artifact-start':
             artifactUpdate = {
-              documentId: 'streaming',
+              documentId: typedDataObject.documentId || 'streaming',
               kind: typedDataObject.kind as ArtifactKind,
               title: typedDataObject.title,
               content: '',
@@ -367,14 +367,8 @@ export function Chat({
         reload={reload}
         isReadonly={isReadonly}
         documentId={artifact?.documentId}
-        title={artifact?.title}
-        kind={artifact?.kind}
-        content={artifact?.content || ''}
-        isStreaming={artifact?.status === 'streaming'}
-        isVisible={artifact?.isVisible}
-        error={null}
         onClose={() => setArtifact({ ...artifact, isVisible: false })}
-        onContentSaved={() => {}} // Simplified
+        onContentSaved={() => {}}
         attachments={attachments}
         setAttachments={setAttachments}
         votes={undefined}

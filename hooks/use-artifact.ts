@@ -1,8 +1,33 @@
 'use client';
 
-import useSWR from 'swr';
-import type { UIArtifact } from '@/components/artifact';
-import { useCallback, useMemo } from 'react';
+import useSWR, { type MutatorCallback } from 'swr';
+import type { UIArtifact, ArtifactKind } from '@/components/artifact';
+import { useCallback, useMemo, useState, useEffect } from 'react';
+import type { Document } from '@/lib/db/schema';
+import { logger } from '@/lib/logger';
+import { generateUUID } from '@/lib/utils';
+
+// Centralized fetcher for SWR
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
+
+// Type guard to validate that a string is a valid ArtifactKind
+function isValidArtifactKind(
+  kind: string | undefined | null,
+): kind is ArtifactKind {
+  return (
+    typeof kind === 'string' &&
+    ['text', 'code', 'image', 'sheet'].includes(kind)
+  );
+}
+
+// Safe conversion from database Document kind to ArtifactKind
+function toArtifactKind(dbKind: string | undefined | null): ArtifactKind {
+  if (isValidArtifactKind(dbKind)) {
+    return dbKind;
+  }
+  // Fallback to 'text' if the database kind is invalid or missing
+  return 'text';
+}
 
 export const initialArtifactData: UIArtifact = {
   documentId: 'init',
@@ -19,177 +44,188 @@ export const initialArtifactData: UIArtifact = {
   },
 };
 
-type Selector<T> = (state: UIArtifact) => T;
+export function useArtifact(documentId?: string | null) {
+  // SWR hook for fetching the persisted document state from the server
+  const {
+    data: dbDocument,
+    error: dbError,
+    mutate: revalidateDbDocument,
+  } = useSWR<Document>(
+    documentId && documentId !== 'init' ? `/api/documents/${documentId}` : null,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    },
+  );
 
-export function useArtifactSelector<Selected>(selector: Selector<Selected>) {
-  const { data: localArtifact } = useSWR<UIArtifact>('artifact', null, {
-    fallbackData: initialArtifactData,
-  });
-
-  const selectedValue = useMemo(() => {
-    if (!localArtifact) return selector(initialArtifactData);
-    return selector(localArtifact);
-  }, [localArtifact, selector]);
-
-  return selectedValue;
-}
-
-export function useArtifact() {
-  const { data: localArtifact, mutate: setLocalArtifact } = useSWR<UIArtifact>(
-    'artifact',
+  // Local-only SWR key for managing transient UI state (visibility, streaming status)
+  const { data: localState, mutate: setLocalState } = useSWR<UIArtifact>(
+    'artifact-ui-state',
     null,
     {
       fallbackData: initialArtifactData,
     },
   );
 
-  const artifact = useMemo(() => {
-    if (!localArtifact) return initialArtifactData;
-    return localArtifact;
-  }, [localArtifact]);
+  // State specifically for accumulating streamed content
+  const [streamingContent, setStreamingContent] = useState<string | null>(null);
 
-  const setArtifact = useCallback(
-    (updaterFn: UIArtifact | ((currentArtifact: UIArtifact) => UIArtifact)) => {
-      setLocalArtifact((currentArtifact) => {
-        const artifactToUpdate = currentArtifact || initialArtifactData;
-
-        if (typeof updaterFn === 'function') {
-          return updaterFn(artifactToUpdate);
-        }
-
-        return updaterFn;
-      });
-    },
-    [setLocalArtifact],
-  );
-
-  const { data: localArtifactMetadata, mutate: setLocalArtifactMetadata } =
-    useSWR<any>(
-      () =>
-        artifact.documentId ? `artifact-metadata-${artifact.documentId}` : null,
-      null,
-      {
-        fallbackData: null,
-      },
-    );
-
-  const setArtifactMetadata = useCallback(
-    (updaterFn: any | ((currentMetadata: any) => any)) => {
-      setLocalArtifactMetadata((currentMetadata: any) => {
-        if (typeof updaterFn === 'function') {
-          return updaterFn(currentMetadata);
-        }
-        return updaterFn;
-      });
-    },
-    [setLocalArtifactMetadata],
-  );
-
-  // Additional helper functions for managing streaming state
-  const startStreamingArtifact = useCallback(
-    (kind: string, title: string) => {
-      console.log('[useArtifact] 🚀 Starting artifact stream:', {
-        kind,
-        title,
-      });
-      setArtifact((current) => ({
-        ...current,
-        documentId: 'streaming', // Temporary ID until we get the real one
-        kind: kind as any, // Type coercion needed here
-        title,
-        content: '', // Start with empty content
-        status: 'streaming',
-        isVisible: true,
-      }));
-    },
-    [setArtifact],
-  );
-
-  const updateStreamingContent = useCallback(
-    (contentChunk: string) => {
-      console.log('[useArtifact] 💨 Updating streaming content:', {
-        chunkLength: contentChunk?.length || 0,
-        chunkPreview: contentChunk?.substring(0, 50) || 'N/A',
-        chunkType: typeof contentChunk,
-      });
-      setArtifact((current) => {
-        const newContent = (current.content || '') + contentChunk;
-        console.log('[useArtifact] 📝 Content accumulation:', {
-          previousLength: current.content?.length || 0,
-          chunkLength: contentChunk?.length || 0,
-          newTotalLength: newContent.length,
-          currentStatus: current.status,
-          documentId: current.documentId,
-        });
+  // Effect to update local state when fetched data changes
+  useEffect(() => {
+    if (dbDocument) {
+      const updater: MutatorCallback<UIArtifact> = (current) => {
+        const state = current || initialArtifactData;
         return {
-          ...current,
-          content: newContent,
-          status: 'streaming', // Keep status as streaming
+          ...state,
+          documentId: dbDocument.id,
+          title: dbDocument.title,
+          kind: toArtifactKind(dbDocument.kind),
+          content:
+            state.status !== 'streaming'
+              ? dbDocument.content || ''
+              : state.content,
         };
+      };
+      setLocalState(updater, false);
+    }
+  }, [dbDocument, setLocalState]);
+
+  const artifact = useMemo<UIArtifact>(() => {
+    const state = localState || initialArtifactData;
+    const isStreaming = state.status === 'streaming';
+
+    const content =
+      isStreaming && streamingContent !== null
+        ? streamingContent
+        : (dbDocument?.content ?? state.content);
+
+    return {
+      ...state,
+      documentId: documentId || state.documentId,
+      title: dbDocument?.title ?? state.title,
+      kind: dbDocument ? toArtifactKind(dbDocument.kind) : state.kind,
+      content: content || '',
+      status: isStreaming
+        ? 'streaming'
+        : dbError
+          ? 'error'
+          : !dbDocument && documentId && documentId !== 'init'
+            ? 'loading'
+            : state.status === 'idle' && dbDocument
+              ? 'complete'
+              : state.status,
+    };
+  }, [localState, dbDocument, streamingContent, documentId, dbError]);
+
+  const setVisibility = useCallback(
+    (isVisible: boolean) => {
+      const updater: MutatorCallback<UIArtifact> = (current) => ({
+        ...(current || initialArtifactData),
+        isVisible,
       });
+      setLocalState(updater, false);
     },
-    [setArtifact],
+    [setLocalState],
   );
+
+  // Direct artifact setter for compatibility with existing components
+  const setArtifact = useCallback(
+    (updaterOrValue: UIArtifact | ((current: UIArtifact) => UIArtifact)) => {
+      const updater: MutatorCallback<UIArtifact> = (current) => {
+        const currentState = current || initialArtifactData;
+        if (typeof updaterOrValue === 'function') {
+          return updaterOrValue(currentState);
+        }
+        return updaterOrValue;
+      };
+      setLocalState(updater, false);
+    },
+    [setLocalState],
+  );
+
+  const startStreamingArtifact = useCallback(
+    (kind: string, title: string, newDocId?: string) => {
+      const docId = newDocId || generateUUID();
+      logger.info('useArtifact', 'START_STREAMING', { docId, kind, title });
+      setStreamingContent('');
+      setLocalState(
+        {
+          ...initialArtifactData,
+          documentId: docId,
+          kind: toArtifactKind(kind),
+          title,
+          status: 'streaming',
+          isVisible: true,
+        },
+        false,
+      );
+    },
+    [setLocalState],
+  );
+
+  const updateStreamingContent = useCallback((contentChunk: string) => {
+    if (typeof contentChunk === 'string') {
+      setStreamingContent((prev) => (prev || '') + contentChunk);
+    } else {
+      logger.warn('useArtifact', 'Received non-string chunk', {
+        chunk: contentChunk,
+      });
+    }
+  }, []);
 
   const finishStreamingArtifact = useCallback(
-    (documentId: string) => {
-      console.log('[useArtifact] ✅ Finishing artifact stream:', {
-        documentId,
+    (finalDocId: string) => {
+      logger.info('useArtifact', 'FINISH_STREAMING', { finalDocId });
+      const updater: MutatorCallback<UIArtifact> = (current) => ({
+        ...(current || initialArtifactData),
+        status: 'complete',
+        documentId: finalDocId,
       });
-      setArtifact((current) => {
-        console.log('[useArtifact] 📊 Final streaming stats:', {
-          finalDocumentId: documentId,
-          finalContentLength: current.content?.length || 0,
-          wasStreaming: current.status === 'streaming',
-          currentDocumentId: current.documentId,
-        });
-        return {
-          ...current,
-          documentId, // Update to final documentId
-          status: 'idle', // Set to idle to indicate streaming is complete
-          // Keep the content that was accumulated during streaming
-        };
-      });
+      setLocalState(updater, false);
+      revalidateDbDocument();
+      setStreamingContent(null);
     },
-    [setArtifact],
+    [setLocalState, revalidateDbDocument],
   );
 
   const closeArtifact = useCallback(() => {
-    setArtifact((current) => ({
-      ...current,
+    const updater: MutatorCallback<UIArtifact> = (current) => ({
+      ...(current || initialArtifactData),
       isVisible: false,
-    }));
-  }, [setArtifact]);
+    });
+    setLocalState(updater, false);
+  }, [setLocalState]);
 
-  // Add cleanup method to reset artifact state completely
   const resetArtifact = useCallback(() => {
-    setArtifact(initialArtifactData);
-    setLocalArtifactMetadata(null);
-  }, [setArtifact, setLocalArtifactMetadata]);
+    setLocalState(initialArtifactData, false);
+    setStreamingContent(null);
+  }, [setLocalState]);
 
   return useMemo(
     () => ({
       artifact,
       setArtifact,
-      metadata: localArtifactMetadata,
-      setMetadata: setArtifactMetadata,
-      // Add new streaming-specific methods
+      setVisibility,
       startStreamingArtifact,
       updateStreamingContent,
       finishStreamingArtifact,
       closeArtifact,
       resetArtifact,
+      isLoading: artifact.status === 'loading',
+      isStreaming: artifact.status === 'streaming',
+      error: dbError,
     }),
     [
       artifact,
       setArtifact,
-      localArtifactMetadata,
-      setArtifactMetadata,
+      setVisibility,
       startStreamingArtifact,
       updateStreamingContent,
       finishStreamingArtifact,
       closeArtifact,
       resetArtifact,
+      dbError,
     ],
   );
 }

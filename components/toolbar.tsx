@@ -388,8 +388,8 @@ const PureToolbar = ({
     (definition) => definition.kind === artifactKind,
   );
 
-  if (!artifactDefinition) {
-    throw new Error('Artifact definition not found!');
+  if (!artifactDefinition || !artifactKind) {
+    return null;
   }
 
   const toolsByArtifactKind = artifactDefinition.toolbar;

@@ -1,9 +1,31 @@
-import { smoothStream, streamText } from 'ai';
-import type { DataStreamWriter } from 'ai';
+import { smoothStream, streamText, type DataStreamWriter } from 'ai';
 import { myProvider } from '@/lib/ai/providers';
 import { createDocumentHandler } from '@/lib/artifacts/server';
-
 import { saveDocument } from '@/lib/db/queries';
+import { logger } from '@/lib/logger';
+import type { CreateDocumentCallbackProps } from '@/lib/types';
+
+// --- MOCK IMPLEMENTATION FOR TESTING ---
+// This mock simulates the behavior of the real streamText function
+// for isolated testing without making actual API calls.
+const mockStreamText = ({ prompt }: { prompt: string }) => {
+  async function* generator() {
+    const text =
+      'This is a simulated stream of text chunks from the mock LLM. Each word is a separate delta.';
+    const words = text.split(' ');
+    for (const word of words) {
+      await new Promise((resolve) => setTimeout(resolve, 20)); // Simulate network latency
+      yield { type: 'text-delta', textDelta: `${word} ` };
+    }
+  }
+
+  return {
+    fullStream: generator(),
+    // Add other properties that the real streamText might return if needed
+  };
+};
+
+const IS_TEST_ENVIRONMENT = process.env.NODE_ENV === 'test';
 
 // Helper function to correctly format data for useChat().data
 async function sendArtifactDataToClient(
@@ -37,20 +59,20 @@ async function sendArtifactDataToClient(
 
 export const textDocumentHandler = createDocumentHandler<'text'>({
   kind: 'text',
-  onCreateDocument: async (args) => {
-    console.log(
-      '[SERVER TEXT_HANDLER] onCreateDocument called with args:',
+  onCreateDocument: async (args: CreateDocumentCallbackProps) => {
+    logger.info(
+      'SERVER TEXT_HANDLER',
+      'onCreateDocument called with args:',
       JSON.stringify(args),
     );
 
-    // Extract callbacks from args for chunk reporting
     const {
       id: docId,
       title,
       dataStream,
       initialContentPrompt,
-      onChunk, // NEW: callback for each content chunk
-      onComplete, // NEW: callback when content generation is complete
+      session,
+      streamCallbacks,
     } = args;
 
     let draftContent = '';
@@ -59,16 +81,18 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
     let streamFinishSent = false;
     let serverSideAccumulatedContentLength = 0;
 
-    console.log(
-      `[textDocumentHandler] onCreateDocument for ID: ${docId}, Title: "${title}"`,
+    logger.info(
+      'textDocumentHandler',
+      `onCreateDocument for ID: ${docId}, Title: "${title}"`,
       {
-        hasOnChunkCallback: typeof onChunk === 'function',
-        hasOnCompleteCallback: typeof onComplete === 'function',
+        hasOnChunkCallback: typeof streamCallbacks?.onChunk === 'function',
+        hasOnCompleteCallback:
+          typeof streamCallbacks?.onComplete === 'function',
       },
     );
 
     // Validate user authentication
-    if (!args.session?.user?.id) {
+    if (!session?.user?.id) {
       await sendArtifactDataToClient(dataStream, {
         type: 'error',
         error: 'User not authenticated for document creation.',
@@ -79,8 +103,9 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
 
     // Skip initial empty save to prevent duplicate entries
     // Document will be saved once with final content after streaming
-    console.log(
-      '[SERVER TEXT_HANDLER] Skipping initial empty save to prevent duplicates. Will save after content generation.',
+    logger.info(
+      'SERVER TEXT_HANDLER',
+      'Skipping initial empty save to prevent duplicates. Will save after content generation.',
     );
 
     // 2. Stream Metadata (without initial save)
@@ -95,20 +120,45 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
 
     const kindPayload = { type: 'kind', content: 'text' };
     await sendArtifactDataToClient(dataStream, kindPayload);
-    console.log(
-      `[textDocumentHandler] Streamed metadata for ${docId} using 2: prefix.`,
+    logger.info(
+      'textDocumentHandler',
+      `Streamed metadata for ${docId} using 2: prefix.`,
     );
 
     // 3. Stream Content
     const promptToUse = initialContentPrompt || title;
-    console.log(
-      `[SERVER TEXT_HANDLER] About to call streamText with prompt: "${promptToUse.substring(0, 100)}..."`,
+    logger.info(
+      'SERVER TEXT_HANDLER',
+      `About to call streamText with prompt: "${promptToUse.substring(
+        0,
+        100,
+      )}..."`,
     );
 
     try {
-      const { fullStream } = streamText({
-        model: myProvider.languageModel('artifact-model'),
-        system: `Write a comprehensive, well-researched document about the given topic. 
+      // Use mock implementation in test environment
+      let fullStream: any;
+      if (IS_TEST_ENVIRONMENT) {
+        logger.info('SERVER TEXT_HANDLER', 'Using MOCK streamText for testing');
+        const mockResult = mockStreamText({ prompt: promptToUse });
+        fullStream = mockResult.fullStream;
+      } else {
+        logger.info(
+          'SERVER TEXT_HANDLER',
+          'Using REAL streamText with AI provider',
+        );
+
+        // Get the model instance and log its details
+        const model = myProvider.languageModel('artifact-model');
+        logger.info('TextDocHandler', 'Real streamText call starting', {
+          modelName: (model as any).modelId || 'unknown',
+          promptLength: promptToUse?.length || 0,
+        });
+
+        // Log the exact parameters being passed to streamText
+        const streamTextParams = {
+          model: model,
+          system: `Write a comprehensive, well-researched document about the given topic. 
 
 REQUIREMENTS:
 - Use Markdown formatting with proper headings, lists, and emphasis
@@ -128,12 +178,28 @@ EXAMPLE REFERENCE FORMAT:
 ## Further Reading
 - [Related Topic Resource](https://example.com/resource)
 - [Additional Information](https://example.com/info)`,
-        experimental_transform: smoothStream({ chunking: 'word' }),
-        prompt: promptToUse,
-      });
+          experimental_transform: smoothStream({ chunking: 'word' }),
+          prompt: promptToUse,
+        };
 
-      console.log(
-        `[SERVER TEXT_HANDLER] streamText call successful, starting to iterate over fullStream...`,
+        try {
+          const result = streamText(streamTextParams);
+          fullStream = result.fullStream;
+        } catch (streamTextError) {
+          logger.error(
+            'TextDocHandler',
+            'streamText call failed:',
+            streamTextError instanceof Error
+              ? streamTextError.message
+              : String(streamTextError),
+          );
+          throw streamTextError;
+        }
+      }
+
+      logger.info(
+        'SERVER TEXT_HANDLER',
+        'streamText call successful, starting to iterate over fullStream...',
       );
 
       let deltaCount = 0;
@@ -144,60 +210,66 @@ EXAMPLE REFERENCE FORMAT:
         if (type === 'text-delta') {
           // Check if finish has already been sent - this should never happen
           if (streamFinishSent) {
-            console.warn(
-              `[SERVER TEXT_HANDLER WARN] Attempting to send text-delta AFTER finish event was sent!`,
+            logger.warn(
+              'SERVER TEXT_HANDLER WARN',
+              'Attempting to send text-delta AFTER finish event was sent!',
             );
             continue; // Skip this delta if finish already sent
           }
 
-          const { textDelta } = delta;
-          draftContent += textDelta;
-          serverSideAccumulatedContentLength += textDelta.length;
+          const contentChunk = delta.textDelta;
+          draftContent += contentChunk;
+          serverSideAccumulatedContentLength += contentChunk.length;
 
           // Report chunk to caller (createDocument) if callback is provided
-          if (onChunk && typeof onChunk === 'function') {
-            try {
-              console.log(
-                `[SERVER TEXT_HANDLER] Reporting chunk to caller: "${textDelta.substring(0, 50)}${textDelta.length > 50 ? '...' : ''}" (${textDelta.length} chars)`,
+          if (streamCallbacks?.onChunk) {
+            if (typeof contentChunk === 'string' && contentChunk.length > 0) {
+              logger.info(
+                `[TextDocHandler] VALID CHUNK for reportChunkToCaller: "${contentChunk.substring(0, 70)}..." (Length: ${contentChunk.length})`,
+                'No additional data',
               );
-              onChunk(textDelta);
-            } catch (callbackError) {
-              console.error(
-                '[SERVER TEXT_HANDLER] Error in onChunk callback:',
-                callbackError,
+              streamCallbacks.onChunk(contentChunk);
+            } else {
+              logger.warn(
+                '[TextDocHandler] INVALID or EMPTY chunk detected, not calling reportChunkToCaller.',
+                JSON.stringify({ chunk: contentChunk }),
               );
             }
-          } else {
-            console.warn(
-              '[SERVER TEXT_HANDLER] No onChunk callback available to report chunk',
-            );
           }
 
-          const textDeltaPayload = { type: 'text-delta', content: textDelta };
+          const textDeltaPayload = {
+            type: 'text-delta',
+            content: contentChunk,
+          };
           await sendArtifactDataToClient(dataStream, textDeltaPayload);
         } else if (type === 'finish' || type === 'step-finish') {
-          console.log(`[SERVER TEXT_HANDLER] Received ${type} event`);
-        }
-      }
-
-      console.log(
-        `[SERVER TEXT_HANDLER] Finished iterating over fullStream. Total deltas processed: ${deltaCount}, Final content length: ${serverSideAccumulatedContentLength}`,
-      );
-
-      // Report completion to caller (createDocument) if callback is provided
-      if (onComplete && typeof onComplete === 'function') {
-        try {
-          onComplete(draftContent);
-        } catch (callbackError) {
-          console.error(
-            '[SERVER TEXT_HANDLER] Error in onComplete callback:',
-            callbackError,
+          logger.info('SERVER TEXT_HANDLER', `Received ${type} event`);
+        } else if (type === 'error') {
+          logger.error(
+            'TextDocHandler',
+            'Received error delta from streamText',
+            { error: delta.error },
           );
         }
       }
+
+      logger.info(
+        'SERVER TEXT_HANDLER',
+        `Finished iterating over fullStream. Total deltas processed: ${deltaCount}, Final content length: ${serverSideAccumulatedContentLength}`,
+      );
+
+      // Report completion to caller (createDocument) if callback is provided
+      if (streamCallbacks?.onComplete) {
+        logger.info(
+          'TextDocHandler',
+          `Reporting completion to callback. (Total Length: ${draftContent.length})`,
+        );
+        streamCallbacks.onComplete(draftContent);
+      }
     } catch (error) {
-      console.error(
-        `[SERVER TEXT_HANDLER ERROR] Error during streamText call:`,
+      logger.error(
+        'SERVER TEXT_HANDLER ERROR',
+        'Error during streamText call:',
         error,
       );
 
@@ -218,15 +290,17 @@ EXAMPLE REFERENCE FORMAT:
       title: title,
       content: draftContent,
       kind: 'text',
-      userId: args.session?.user?.id,
+      userId: session?.user?.id,
     });
-    console.log(
-      `[textDocumentHandler] Document ${docId} updated with generated content.`,
+    logger.info(
+      'textDocumentHandler',
+      `Document ${docId} updated with generated content.`,
     );
 
     // 4. Send a finish event
-    console.log(
-      `[SERVER TEXT_HANDLER] Sending 'finish' event. Final content length: ${serverSideAccumulatedContentLength}`,
+    logger.info(
+      'SERVER TEXT_HANDLER',
+      `Sending 'finish' event. Final content length: ${serverSideAccumulatedContentLength}`,
     );
     const finishPayload = { type: 'finish' };
     await sendArtifactDataToClient(dataStream, finishPayload);
@@ -234,8 +308,9 @@ EXAMPLE REFERENCE FORMAT:
     // Set flag after sending finish
     streamFinishSent = true;
 
-    console.log(
-      `[textDocumentHandler] Stream finished for ${docId} using 2: prefix.`,
+    logger.info(
+      'textDocumentHandler',
+      `Stream finished for ${docId} using 2: prefix.`,
     );
 
     // Return the content and indicate document was already saved

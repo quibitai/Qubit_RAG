@@ -88,7 +88,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
         streamedContentCache: cache,
       }));
     }
-  }, [documentState.streamedUpdates]);
+  }, [documentState.streamedUpdates.length]);
 
   // Set active document and load its content if needed
   const setActiveDocument = async (id: string, initialContent?: string) => {

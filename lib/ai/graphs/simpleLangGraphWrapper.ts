@@ -69,6 +69,7 @@ export interface LangGraphWrapperConfig {
   llm: ChatOpenAI;
   tools: any[];
   logger: RequestLogger;
+  forceToolCall?: { name: string } | 'required' | null;
 }
 
 /**
@@ -153,13 +154,153 @@ export class SimpleLangGraphWrapper {
       this.logger.info('[LangGraph Agent] Calling LLM...', {
         messageCount: state.messages.length,
         hasTools: this.tools.length > 0,
+        toolCount: this.tools.length,
+        forceToolCall: this.config.forceToolCall,
       });
 
+      // Enhanced tool binding diagnostics
+      if (this.tools.length > 0) {
+        const toolNames = this.tools.map((t) => t.name || 'unnamed');
+        this.logger.info('[LangGraph Agent] Available tools for binding:', {
+          toolNames,
+          toolDetails: this.tools.map((t) => ({
+            name: t.name,
+            description: t.description?.substring(0, 100) || 'No description',
+            hasSchema: !!t.schema,
+          })),
+        });
+      } else {
+        this.logger.warn(
+          '[LangGraph Agent] NO TOOLS AVAILABLE - This explains why no tools are called!',
+        );
+      }
+
       // Bind tools to LLM for structured tool calling
-      const llmWithTools = this.llm.bindTools(this.tools);
+      let llmWithTools = this.llm.bindTools(this.tools);
 
       // Get current messages from state
       const currentMessages = state.messages;
+
+      // Check if this is the first agent call (no AI messages yet) or if we've already executed tools
+      const hasAIResponses = currentMessages.some((m) => m._getType() === 'ai');
+      const hasToolExecutions = currentMessages.some(
+        (m) => m._getType() === 'tool',
+      );
+
+      // NEW: Apply tool forcing from QueryClassifier - bind with tool_choice
+      if (this.config.forceToolCall && !hasToolExecutions) {
+        this.logger.info(
+          '[LangGraph Agent] 🚀 APPLYING TOOL FORCING from QueryClassifier',
+          {
+            forceToolCall: this.config.forceToolCall,
+            reason: 'Tool forcing directive from classifier',
+          },
+        );
+
+        let toolChoiceOption: any = undefined;
+
+        if (
+          typeof this.config.forceToolCall === 'object' &&
+          this.config.forceToolCall !== null &&
+          'name' in this.config.forceToolCall
+        ) {
+          // Force a specific tool (e.g., createDocument)
+          const toolName = this.config.forceToolCall.name;
+          const targetTool = this.tools.find((t) => t.name === toolName);
+          if (targetTool) {
+            this.logger.info(
+              `[LangGraph Agent] Forcing specific tool: ${toolName}`,
+            );
+            toolChoiceOption = toolName; // LangChain.js expects just the tool name for specific tool forcing
+          } else {
+            this.logger.warn(
+              `[LangGraph Agent] Requested tool '${toolName}' not found in available tools. Using 'required' instead.`,
+            );
+            toolChoiceOption = 'required';
+          }
+        } else if (this.config.forceToolCall === 'required') {
+          // Force any tool call
+          this.logger.info(
+            '[LangGraph Agent] Forcing any tool call (required)',
+          );
+          toolChoiceOption = 'required';
+        }
+
+        if (toolChoiceOption) {
+          // Re-bind tools with tool_choice option
+          // Try different formats to see which one works
+          this.logger.info(
+            `[LangGraph Agent] Attempting to bind tools with tool_choice: ${toolChoiceOption}`,
+          );
+
+          try {
+            // First try: just the tool name (as per docs)
+            llmWithTools = this.llm.bindTools(this.tools, {
+              tool_choice: toolChoiceOption,
+            });
+            this.logger.info(
+              '[LangGraph Agent] ✅ Successfully bound tools with tool_choice (name format):',
+              {
+                tool_choice: toolChoiceOption,
+              },
+            );
+          } catch (error) {
+            this.logger.error(
+              '[LangGraph Agent] Failed to bind with tool name, trying OpenAI format:',
+              error,
+            );
+
+            // Fallback: try OpenAI format
+            if (
+              typeof toolChoiceOption === 'string' &&
+              toolChoiceOption !== 'required'
+            ) {
+              llmWithTools = this.llm.bindTools(this.tools, {
+                tool_choice: {
+                  type: 'function',
+                  function: { name: toolChoiceOption },
+                },
+              });
+              this.logger.info(
+                '[LangGraph Agent] ✅ Successfully bound tools with tool_choice (OpenAI format)',
+              );
+            } else {
+              llmWithTools = this.llm.bindTools(this.tools, {
+                tool_choice: 'required',
+              });
+              this.logger.info(
+                '[LangGraph Agent] ✅ Successfully bound tools with tool_choice (required)',
+              );
+            }
+          }
+        }
+      } else {
+        this.logger.info('[LangGraph Agent] No tool forcing applied', {
+          hasForceToolCall: !!this.config.forceToolCall,
+          hasToolExecutions,
+          reason: this.config.forceToolCall
+            ? 'Already executed tools'
+            : 'No force directive',
+        });
+      }
+
+      // Log the actual messages being sent to LLM for diagnosis
+      this.logger.info('[LangGraph Agent] Messages being sent to LLM:', {
+        messageCount: currentMessages.length,
+        lastMessage: (() => {
+          const lastMsg = currentMessages[currentMessages.length - 1];
+          if (!lastMsg?.content) return 'No content';
+          if (typeof lastMsg.content === 'string') {
+            return lastMsg.content.substring(0, 200);
+          }
+          return 'Complex content type';
+        })(),
+        hasSystemMessage: currentMessages.some(
+          (m) => m._getType() === 'system',
+        ),
+        messageTypes: currentMessages.map((m) => m._getType()),
+        toolChoiceApplied: !!this.config.forceToolCall && !hasToolExecutions,
+      });
 
       // Invoke LLM with current conversation
       const response = await llmWithTools.invoke(currentMessages);
@@ -169,13 +310,71 @@ export class SimpleLangGraphWrapper {
         toolCallCount: response.tool_calls?.length || 0,
         responseLength:
           typeof response.content === 'string' ? response.content.length : 0,
+        responsePreview:
+          typeof response.content === 'string'
+            ? response.content.substring(0, 200)
+            : 'Non-string content',
       });
 
-      // Log tool calls if present
+      // Enhanced tool call logging
       if (response.tool_calls && response.tool_calls.length > 0) {
         this.logger.info('Tool calls detected', {
-          tools: response.tool_calls.map((tc) => tc.name),
+          tools: response.tool_calls.map((tc) => ({
+            name: tc.name,
+            id: tc.id,
+            args: tc.args,
+          })),
         });
+      } else {
+        // Only warn about missing tool calls if we actually expected them
+        const toolForcingWasApplied =
+          !!this.config.forceToolCall && !hasToolExecutions;
+        const isInitialCall = !hasAIResponses; // First LLM call in the conversation
+
+        if (toolForcingWasApplied && isInitialCall) {
+          // This is problematic - we forced tools but didn't get any on the initial call
+          this.logger.warn(
+            '[LangGraph Agent] ⚠️ NO TOOL CALLS DETECTED despite tool forcing on initial call - This indicates a tool forcing issue!',
+            {
+              responseContentLength:
+                typeof response.content === 'string'
+                  ? response.content.length
+                  : 0,
+              availableToolCount: this.tools.length,
+              modelName: this.llm.modelName,
+              forceToolCall: this.config.forceToolCall,
+              hasAIResponses,
+              hasToolExecutions,
+            },
+          );
+        } else if (hasToolExecutions && !isInitialCall) {
+          // This is normal - final conversational response after tools were executed
+          this.logger.info(
+            '[LangGraph Agent] ✅ Final conversational response (no tool calls expected after tool execution)',
+            {
+              responseLength:
+                typeof response.content === 'string'
+                  ? response.content.length
+                  : 0,
+              responsePreview:
+                typeof response.content === 'string'
+                  ? response.content.substring(0, 100)
+                  : 'Non-string content',
+            },
+          );
+        } else {
+          // No tool forcing applied, no tools expected - normal conversational response
+          this.logger.info(
+            '[LangGraph Agent] ✅ Conversational response (no tools expected)',
+            {
+              responseLength:
+                typeof response.content === 'string'
+                  ? response.content.length
+                  : 0,
+              toolForcingApplied: toolForcingWasApplied,
+            },
+          );
+        }
       }
 
       return {
@@ -195,250 +394,167 @@ export class SimpleLangGraphWrapper {
    */
   private async executeToolsNode(
     state: GraphState,
+    config?: RunnableConfig,
   ): Promise<Partial<GraphState>> {
-    try {
-      const agentOutcome = state.agent_outcome;
+    this.logger.info('[LangGraph Tools] Starting tool execution...', {
+      hasConfig: !!config,
+      configurable: config?.configurable
+        ? Object.keys(config.configurable)
+        : [],
+    });
 
-      if (!agentOutcome?.tool_calls || agentOutcome.tool_calls.length === 0) {
-        this.logger.warn(
-          '[LangGraph Tools] executeToolsNode called but no tool calls found',
-        );
-        return { messages: [] };
+    const lastMessage = state.messages[state.messages.length - 1] as AIMessage;
+    if (!lastMessage.tool_calls || lastMessage.tool_calls.length === 0) {
+      this.logger.warn(
+        '[LangGraph Tools] No tool calls found in the last message.',
+      );
+      return {};
+    }
+
+    this.logger.info('[LangGraph Tools] Found tool calls:', {
+      tool_calls: lastMessage.tool_calls.map((tc) => ({
+        name: tc.name,
+        args: tc.args,
+        id: tc.id,
+      })),
+    });
+
+    // --- Prepare tools and tool results array ---
+    const toolsByName: Record<string, any> = Object.fromEntries(
+      this.tools.map((tool) => [tool.name, tool]),
+    );
+    const toolExecutionResults: ToolMessage[] = [];
+    const uiMessagesForStream: UIMessage[] = [];
+
+    // --- Execute tool calls in parallel ---
+    const toolPromises = lastMessage.tool_calls.map(async (toolCall) => {
+      const { name: toolName, args: toolArgs, id: toolCallId } = toolCall;
+      const targetTool = toolsByName[toolName];
+
+      if (!targetTool) {
+        this.logger.error(`[LangGraph Tools] Tool '${toolName}' not found!`);
+        return new ToolMessageClass({
+          content: `Error: Tool '${toolName}' not found.`,
+          tool_call_id: toolCallId ?? uuidv4(),
+          name: toolName,
+        });
       }
 
-      this.logger.info('[LangGraph Tools] Executing tools...', {
-        toolCallCount: agentOutcome.tool_calls.length,
-        tools: agentOutcome.tool_calls.map((tc) => tc.name),
+      this.logger.info(`[LangGraph Tools] Executing tool: ${toolName}`, {
+        toolCallId,
+        args: toolArgs,
+        hasConfig: !!config,
+        contextKeys: config?.configurable
+          ? Object.keys(config.configurable)
+          : [],
+        configDetails:
+          toolName === 'createDocument'
+            ? {
+                hasDataStream: !!config?.configurable?.dataStream,
+                hasSession: !!config?.configurable?.session,
+                dataStreamType: typeof config?.configurable?.dataStream,
+                sessionType: typeof config?.configurable?.session,
+                runId: config?.runId,
+              }
+            : 'not createDocument tool',
       });
 
-      const toolMessages: ToolMessage[] = [];
-      const uiEvents: UIMessage[] = [];
-      const toolExecutionResults: Array<{
-        toolName: string;
-        toolCallId: string;
-        summaryForLLM: string;
-        quibitArtifactEvents: any[];
-        executionStatus: 'success' | 'error';
-      }> = [];
+      try {
+        // *** THE CORE FIX: Pass config to tool invocation ***
+        // This allows tools to access context via getContextVariable
+        const rawToolResultString = await targetTool.invoke(toolArgs, config);
 
-      // Execute each tool call
-      for (const toolCall of agentOutcome.tool_calls) {
-        let summaryForLLM = '';
-        let quibitArtifactEvents: any[] = [];
-        let executionStatus: 'success' | 'error' = 'error';
-
-        try {
-          this.logger.info(
-            `[LangGraph Tools] Executing tool: ${toolCall.name}`,
-            {
-              toolCallId: toolCall.id,
-              args: toolCall.args,
-            },
-          );
-
-          // Find the tool function
-          const tool = this.tools.find((t) => t.name === toolCall.name);
-          if (!tool) {
-            throw new Error(`Tool ${toolCall.name} not found`);
-          }
-
-          // Clear any existing artifact tracker before tool execution
-          const initialTrackerLength =
-            global.CREATE_DOCUMENT_CONTEXT?.toolInvocationsTracker?.length || 0;
-
-          // Execute the tool
-          const toolExecutionOutputString = await tool.invoke(toolCall.args);
-
-          this.logger.info(
-            `[LangGraph Tools] Tool execution completed: ${toolCall.name}`,
-            {
-              toolCallId: toolCall.id,
-              rawOutputLength:
-                typeof toolExecutionOutputString === 'string'
-                  ? toolExecutionOutputString.length
-                  : JSON.stringify(toolExecutionOutputString).length,
-            },
-          );
-
-          // Parse tool output to extract structured data
-          try {
-            const parsedOutput = JSON.parse(toolExecutionOutputString);
-
-            if (parsedOutput._isQubitArtifactToolResult === true) {
-              // This is a structured tool result with artifact data
-              summaryForLLM =
-                parsedOutput.summaryForLLM || `Tool ${toolCall.name} executed.`;
-              quibitArtifactEvents = parsedOutput.quibitArtifactEvents || [];
-              executionStatus = 'success';
-
-              this.logger.info(
-                `[LangGraph Tools] Extracted artifact events for ${toolCall.name}`,
-                {
-                  count: quibitArtifactEvents.length,
-                  summaryLength: summaryForLLM.length,
-                  hasArtifacts: quibitArtifactEvents.length > 0,
-                },
-              );
-
-              // Create UI events from artifact events
-              for (const artifactEvent of quibitArtifactEvents) {
-                const uiEvent: UIMessage = {
-                  id: uuidv4(),
-                  name: 'document', // Maps to DocumentComponent in ui.tsx
-                  props: {
-                    documentId: artifactEvent.documentId || 'unknown',
-                    title:
-                      artifactEvent.title || `Document from ${toolCall.name}`,
-                    status: artifactEvent.status || 'complete',
-                    eventType: artifactEvent.type,
-                    artifactEvent: artifactEvent,
-                  },
-                  metadata: {
-                    message_id: agentOutcome.id,
-                    toolCallId: toolCall.id,
-                    toolName: toolCall.name,
-                  },
-                };
-                uiEvents.push(uiEvent);
-              }
-            } else {
-              // Handle tools that don't return the special structure (legacy or non-artifact tools)
-              summaryForLLM =
-                typeof parsedOutput === 'string'
-                  ? parsedOutput
-                  : JSON.stringify(parsedOutput);
-              executionStatus = 'success';
-
-              this.logger.info(
-                `[LangGraph Tools] Tool ${toolCall.name} returned non-structured output`,
-                {
-                  outputType: typeof parsedOutput,
-                  outputLength: summaryForLLM.length,
-                },
-              );
-            }
-          } catch (parseError) {
-            // Tool output is not JSON or is malformed JSON
-            summaryForLLM =
-              typeof toolExecutionOutputString === 'string'
-                ? toolExecutionOutputString
-                : JSON.stringify(toolExecutionOutputString);
-            executionStatus = 'success';
-
-            this.logger.info(
-              `[LangGraph Tools] Tool ${toolCall.name} returned non-JSON output`,
-              {
-                outputLength: summaryForLLM.length,
-              },
-            );
-          }
-
-          // Legacy: Check for artifact events in global tracker (for backward compatibility)
-          const currentTrackerLength =
-            global.CREATE_DOCUMENT_CONTEXT?.toolInvocationsTracker?.length || 0;
-          const newLegacyArtifactEvents =
-            currentTrackerLength > initialTrackerLength
-              ? global.CREATE_DOCUMENT_CONTEXT?.toolInvocationsTracker?.slice(
-                  initialTrackerLength,
-                )
-              : [];
-
-          if (newLegacyArtifactEvents && newLegacyArtifactEvents.length > 0) {
-            this.logger.info(
-              `Tool ${toolCall.name} generated ${newLegacyArtifactEvents.length} legacy artifact events (global tracker)`,
-            );
-
-            // Convert legacy events and add to our quibitArtifactEvents if not already processed
-            if (quibitArtifactEvents.length === 0) {
-              for (const legacyEvent of newLegacyArtifactEvents) {
-                const convertedEvent = {
-                  type: 'legacy-artifact-event',
-                  originalEvent: legacyEvent,
-                  timestamp: new Date().toISOString(),
-                };
-                quibitArtifactEvents.push(convertedEvent);
-              }
-            }
-
-            // Clear processed events from global tracker
-            if (global.CREATE_DOCUMENT_CONTEXT?.toolInvocationsTracker) {
-              global.CREATE_DOCUMENT_CONTEXT.toolInvocationsTracker.splice(
-                0,
-                currentTrackerLength,
-              );
-            }
-          }
-
-          // Create standard tool message with parsed summary for LLM
-          const toolMessage = new ToolMessageClass({
-            content: summaryForLLM,
-            tool_call_id: toolCall.id ?? '',
-          });
-
-          toolMessages.push(toolMessage);
-        } catch (error) {
-          this.logger.error(
-            `[LangGraph Tools] Tool execution failed: ${toolCall.name}`,
-            {
-              toolCallId: toolCall.id,
-              error: error instanceof Error ? error.message : 'Unknown error',
-            },
-          );
-
-          // Create error summary and tool message
-          summaryForLLM = `Error executing ${toolCall.name}: ${error instanceof Error ? error.message : 'Unknown error'}`;
-          executionStatus = 'error';
-
-          const errorMessage = new ToolMessageClass({
-            content: summaryForLLM,
-            tool_call_id: toolCall.id ?? '',
-          });
-
-          toolMessages.push(errorMessage);
-        }
-
-        // Record tool execution result for stream event data
-        toolExecutionResults.push({
-          toolName: toolCall.name,
-          toolCallId: toolCall.id ?? '',
-          summaryForLLM,
-          quibitArtifactEvents,
-          executionStatus,
+        this.logger.info(`[LangGraph Tools] Raw result from '${toolName}':`, {
+          result: `${rawToolResultString.substring(0, 300)}...`,
         });
 
-        this.logger.info(
-          `[LangGraph Tools] Tool ${toolCall.name} execution summary`,
-          {
-            toolCallId: toolCall.id,
-            summaryLength: summaryForLLM.length,
-            artifactEventCount: quibitArtifactEvents.length,
-            status: executionStatus,
-            summaryPreview: summaryForLLM.substring(0, 100),
-          },
+        // --- Handle structured artifact tool results ---
+        let summaryForLLM = rawToolResultString; // Default to the raw string
+        try {
+          const parsedResult = JSON.parse(rawToolResultString);
+
+          if (parsedResult._isQubitArtifactToolResult) {
+            this.logger.info(
+              `[LangGraph Tools] Tool '${toolName}' is a Qubit Artifact tool. Processing events.`,
+            );
+            summaryForLLM =
+              parsedResult.summaryForLLM ||
+              `Tool ${toolName} executed successfully.`;
+
+            // *** THE FIX IS HERE ***
+            // The tool already created the correctly formatted UIMessage events.
+            // We just need to extract them and add them to our stream queue.
+            if (
+              Array.isArray(parsedResult.quibitArtifactEvents) &&
+              parsedResult.quibitArtifactEvents.length > 0
+            ) {
+              this.logger.info(
+                '[LangGraph Tools] Found valid quibitArtifactEvents array.',
+                { count: parsedResult.quibitArtifactEvents.length },
+              );
+
+              // Verify the first chunk to ensure contentChunk is present
+              const firstChunk = parsedResult.quibitArtifactEvents.find(
+                (e: any) => e.props?.eventType === 'artifact-chunk',
+              );
+              if (firstChunk) {
+                this.logger.info(
+                  '[LangGraph Tools] First artifact-chunk event has contentChunk:',
+                  {
+                    content: `${firstChunk.props.contentChunk.substring(0, 50)}...`,
+                  },
+                );
+              }
+
+              // Add the events from the tool directly to our stream queue
+              uiMessagesForStream.push(...parsedResult.quibitArtifactEvents);
+            } else {
+              this.logger.warn(
+                '[LangGraph Tools] Qubit Artifact tool did not return any quibitArtifactEvents.',
+              );
+            }
+          }
+        } catch (e) {
+          // Not a JSON result, or not a Qubit Artifact tool.
+          // This is expected for simple tools, so we just log it at a debug level.
+          this.logger.info(
+            `[LangGraph Tools] Tool '${toolName}' did not return structured JSON. Using raw output for LLM summary.`,
+          );
+        }
+
+        // --- Create the ToolMessage for the LLM ---
+        return new ToolMessageClass({
+          content: summaryForLLM,
+          tool_call_id: toolCallId ?? uuidv4(),
+          name: toolName,
+        });
+      } catch (error: any) {
+        this.logger.error(
+          `[LangGraph Tools] Error executing tool '${toolName}':`,
+          { error },
         );
+        return new ToolMessageClass({
+          content: `Error executing tool ${toolName}: ${error.message}`,
+          tool_call_id: toolCallId ?? uuidv4(),
+          name: toolName,
+        });
       }
+    });
 
-      this.logger.info(`[LangGraph Tools] All tools executed`, {
-        totalToolCalls: agentOutcome.tool_calls.length,
-        toolMessagesCount: toolMessages.length,
-        uiEventsCount: uiEvents.length,
-        totalArtifactEvents: toolExecutionResults.reduce(
-          (sum, result) => sum + result.quibitArtifactEvents.length,
-          0,
-        ),
-      });
+    // --- Wait for all tool executions to complete ---
+    const results = await Promise.all(toolPromises);
+    toolExecutionResults.push(...results);
 
-      // Return both messages, UI events, and tool execution results as part of graph state
-      // The _lastToolExecutionResults will be accessible to LangGraph's on_tool_end event data
-      return {
-        messages: toolMessages,
-        ui: uiEvents,
-        _lastToolExecutionResults: toolExecutionResults,
-      };
-    } catch (error) {
-      this.logger.error('Error in executeToolsNode', { error });
-      throw error;
-    }
+    this.logger.info('[LangGraph Tools] Finished all tool executions.', {
+      toolExecutionResultCount: toolExecutionResults.length,
+      uiMessagesForStreamCount: uiMessagesForStream.length,
+    });
+
+    // --- Return the results to be added to the graph state ---
+    return {
+      messages: toolExecutionResults,
+      ui: uiMessagesForStream, // This will be streamed to the client
+    };
   }
 
   /**

@@ -140,7 +140,15 @@ const PureChatItem = ({
 };
 
 export const ChatItem = memo(PureChatItem, (prevProps, nextProps) => {
+  // Compare all relevant props to prevent unnecessary re-renders
   if (prevProps.isActive !== nextProps.isActive) return false;
   if (prevProps.itemType !== nextProps.itemType) return false;
+  if (prevProps.chat.id !== nextProps.chat.id) return false;
+  if (prevProps.chat.title !== nextProps.chat.title) return false;
+  if (prevProps.chat.visibility !== nextProps.chat.visibility) return false;
+  if (prevProps.onDelete !== nextProps.onDelete) return false;
+  if (prevProps.setOpenMobile !== nextProps.setOpenMobile) return false;
+
+  // All props are the same, skip re-render
   return true;
 });

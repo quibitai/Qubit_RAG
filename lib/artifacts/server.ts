@@ -7,6 +7,7 @@ import type { DataStreamWriter } from 'ai';
 import type { Document } from '../db/schema';
 import { saveDocument } from '../db/queries';
 import type { Session } from 'next-auth';
+import type { CreateDocumentCallbackProps } from '../types';
 
 export interface SaveDocumentProps {
   id: string;
@@ -14,16 +15,6 @@ export interface SaveDocumentProps {
   kind: ArtifactKind;
   content: string;
   userId: string;
-}
-
-export interface CreateDocumentCallbackProps {
-  id: string;
-  title: string;
-  dataStream: DataStreamWriter;
-  session: Session;
-  initialContentPrompt?: string;
-  onChunk?: (chunk: string) => void;
-  onComplete?: (fullContent: string) => void;
 }
 
 export interface UpdateDocumentCallbackProps {
@@ -51,15 +42,7 @@ export function createDocumentHandler<T extends ArtifactKind>(config: {
     onCreateDocument: async (
       args: CreateDocumentCallbackProps,
     ): Promise<{ documentId: string }> => {
-      const draftContent = await config.onCreateDocument({
-        id: args.id,
-        title: args.title,
-        dataStream: args.dataStream,
-        session: args.session,
-        initialContentPrompt: args.initialContentPrompt,
-        onChunk: args.onChunk,
-        onComplete: args.onComplete,
-      });
+      const draftContent = await config.onCreateDocument(args);
 
       if (!draftContent.includes('DOCUMENT_ALREADY_SAVED')) {
         if (args.session?.user?.id) {

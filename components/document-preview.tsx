@@ -48,7 +48,7 @@ export function DocumentPreview({
   const { data: documents, isLoading: isDocumentsFetching } = useSWR<
     Array<Document>
   >(
-    // Disabled document fetching to prevent duplicates - use streaming content instead
+    // Disabled document fetching to prevent interference with progressive streaming
     null,
     fetcher,
   );
@@ -80,19 +80,22 @@ export function DocumentPreview({
     return <LoadingSkeleton artifactKind={result?.kind ?? args?.kind} />;
   }
 
-  const document: Document | null = previewDocument
-    ? previewDocument
-    : artifact.status === 'streaming'
+  // FIXED: Prioritize streaming content when artifact is actively streaming
+  const document: Document | null =
+    artifact.status === 'streaming' && artifact.content !== undefined
       ? {
+          // Use streaming content for progressive display
           title: artifact.title,
           kind: artifact.kind,
-          content: artifact.content,
+          content: artifact.content, // Progressive streaming content
           id: isValidUUID(artifact.documentId) ? artifact.documentId : '',
           createdAt: new Date(),
           userId: 'noop',
           clientId: 'noop-client',
         }
-      : null;
+      : previewDocument // Use database content when streaming is complete
+        ? previewDocument
+        : null;
 
   if (!document) return <LoadingSkeleton artifactKind={artifact.kind} />;
 
@@ -160,23 +163,31 @@ const PureHitboxLayer = ({
       console.log('[DocumentPreview] Click handler called:', {
         hasOnArtifactExpand: !!onArtifactExpand,
         resultId: result?.id,
+        artifactDocumentId: artifact.documentId,
         artifactStatus: artifact.status,
       });
 
-      // Always use the onArtifactExpand callback if available
-      if (onArtifactExpand && result?.id) {
+      // Use result.id if available (tool result phase), otherwise use artifact.documentId (tool call phase)
+      const targetId = result?.id || artifact.documentId;
+
+      if (onArtifactExpand && targetId) {
         console.log(
           '[DocumentPreview] Using onArtifactExpand callback with ID:',
-          result.id,
+          targetId,
         );
-        onArtifactExpand(result.id);
+        onArtifactExpand(targetId);
       } else {
         console.log(
-          '[DocumentPreview] No onArtifactExpand callback or result ID available',
+          '[DocumentPreview] No onArtifactExpand callback or valid ID available',
+          {
+            hasCallback: !!onArtifactExpand,
+            resultId: result?.id,
+            artifactDocumentId: artifact.documentId,
+          },
         );
       }
     },
-    [onArtifactExpand, result, artifact.status],
+    [onArtifactExpand, result, artifact.documentId, artifact.status],
   );
 
   return (

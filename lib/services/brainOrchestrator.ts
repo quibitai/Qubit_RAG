@@ -545,71 +545,13 @@ export class BrainOrchestrator {
     });
 
     try {
-      // Set up artifact context before streaming - create a mock dataStream for LangChain path
-      const session = await auth(); // Get session directly instead of relying on config
+      // Get session for context
+      const session = await auth();
 
-      // Create a mock dataStream that captures artifact events for later injection
-      const mockDataStream = {
-        write: (content: string) => {
-          // For LangChain path, we'll handle text differently
-          this.logger.info('Mock dataStream write (LangChain path)', {
-            contentLength: content.length,
-          });
-        },
-        writeData: (data: any) => {
-          // Buffer artifact data for injection into LangChain stream
-          this.logger.info('Mock dataStream writeData (LangChain path)', {
-            data,
-          });
-          if (this.artifactContext?.toolInvocationsTracker) {
-            this.artifactContext.toolInvocationsTracker.push({
-              type: 'tool-invocation',
-              toolInvocation: {
-                toolName: 'artifact_stream',
-                toolCallId: `artifact_${Date.now()}`,
-                state: 'result',
-                result: data,
-              },
-            });
-          }
-        },
-        appendData: (data: any) => {
-          // Same as writeData for our purposes
-          this.logger.info('Mock dataStream appendData (LangChain path)', {
-            data,
-          });
-        },
-      };
-
-      this.logger.info('Setting up artifact context', {
+      this.logger.info('Setting up LangChain streaming with context', {
         hasSession: !!session,
         sessionUserId: session?.user?.id,
-        hasMockDataStream: !!mockDataStream,
       });
-
-      this.setupArtifactContext(mockDataStream, session); // Provide mock dataStream for LangChain
-
-      // Set up a safety timeout to clean up artifact context in case stream doesn't complete properly
-      const artifactContextCleanupTimeout = setTimeout(() => {
-        if (global.CREATE_DOCUMENT_CONTEXT) {
-          this.logger.warn(
-            'Artifact context cleanup via timeout (stream may not have completed properly)',
-          );
-          global.CREATE_DOCUMENT_CONTEXT = undefined;
-        }
-      }, 60000); // 60 second timeout
-
-      // Store cleanup timeout in the global context for access by cleanup function
-      if (this.artifactContext) {
-        this.artifactContext.cleanupTimeout = artifactContextCleanupTimeout;
-      }
-
-      // Get system prompt and set up agent configuration
-      const { systemPrompt } = await this.setupPromptAndTools(
-        brainRequest,
-        context,
-        userInput,
-      );
 
       // Detect LangGraph patterns for complex reasoning
       const langGraphPatterns = this.detectComplexityPatterns(userInput);
@@ -622,6 +564,13 @@ export class BrainOrchestrator {
         patternCount: langGraphPatterns.length,
       });
 
+      // Get system prompt and set up agent configuration
+      const { systemPrompt } = await this.setupPromptAndTools(
+        brainRequest,
+        context,
+        userInput,
+      );
+
       // Configure LangChain bridge
       const langchainConfig: LangChainBridgeConfig = {
         selectedChatModel: brainRequest.selectedChatModel,
@@ -632,7 +581,14 @@ export class BrainOrchestrator {
         verbose: false,
         enableLangGraph: useLangGraph,
         langGraphPatterns,
+        forceToolCall: this.currentClassification?.forceToolCall,
       };
+
+      this.logger.info('LangChain config with tool forcing', {
+        forceToolCall: this.currentClassification?.forceToolCall,
+        useLangGraph,
+        langGraphPatterns,
+      });
 
       // Create LangChain agent
       const langchainAgent = await createLangChainAgent(
@@ -641,14 +597,80 @@ export class BrainOrchestrator {
         this.logger,
       );
 
-      // Stream the agent execution using proper LangChainAdapter
-      const response = await streamLangChainAgent(
-        langchainAgent,
-        userInput,
-        conversationHistory,
-        langchainConfig,
-        this.logger,
-      );
+      // Import createDataStreamResponse to create proper streaming setup
+      const { createDataStreamResponse } = await import('ai');
+
+      const response = createDataStreamResponse({
+        execute: async (dataStreamWriter) => {
+          try {
+            this.logger.info(
+              'Setting up artifact context with real dataStreamWriter',
+            );
+
+            // Setup artifact context with the real dataStreamWriter
+            this.setupArtifactContext(dataStreamWriter, session);
+
+            // Set up safety timeout for cleanup
+            const artifactContextCleanupTimeout = setTimeout(() => {
+              if (global.CREATE_DOCUMENT_CONTEXT) {
+                this.logger.warn(
+                  'Artifact context cleanup via timeout (stream may not have completed properly)',
+                );
+                global.CREATE_DOCUMENT_CONTEXT = undefined;
+              }
+            }, 60000); // 60 second timeout
+
+            if (this.artifactContext) {
+              this.artifactContext.cleanupTimeout =
+                artifactContextCleanupTimeout;
+            }
+
+            // Pass real context configuration
+            const contextConfig = {
+              dataStream: dataStreamWriter, // Real writer from createDataStreamResponse
+              session: session,
+            };
+
+            this.logger.info('Calling streamLangChainAgent with real context', {
+              hasDataStream: !!contextConfig.dataStream,
+              hasSession: !!contextConfig.session,
+              dataStreamMethods: Object.getOwnPropertyNames(
+                Object.getPrototypeOf(contextConfig.dataStream),
+              ),
+            });
+
+            // Stream the agent execution - this will internally handle the LangGraph stream
+            // and doesn't return a Response (since we're already inside createDataStreamResponse)
+            await streamLangChainAgent(
+              langchainAgent,
+              userInput,
+              conversationHistory,
+              langchainConfig,
+              this.logger,
+              undefined, // callbacks
+              contextConfig,
+            );
+
+            // Cleanup resources after streaming completes
+            cleanupLangChainAgent(langchainAgent, this.logger);
+            this.cleanupArtifactContext();
+          } catch (error) {
+            this.logger.error('Error in LangChain streaming execution:', error);
+            this.cleanupArtifactContext();
+            throw error;
+          }
+        },
+        onError: (error) => {
+          this.logger.error('LangChain streaming path error:', error);
+          this.cleanupArtifactContext();
+          return error instanceof Error ? error.message : String(error);
+        },
+        headers: {
+          'X-Execution-Path': 'langchain',
+          'X-LangGraph-Enabled': String(!!useLangGraph),
+          'X-Artifact-Context': 'enabled',
+        },
+      });
 
       const executionTime = performance.now() - startTime;
 
@@ -657,18 +679,6 @@ export class BrainOrchestrator {
         useLangGraph,
         patternCount: langGraphPatterns.length,
       });
-
-      // Add artifact context headers
-      response.headers.set('X-Execution-Path', 'langchain');
-      response.headers.set('X-LangGraph-Enabled', String(!!useLangGraph));
-      response.headers.set('X-Artifact-Context', 'enabled');
-
-      // Cleanup resources but DON'T cleanup artifact context yet
-      // The artifact context will be cleaned up when the stream ends
-      cleanupLangChainAgent(langchainAgent, this.logger);
-
-      // IMPORTANT: Don't cleanup artifact context here as LangGraph tools may still be executing
-      // this.cleanupArtifactContext(); // REMOVED - moved to stream completion
 
       return response;
     } catch (error) {

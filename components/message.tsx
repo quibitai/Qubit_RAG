@@ -58,37 +58,39 @@ const PurePreviewMessage = ({
     },
   );
 
-  // Check for artifact data associated with this message - look for artifact-end event with complete metadata
-  const artifactData = (message as any).data?.find(
-    (item: any) =>
-      item?.type === 'artifact' &&
-      item?.componentName === 'document' &&
-      (item?.props?.eventType === 'artifact-end' ||
-        item?.props?.status === 'completed'),
-  );
-
-  // Fallback: if no artifact-end event, look for any document artifact event
-  const fallbackArtifactData = !artifactData
-    ? (message as any).data?.find(
-        (item: any) =>
-          item?.type === 'artifact' && item?.componentName === 'document',
-      )
-    : null;
-
-  const finalArtifactData = artifactData || fallbackArtifactData;
-
-  if (finalArtifactData) {
-    console.log(
-      `[PurePreviewMessage ${message.id?.substring(0, 5)}] Found artifact data:`,
-      {
-        eventType: finalArtifactData.props?.eventType,
-        documentId: finalArtifactData.props?.documentId,
-        title: finalArtifactData.props?.title,
-        status: finalArtifactData.props?.status,
-        isArtifactEnd: finalArtifactData.props?.eventType === 'artifact-end',
-        source: artifactData ? 'artifact-end' : 'fallback',
-      },
+  // Find the conclusive 'artifact-end' event from the message data, if it exists.
+  // This will be the single source of truth for rendering a document preview.
+  let artifactPreviewProps = null;
+  const data = (message as any).data;
+  if (data && Array.isArray(data)) {
+    // Find the 'end' event specifically. It should have the final, correct metadata.
+    const conclusiveArtifactEvent = data.find(
+      (item: any) =>
+        item?.type === 'artifact' && item?.props?.eventType === 'artifact-end',
     );
+
+    if (conclusiveArtifactEvent && conclusiveArtifactEvent.props) {
+      // Ensure the props contain valid id and title before setting
+      if (
+        conclusiveArtifactEvent.props.documentId &&
+        conclusiveArtifactEvent.props.title
+      ) {
+        artifactPreviewProps = {
+          id: conclusiveArtifactEvent.props.documentId,
+          title: conclusiveArtifactEvent.props.title,
+          kind: conclusiveArtifactEvent.props.kind || 'text',
+        };
+        console.log(
+          '[PreviewMessage] Preparing to render DocumentToolResult with props:',
+          artifactPreviewProps,
+        );
+      } else {
+        console.warn(
+          '[PreviewMessage] Found artifact-end event but it is missing documentId or title.',
+          conclusiveArtifactEvent.props,
+        );
+      }
+    }
   }
 
   return (
@@ -205,137 +207,29 @@ const PurePreviewMessage = ({
               }
 
               if (type === 'tool-invocation') {
-                const { toolInvocation } = part;
-                const { toolName, toolCallId, state } = toolInvocation;
-
-                if (state === 'call') {
-                  const { args } = toolInvocation;
-
-                  return (
-                    <div
-                      key={toolCallId}
-                      className={cx({
-                        skeleton: ['getWeather'].includes(toolName),
-                      })}
-                    >
-                      {toolName === 'getWeather' ? (
-                        <Weather />
-                      ) : toolName === 'createDocument' ? (
-                        <DocumentPreview
-                          isReadonly={isReadonly}
-                          args={args}
-                          onArtifactExpand={onArtifactExpand}
-                        />
-                      ) : toolName === 'updateDocument' ? (
-                        <DocumentPreview
-                          isReadonly={isReadonly}
-                          args={args}
-                          onArtifactExpand={onArtifactExpand}
-                        />
-                      ) : toolName === 'requestSuggestions' ? null : null}
-                    </div>
-                  );
-                }
-
-                if (state === 'result') {
-                  const { result } = toolInvocation;
-
-                  console.log(
-                    `[PreviewMessage] Rendering tool result for ${toolName}:`,
-                    {
-                      toolName,
-                      toolCallId,
-                      state,
-                      result,
-                      resultKeys: result ? Object.keys(result) : [],
-                      hasOnArtifactExpand: !!onArtifactExpand,
-                      hasFinalArtifactData: !!finalArtifactData,
-                    },
-                  );
-
-                  return (
-                    <div key={toolCallId}>
-                      {toolName === 'getWeather' ? (
-                        <Weather weatherAtLocation={result} />
-                      ) : toolName === 'createDocument' &&
-                        !finalArtifactData ? (
-                        <DocumentToolResult
-                          type="create"
-                          result={result}
-                          isReadonly={isReadonly}
-                          onArtifactExpand={onArtifactExpand}
-                        />
-                      ) : toolName === 'updateDocument' &&
-                        !finalArtifactData ? (
-                        <DocumentToolResult
-                          type="update"
-                          result={result}
-                          isReadonly={isReadonly}
-                          onArtifactExpand={onArtifactExpand}
-                        />
-                      ) : toolName === 'requestSuggestions' ? (
-                        <DocumentToolResult
-                          type="request-suggestions"
-                          result={result}
-                          isReadonly={isReadonly}
-                          onArtifactExpand={onArtifactExpand}
-                        />
-                      ) : toolName === 'createDocument' ||
-                        toolName === 'updateDocument' ? (
-                        <div className="text-sm text-muted-foreground italic">
-                          Document operation completed successfully.
-                        </div>
-                      ) : (
-                        <MessageThinking
-                          toolResult={result}
-                          toolName={toolName}
-                        />
-                      )}
-                    </div>
-                  );
-                }
+                // We no longer render previews from the tool call itself.
+                // The definitive preview is rendered from the 'tool-result'.
+                return null;
               }
+
+              // The 'tool-result' part is now only used as a signal to maybe
+              // render the preview based on the data stream. We will render the
+              // conclusive artifact preview *after* the loop.
+              return null;
             })}
 
-            {/* Add artifact preview rendering for artifacts in message data */}
-            {finalArtifactData && (
-              <div key={`artifact-${finalArtifactData.id || 'unknown'}`}>
-                {(() => {
-                  const documentId =
-                    finalArtifactData.props?.documentId || 'unknown';
-                  const rawTitle = finalArtifactData.props?.title;
-                  const safeTitle = rawTitle?.trim()
-                    ? rawTitle.trim()
-                    : 'Document';
-
-                  console.log(
-                    `[PurePreviewMessage ${message.id?.substring(0, 5)}] Creating artifact preview:`,
-                    {
-                      documentId,
-                      rawTitle,
-                      safeTitle,
-                      titleIsUndefined: rawTitle === undefined,
-                      titleIsEmptyString: rawTitle === '',
-                      titleIsTrimmedEmpty: rawTitle && !rawTitle.trim(),
-                      finalArtifactDataProps: finalArtifactData.props,
-                      hasOnArtifactExpand: !!onArtifactExpand,
-                    },
-                  );
-
-                  return (
-                    <DocumentToolResult
-                      type="create"
-                      result={{
-                        id: documentId,
-                        title: safeTitle,
-                        kind: 'text',
-                      }}
-                      isReadonly={isReadonly}
-                      onArtifactExpand={onArtifactExpand}
-                    />
-                  );
-                })()}
-              </div>
+            {/* 
+              Render the conclusive artifact preview here, outside the parts loop.
+              This ensures it's rendered only once for the entire message, based on
+              the 'artifact-end' event found in the message.data stream.
+            */}
+            {artifactPreviewProps && (
+              <DocumentToolResult
+                isReadonly={isReadonly}
+                type="create"
+                result={artifactPreviewProps}
+                onArtifactExpand={onArtifactExpand}
+              />
             )}
 
             {!isReadonly && (
